@@ -3,7 +3,7 @@
 # ==========================================
 # THREAT SIMULATOR DATA
 # ==========================================
-TTACK_VECTORS = [
+ATTACK_VECTORS = [
     # Phishing / Social Engineering
     "Highly targeted spear-phishing campaign using a malicious PDF attachment (T1566.001)",
     "Adversary-in-the-Middle (AiTM) proxy attack defeating standard MFA via a fake login page (T1556)",

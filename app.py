@@ -193,17 +193,51 @@ with st.sidebar:
     
     st.subheader("👥 The Human Element")
     users = st.number_input("Number of Users", min_value=1, value=500)
-    
-    savviness_profiles = {
-        "Tier 1: High Risk / Unaware": "Highly susceptible to basic phishing, poor password hygiene.",
-        "Tier 2: Basic Compliance": "Completes training but falls for urgency tactics or MFA fatigue.",
-        "Tier 3: Cautious / Conscious": "Strong culture. Actively reports suspicious emails.",
-        "Tier 4: Highly Technical (IT/Dev)": "Hard to phish, but high risk for Shadow IT or leaking API keys."
-    }
-    savviness_label = st.selectbox("Security Culture", options=list(savviness_profiles.keys()), index=1)
-    st.caption(f"*{savviness_profiles[savviness_label]}*")
-    savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
     in_house_team = st.radio("In-House Security Team?", ["No", "Yes (9-to-5)", "Yes (24/7)"])
+    
+    # SECURITY CULTURE CALCULATOR
+    with st.expander("🧮 Security Culture Calculator", expanded=True):
+        st.markdown("Answer these 4 questions to objectively calculate the client's Security Culture Tier.")
+        
+        q1 = st.radio("1. MFA Enforcement", 
+                      ["None / Optional", "Admins Only", "Mandatory for All Users"])
+        q2 = st.radio("2. Phishing Simulations", 
+                      ["Never", "Annually", "Monthly / Quarterly"])
+        q3 = st.radio("3. Security Training", 
+                      ["None", "Annual Compliance Video", "Continuous with active coaching"])
+        q4 = st.radio("4. Endpoint Privileges", 
+                      ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
+
+    # Tally the score
+    culture_score = 0
+    culture_score += {"None / Optional": 0, "Admins Only": 1, "Mandatory for All Users": 3}[q1]
+    culture_score += {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q2]
+    culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q3]
+    culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
+
+    # Map the score to a Tier
+    if culture_score <= 3:
+        savviness_label = "Tier 1: High Risk / Unaware"
+    elif culture_score <= 6:
+        savviness_label = "Tier 2: Basic Compliance"
+    elif culture_score <= 8:
+        savviness_label = "Tier 3: Cautious / Conscious"
+    else:
+        savviness_label = "Tier 4: Highly Technical / Optimised"
+
+    savviness_profiles = {
+        "Tier 1: High Risk / Unaware": "Highly susceptible to basic phishing, poor password hygiene, and excessive local admin rights.",
+        "Tier 2: Basic Compliance": "Completes basic training but falls for urgency tactics. MFA is not universally enforced.",
+        "Tier 3: Cautious / Conscious": "Strong culture. Actively reports suspicious emails. Good baseline of MFA and privilege restriction.",
+        "Tier 4: Highly Technical / Optimised": "Zero-trust identity posture. Hard to phish, strict local admin controls, and continuous user coaching."
+    }
+
+    # Display the calculated result
+    st.info(f"**Calculated Score: {culture_score}/9**\n\nResult: {savviness_label}")
+    st.caption(f"*{savviness_profiles[savviness_label]}*")
+    
+    # Set the variable for the LLM
+    savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
     
     st.subheader("💻 Technology Stack")
     endpoints = st.number_input("Number of Endpoints", min_value=1, value=600)
@@ -373,7 +407,7 @@ elif app_mode == "📈 vCISO Assessment":
                     for gap in domain.critical_gaps:
                         st.markdown(f"- {gap}")
                         
-                    # NEW: Rendering the Quick Wins
+                    # Rendering the Quick Wins
                     st.markdown("**Zero-Cost Quick Wins:**")
                     for win in domain.vendor_agnostic_quick_wins:
                         st.markdown(f"- 🟢 {win}")
