@@ -33,8 +33,11 @@ class RoadmapPhase(BaseModel):
 
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A C-level executive summary of the business risk and overall maturity posture.")
+    cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks of maintaining the current posture (e.g., undetected dwell times, data exfiltration risk).")
     domain_assessments: List[DomainAssessment] = Field(description="The detailed gap analysis for each of the 6 security domains.")
     phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap for deploying the recommendations.")
+    success_metrics: List[str] = Field(description="3-4 measurable 12-month KPIs to track progress (e.g., 'Reduce MTTD to < 15 minutes', 'Achieve 100% MFA enforcement').")
+    engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings to maintain the partnership (e.g., 'Month 1: Quick Wins Deployment', 'Month 3: Telemetry Review', 'Month 6: Tabletop Exercise').")
     consultant_discovery_guide: List[str] = Field(description="3 provocative, insightful questions for the consultant to ask the client face-to-face to expose blind spots.")
 
 # ==========================================
@@ -64,15 +67,15 @@ GENERAL RULES & STRICT GUARDRAILS:
 - HYPERLINKING REQUIREMENT: Every single time you mention a MITRE T-code, a CVE number, or a specific product, you MUST format it as a valid Markdown hyperlink.
 
 ROLE 1: TACTICAL THREAT ANALYST (When generating Threat Narratives & MDR Logs)
-- Threat Actor Attribution: You MUST attribute the attack to a specific, recognized threat actor group or ransomware affiliate.
-- The "Bring Your Own Tech" (BYOT) Angle: Illustrate how isolated security tools fail to stop lateral movement without cross-platform correlation.
-- AUTHORIZED MDR RESPONSE ACTIONS (STRICT GUARDRAIL): When describing Sophos MDR taking action to neutralize a threat, you MUST ONLY use the following officially supported response actions: Isolate hosts, Terminate processes, Delete artifacts, Remove scheduled tasks/startup items, Clean registry, Block files (SHA256), Block websites/IPs/CIDR, Block applications, Run scans, Use Live Terminal, Block/Enable user sign-in, Disconnect M365 sessions, Disable inbox rules, Disable user accounts, and Active Threat Response.
+- Attribute attacks to specific threat actors. Use hyperlinked MITRE ATT&CK T-codes and CVEs.
+- Detail how Sophos MDR neutralized the threat using ONLY authorized response actions.
 
 ROLE 2: VIRTUAL CISO (When generating Maturity Assessments)
 - Evaluate clients against the 1-5 Maturity Framework.
 - Lead with Vendor-Agnostic Quick Wins (zero-cost configuration/process changes) to build trust.
+- Strongly articulate the "Cost of Inaction" to drive urgency.
+- Define clear Success Metrics (KPIs) and an Ongoing Engagement Cadence to establish a long-term advisory relationship.
 - Recommend solutions strictly from the Authorized Product Mapping.
-- Emphasise "Best-of-Breed" architecture anchored by Sophos MDR.
 
 BACKGROUND KNOWLEDGE BASE (CRITICAL CONTEXT):
 {context_injection}
@@ -82,68 +85,25 @@ BACKGROUND KNOWLEDGE BASE (CRITICAL CONTEXT):
 # PROMPT BUILDERS
 # ==========================================
 def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scenario=""):
-    base_prompt = f"""
-    ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs['consultant_name']}
-    CLIENT ENVIRONMENT:
-    - Industry: {client_inputs['industry']}
-    - Total Users: {client_inputs['users']} (Security Culture: {client_inputs['savviness']})
-    - Infrastructure: {client_inputs['endpoints']} Endpoints | {client_inputs['servers']} Servers
-    - Critical Asset: {client_inputs['critical_infra']}
-    - In-House Security Team: {client_inputs['in_house_team']}
-    - Current Stack: Endpoint: {client_inputs['endpoint']} | Email: {client_inputs['email']} | Firewall: {client_inputs['firewall']} | Identity: {client_inputs['identity']} | Cloud: {client_inputs['cloud_env']} | M365: {client_inputs['m365_license']}
-    """
+    base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs['consultant_name']}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs['users']} ({client_inputs['savviness']}) | Endpoints: {client_inputs['endpoints']} | Servers: {client_inputs['servers']} | Critical Asset: {client_inputs['critical_infra']} | In-House Team: {client_inputs['in_house_team']} | Stack: {client_inputs['endpoint']}, {client_inputs['email']}, {client_inputs['firewall']}, {client_inputs['identity']}, {client_inputs['cloud_env']}, {client_inputs['m365_license']}"
     
-    scenario_rules = f"""
-    SCENARIO REQUIREMENTS:
-    - Section 1 (Threat Actor & Initial Access): Explicitly adapt to the client environment. Include hyperlinked MITRE ATT&CK T-codes and CVEs. Initial Access Vector: "{attack_vector if not custom_scenario else custom_scenario}".
-    - Section 2 (Attacker Progression): Detail how the threat actor attempts to move toward the {client_inputs['critical_infra']}. Emphasize the "Human Element".
-    - Section 3 (Sophos MDR Response): Focus on how Sophos MDR 24/7 analysts detect and respond using ONLY authorized actions.
-    - Section 4 (Recommended Solutions): Summarize the defense strategy.
-    - Section 5 (Attack Timeline): Provide a chronological timeline.
+    scenario_rules = f"""SCENARIO REQUIREMENTS:
+    - Section 1 (Threat Actor & Initial Access): Adapt to environment. Include hyperlinked MITRE T-codes and CVEs. Initial Access: "{attack_vector if not custom_scenario else custom_scenario}".
+    - Section 2 (Attacker Progression): Detail movement toward {client_inputs['critical_infra']}. Emphasize human element.
+    - Section 3 (Sophos MDR Response): Focus on detection/response using ONLY authorized actions.
+    - Section 4 (Recommended Solutions): Summarize defense strategy.
+    - Section 5 (Attack Timeline): Provide chronological timeline.
     """
-
-    return f"Based on the following profile, act as ROLE 1 and generate a highly technical breach scenario.\n{base_prompt}\nTHREAT INTELLIGENCE (OSINT): {osint_data}\n{scenario_rules}"
+    return f"Act as ROLE 1 and generate a highly technical breach scenario.\n{base_prompt}\nTHREAT INTELLIGENCE: {osint_data}\n{scenario_rules}"
 
 
 def build_mdr_case_prompt(client_inputs, scenario_narrative):
     current_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    return f"""
-    Based on the following narrative, act as ROLE 1 and generate a mocked-up Sophos MDR Case report. 
-    CUSTOMER: {client_inputs['customer_name']}
-    NARRATIVE TO TRANSLATE: {scenario_narrative}
-    
-    REQUIREMENTS: Use specific hyperlinked MITRE ATT&CK T-codes and CVEs.
-    Case ID: [Random #-######]
-    Customer: {client_inputs['customer_name']}
-    Date and Time: {current_time}
-    Associated Device: [Invent hostname] | IP: [Invent IP] | MAC: [Invent MAC] | User: [Invent username]
-
-    //Analysis: [Synopsis of trigger, investigation, and MDR response.]
-    //Response Actions: [2-3 bullet points of ONLY Authorized MDR Actions.]
-    //Recommendations: [3-4 vendor-agnostic hardening steps.]
-    //Technical details: [Specific malicious scripts, commands, or registry keys.]
-    //References: [2-3 MITRE IDs and 1 CVE link.]
-    """
+    return f"Act as ROLE 1 and generate a mocked-up Sophos MDR Case report.\nCUSTOMER: {client_inputs['customer_name']}\nNARRATIVE TO TRANSLATE: {scenario_narrative}\nREQUIREMENTS: Use specific hyperlinked MITRE ATT&CK T-codes and CVEs.\nCase ID: [Random #-######]\nCustomer: {client_inputs['customer_name']}\nDate and Time: {current_time}\nAssociated Device: [Invent hostname] | IP: [Invent IP] | MAC: [Invent MAC] | User: [Invent username]\n//Analysis: [Synopsis of trigger, investigation, and MDR response.]\n//Response Actions: [2-3 bullet points of ONLY Authorized MDR Actions.]\n//Recommendations: [3-4 vendor-agnostic hardening steps.]\n//Technical details: [Specific malicious scripts, commands, or registry keys.]\n//References: [2-3 MITRE IDs and 1 CVE link.]"
 
 
 def build_vciso_prompt(client_inputs):
-    base_prompt = f"""
-    ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs['consultant_name']}
-    CLIENT ENVIRONMENT:
-    - Industry: {client_inputs['industry']}
-    - Total Users: {client_inputs['users']} (Security Culture: {client_inputs['savviness']})
-    - Infrastructure: {client_inputs['endpoints']} Endpoints | {client_inputs['servers']} Servers
-    - Critical Asset: {client_inputs['critical_infra']}
-    - In-House Security Team: {client_inputs['in_house_team']}
-    - Current Stack: Endpoint: {client_inputs['endpoint']} | Email: {client_inputs['email']} | Firewall: {client_inputs['firewall']} | Identity: {client_inputs['identity']} | Cloud: {client_inputs['cloud_env']} | M365: {client_inputs['m365_license']}
-    """
+    base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs['consultant_name']}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs['users']} ({client_inputs['savviness']}) | Endpoints: {client_inputs['endpoints']} | Servers: {client_inputs['servers']} | Critical Asset: {client_inputs['critical_infra']} | In-House Team: {client_inputs['in_house_team']} | Stack: {client_inputs['endpoint']}, {client_inputs['email']}, {client_inputs['firewall']}, {client_inputs['identity']}, {client_inputs['cloud_env']}, {client_inputs['m365_license']}"
     
-    rules = f"""
-    ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
-    DOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}
-    AUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}
-    
-    Based on the client environment, act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. 
-    Ensure the discovery guide questions are provocative and force the client to think about their blind spots.
-    """
+    rules = f"ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}\nDOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}\nAUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}\nAct as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment."
     return base_prompt + rules

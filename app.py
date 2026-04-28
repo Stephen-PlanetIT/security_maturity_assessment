@@ -49,45 +49,32 @@ class CyberScenarioGenerator:
              recs.append("• [Secureworks Tabletop Exercises](https://www.secureworks.com/services/incident-response-readiness): Ensure leadership and the internal security team are aligned on communication, legal, and operational procedures during a crisis.")
         else:
             recs.append("• [Sophos Emergency Incident Response Retainer](https://www.sophos.com/en-us/services/incident-response-retainer): Crucial for organizations without dedicated internal IR teams to guarantee SLAs and immediate assistance during a live breach.")
-            recs.append("• [Secureworks Ransomware Readiness Assessment](https://www.secureworks.com/services/incident-response-readiness): Evaluate your organization's preparedness to defend against, endure, and recover from a targeted ransomware event.")
 
         if inputs['public_web_apps']:
             recs.append("• [Sophos Web Application Security Assessment](https://www.sophos.com/en-us/services/penetration-testing): Identify coding flaws (e.g., SQLi, XSS) in your public-facing web applications before attackers exploit them to access backend databases.")
-            recs.append("• [Sophos External Penetration Testing](https://www.sophos.com/en-us/services/penetration-testing): Manual, tester-driven attempts to breach your internet-facing assets, moving beyond automated vulnerability scanning.")
 
         if inputs['physical_locations'] > 1:
              recs.append("• [Sophos Wireless Network Penetration Testing](https://www.sophos.com/en-us/services/penetration-testing): Evaluate wireless security across your physical locations, testing for rogue access points and weak encryption.")
 
-        if "Cloud" in inputs['cloud_env'] or inputs['cloud_env'] in ["AWS", "Microsoft Azure", "GCP"]:
-            recs.append(f"• [Sophos Cloud Security Assessment](https://www.sophos.com/en-us/services/cloud-security-posture-management): Audit your {inputs['cloud_env']} environment for misconfigurations, overly permissive IAM roles, and compliance violations.")
-
-        if "Tier 1" in inputs['savviness'] or "Tier 2" in inputs['savviness']:
-            recs.append("• [Sophos Phish Threat (Social Engineering Simulation)](https://www.sophos.com/en-us/products/phish-threat): Conduct targeted phishing and social engineering exercises to baseline and improve employee security awareness.")
-
-        if "Active Directory" in inputs['identity'] or "Entra ID" in inputs['identity']:
-             recs.append("• [Sophos Active Directory Security Assessment](https://www.sophos.com/en-us/services/compromise-assessment): Identify architectural weaknesses, excessive privileges, and misconfigurations in your core identity platform.")
-
-        if inputs['servers'] > 50:
-            recs.append("• [Sophos Compromise Assessment](https://www.sophos.com/en-us/services/compromise-assessment): Proactively hunt for existing persistence mechanisms or dormant threats currently hiding in your data center.")
-
         recs.append("\n⚙️ **RECOMMENDED SOPHOS SOLUTIONS**")
         
-        if inputs['m365_license'] != "None / On-Prem Only":
-            recs.append(f"• [Sophos MDR for Microsoft 365](https://www.sophos.com/en-us/products/mdr): Maximize your {inputs['m365_license']} investment. Sophos ingests telemetry directly from Microsoft Graph Security, Entra ID, and Defender to correlate Microsoft alerts with cross-domain threat intelligence, stopping attacks that bypass native Microsoft controls.")
+        # MDR Consolidation Pitch
+        if inputs.get('mdr_provider', 'None') != "Sophos MDR":
+            recs.append("• [Sophos MDR](https://www.sophos.com/en-us/products/mdr): Replace your current fragmented SOC/MDR approach with a fully managed, 24/7 threat hunting service backed by first-party telemetry to eliminate vendor blind spots.")
 
-        recs.append("• [Sophos Managed Risk](https://www.sophos.com/en-us/products/managed-risk): Implement continuous external attack surface management to discover and prioritize exposed vulnerabilities across your evolving tech stack before they can be weaponized.")
+        if inputs['m365_license'] != "None / On-Prem Only":
+            recs.append(f"• [Sophos MDR for Microsoft 365](https://www.sophos.com/en-us/products/mdr): Maximize your {inputs['m365_license']} investment. Sophos ingests telemetry directly from Microsoft to correlate alerts with cross-domain threat intelligence.")
+
+        recs.append("• [Sophos Managed Risk](https://www.sophos.com/en-us/products/managed-risk): Implement continuous external attack surface management to discover and prioritize exposed vulnerabilities across your evolving tech stack.")
 
         if inputs['identity'] not in ["None / Local Only", "On-Prem Active Directory"]:
-            recs.append(f"• [Sophos ITDR (Identity Threat Detection and Response)](https://www.sophos.com/en-us/products/mdr): Integrate telemetry directly from {inputs['identity']} to detect compromised credentials, anomalous logins, and lateral movement tied to user identities before endpoints are even touched.")
+            recs.append(f"• [Sophos ITDR (Identity Threat Detection and Response)](https://www.sophos.com/en-us/products/mdr): Integrate telemetry directly from {inputs['identity']} to detect compromised credentials and anomalous logins.")
 
         if inputs['firewall'] != "Sophos" or inputs['servers'] > 20:
-            recs.append("• [Sophos NDR (Network Detection and Response)](https://www.sophos.com/en-us/products/network-detection-and-response): Analyze network traffic for rogue devices, unprotected assets, and insider threats. This is critical for monitoring lateral movement across the network in a 'Bring Your Own Tech' environment.")
+            recs.append("• [Sophos NDR (Network Detection and Response)](https://www.sophos.com/en-us/products/network-detection-and-response): Analyze network traffic for rogue devices, unprotected assets, and insider threats.")
 
         if inputs['endpoint'] != "Sophos":
-             recs.append(f"• [Sophos Intercept X Advanced with XDR](https://www.sophos.com/en-us/products/endpoint-antivirus): Consolidate your endpoint stack by replacing {inputs['endpoint']}. This provides Sophos MDR analysts with native, deep-level remediation capabilities rather than just third-party telemetry.")
-             
-        if inputs['email'] != "Sophos":
-             recs.append(f"• [Sophos Email Security](https://www.sophos.com/en-us/products/email-security): Integrate advanced phishing protection and post-delivery remediation natively into your MDR ecosystem, reducing the risk of social engineering attacks that bypass {inputs['email']}.")
+             recs.append(f"• [Sophos Intercept X Advanced with XDR](https://www.sophos.com/en-us/products/endpoint-antivirus): Consolidate your endpoint stack by replacing {inputs['endpoint']} to provide deep-level native remediation capabilities.")
 
         return recs
 
@@ -179,8 +166,7 @@ app_engine = CyberScenarioGenerator(api_key=az_key, endpoint=az_endpoint, deploy
 with st.sidebar:
     st.title("🛡️ Advisory Engine")
     
-    # Routing Toggle
-    app_mode = st.radio("Select Workflow:", ["🔥 Threat Simulator", "📈 vCISO Assessment"], index=0)
+    app_mode = st.radio("Select Workflow:", ["📈 vCISO Assessment", "🔥 Threat Simulator"], index=0)
     st.divider()
 
     st.header("📋 Engagement Details")
@@ -208,14 +194,12 @@ with st.sidebar:
         q4 = st.radio("4. Endpoint Privileges", 
                       ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
 
-    # Tally the score
     culture_score = 0
     culture_score += {"None / Optional": 0, "Admins Only": 1, "Mandatory for All Users": 3}[q1]
     culture_score += {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q2]
     culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q3]
     culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
 
-    # Map the score to a Tier
     if culture_score <= 3:
         savviness_label = "Tier 1: High Risk / Unaware"
     elif culture_score <= 6:
@@ -232,16 +216,17 @@ with st.sidebar:
         "Tier 4: Highly Technical / Optimised": "Zero-trust identity posture. Hard to phish, strict local admin controls, and continuous user coaching."
     }
 
-    # Display the calculated result
     st.info(f"**Calculated Score: {culture_score}/9**\n\nResult: {savviness_label}")
     st.caption(f"*{savviness_profiles[savviness_label]}*")
-    
-    # Set the variable for the LLM
     savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
     
     st.subheader("💻 Technology Stack")
     endpoints = st.number_input("Number of Endpoints", min_value=1, value=600)
     servers = st.number_input("Number of Servers", min_value=1, value=50)
+    
+    # NEW MDR PROVIDER QUESTION
+    mdr_provider = st.selectbox("Current MDR / SOC Provider", ["None", "Sophos MDR", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"])
+    
     endpoint = st.selectbox("Endpoint Security", ["Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Trend Micro", "Symantec", "N-able", "Other"])
     firewall = st.selectbox("Firewall Vendor", ["Fortinet", "Palo Alto", "Cisco", "Sophos", "Check Point", "SonicWall", "Other"])
     identity = st.selectbox("Identity Provider", ["Microsoft Entra ID (Azure AD)", "Okta", "On-Prem Active Directory", "None"])
@@ -257,16 +242,98 @@ with st.sidebar:
 client_inputs = {
     "customer_name": customer_name, "consultant_name": consultant_name, "industry": industry, 
     "users": users, "savviness": savviness, "endpoints": endpoints, "servers": servers, 
-    "critical_infra": critical_infra, "endpoint": endpoint, "firewall": firewall, 
+    "critical_infra": critical_infra, "mdr_provider": mdr_provider, "endpoint": endpoint, "firewall": firewall, 
     "identity": identity, "m365_license": m365_license, "email": email, "cloud_env": cloud_env,
     "in_house_team": in_house_team, "physical_locations": physical_locations, "public_web_apps": public_web_apps
 }
 
+# ==========================================
+# ROUTE 1: VCISO ASSESSMENT
+# ==========================================
+if app_mode == "📈 vCISO Assessment":
+    st.title("📈 vCISO Strategic Assessment")
+    st.markdown("Generate a high-level maturity assessment and 3-phase strategic roadmap.")
+    
+    if st.button("Generate vCISO Roadmap", type="primary"):
+        st.session_state['client_inputs'] = client_inputs
+        with st.spinner("Analyzing estate and building maturity roadmap..."):
+            vciso_prompt = build_vciso_prompt(client_inputs)
+            vciso_obj = app_engine.call_llm_structured(vciso_prompt, MaturityReport)
+            
+            if vciso_obj:
+                st.session_state['vciso_obj'] = vciso_obj
+                update_vciso_exports()
+                st.success("Assessment Complete!")
+
+    if 'vciso_obj' in st.session_state and st.session_state['vciso_obj']:
+        vciso_report = st.session_state['vciso_obj']
+        cached_customer_name = st.session_state['client_inputs']['customer_name']
+        
+        # Consultant Coaching Tool
+        st.info("💡 **Consultant Discovery Guide (For Your Eyes Only - Not Exported)**")
+        st.markdown("*Use these provocative questions to expose blind spots and drive the conversation:*")
+        for i, question in enumerate(vciso_report.consultant_discovery_guide, 1):
+            st.markdown(f"**{i}.** {question}")
+        st.divider()
+        
+        tab_exec, tab_gaps, tab_roadmap = st.tabs(["👔 Exec & Risk", "🔍 Gap Analysis", "🗺️ Roadmap & Partnership"])
+        
+        with tab_exec:
+            st.subheader("Executive Risk Summary")
+            st.write(vciso_report.executive_summary)
+            
+            st.subheader("The Cost of Inaction")
+            st.error(vciso_report.cost_of_inaction)
+            
+        with tab_gaps:
+            st.subheader("Domain Gap Analysis")
+            for domain in vciso_report.domain_assessments:
+                with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}", expanded=True):
+                    st.markdown(f"**Current State:** {domain.current_state_analysis}")
+                    
+                    st.markdown("**Critical Gaps:**")
+                    for gap in domain.critical_gaps:
+                        st.markdown(f"- {gap}")
+                        
+                    st.markdown("**Zero-Cost Quick Wins:**")
+                    for win in domain.vendor_agnostic_quick_wins:
+                        st.markdown(f"- 🟢 {win}")
+                        
+                    st.markdown("**Recommended Solutions:**")
+                    for sol in domain.recommended_solutions:
+                        st.markdown(f"- 🛡️ {sol}")
+                        
+        with tab_roadmap:
+            st.subheader("12-Month Success Metrics (KPIs)")
+            for kpi in vciso_report.success_metrics:
+                st.markdown(f"- 🎯 {kpi}")
+            
+            st.subheader("Phased Deployment Roadmap")
+            for phase in vciso_report.phased_roadmap:
+                st.markdown(f"#### {phase.phase_name}")
+                for milestone in phase.milestones:
+                    st.markdown(f"✅ {milestone}")
+
+            st.subheader("Ongoing Advisory Cadence")
+            for meeting in vciso_report.engagement_cadence:
+                st.markdown(f"- 🗓️ {meeting}")
+                    
+        st.divider()
+        if st.session_state.get('vciso_pdf_bytes') or st.session_state.get('vciso_pptx_bytes'):
+            st.subheader("📥 Export Deliverables")
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                if st.session_state.get('vciso_pdf_bytes'):
+                    st.download_button("📄 Download PDF Assessment", data=st.session_state['vciso_pdf_bytes'], file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Report.pdf", mime="application/pdf")
+            with dl_col2:
+                if st.session_state.get('vciso_pptx_bytes'):
+                    st.download_button("📊 Download PowerPoint Deck", data=st.session_state['vciso_pptx_bytes'], file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Deck.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
 
 # ==========================================
-# ROUTE 1: THREAT SIMULATOR
+# ROUTE 2: THREAT SIMULATOR
 # ==========================================
-if app_mode == "🔥 Threat Simulator":
+elif app_mode == "🔥 Threat Simulator":
     st.title("🔥 Threat Simulation Engine")
     st.markdown("Generate a tactical breach narrative based on the client's current vulnerabilities.")
     
@@ -360,76 +427,3 @@ if app_mode == "🔥 Threat Simulator":
             with dl_col2:
                 if st.session_state.get('pptx_bytes'):
                     st.download_button("📊 Download PowerPoint Deck", data=st.session_state['pptx_bytes'], file_name=f"{cached_customer_name.replace(' ', '_')}_MDR_Deck.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
-
-
-# ==========================================
-# ROUTE 2: vCISO ASSESSMENT
-# ==========================================
-elif app_mode == "📈 vCISO Assessment":
-    st.title("📈 vCISO Strategic Assessment")
-    st.markdown("Generate a high-level maturity assessment and 3-phase strategic roadmap.")
-    
-    if st.button("Generate vCISO Roadmap", type="primary"):
-        st.session_state['client_inputs'] = client_inputs
-        with st.spinner("Analyzing estate and building maturity roadmap..."):
-            vciso_prompt = build_vciso_prompt(client_inputs)
-            vciso_obj = app_engine.call_llm_structured(vciso_prompt, MaturityReport)
-            
-            if vciso_obj:
-                st.session_state['vciso_obj'] = vciso_obj
-                update_vciso_exports()
-                st.success("Assessment Complete!")
-
-    if 'vciso_obj' in st.session_state and st.session_state['vciso_obj']:
-        vciso_report = st.session_state['vciso_obj']
-        cached_customer_name = st.session_state['client_inputs']['customer_name']
-        
-        # NEW: Consultant Coaching Tool
-        st.info("💡 **Consultant Discovery Guide (For Your Eyes Only - Not Exported)**")
-        st.markdown("*Use these provocative questions to expose blind spots and drive the conversation:*")
-        for i, question in enumerate(vciso_report.consultant_discovery_guide, 1):
-            st.markdown(f"**{i}.** {question}")
-        st.divider()
-        
-        tab_exec, tab_gaps, tab_roadmap = st.tabs(["👔 Executive Summary", "🔍 Gap Analysis", "🗺️ Strategic Roadmap"])
-        
-        with tab_exec:
-            st.subheader("Executive Risk Summary")
-            st.write(vciso_report.executive_summary)
-            
-        with tab_gaps:
-            st.subheader("Domain Gap Analysis")
-            for domain in vciso_report.domain_assessments:
-                with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}", expanded=True):
-                    st.markdown(f"**Current State:** {domain.current_state_analysis}")
-                    
-                    st.markdown("**Critical Gaps:**")
-                    for gap in domain.critical_gaps:
-                        st.markdown(f"- {gap}")
-                        
-                    # Rendering the Quick Wins
-                    st.markdown("**Zero-Cost Quick Wins:**")
-                    for win in domain.vendor_agnostic_quick_wins:
-                        st.markdown(f"- 🟢 {win}")
-                        
-                    st.markdown("**Recommended Solutions:**")
-                    for sol in domain.recommended_solutions:
-                        st.markdown(f"- 🛡️ {sol}")
-                        
-        with tab_roadmap:
-            st.subheader("Phased Deployment Roadmap")
-            for phase in vciso_report.phased_roadmap:
-                st.markdown(f"#### {phase.phase_name}")
-                for milestone in phase.milestones:
-                    st.markdown(f"✅ {milestone}")
-                    
-        st.divider()
-        if st.session_state.get('vciso_pdf_bytes') or st.session_state.get('vciso_pptx_bytes'):
-            st.subheader("📥 Export Deliverables")
-            dl_col1, dl_col2 = st.columns(2)
-            with dl_col1:
-                if st.session_state.get('vciso_pdf_bytes'):
-                    st.download_button("📄 Download PDF Assessment", data=st.session_state['vciso_pdf_bytes'], file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Report.pdf", mime="application/pdf")
-            with dl_col2:
-                if st.session_state.get('vciso_pptx_bytes'):
-                    st.download_button("📊 Download PowerPoint Deck", data=st.session_state['vciso_pptx_bytes'], file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Deck.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
