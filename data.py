@@ -1,6 +1,9 @@
 # data.py
 
-ATTACK_VECTORS = [
+# ==========================================
+# THREAT SIMULATOR DATA
+# ==========================================
+TTACK_VECTORS = [
     # Phishing / Social Engineering
     "Highly targeted spear-phishing campaign using a malicious PDF attachment (T1566.001)",
     "Adversary-in-the-Middle (AiTM) proxy attack defeating standard MFA via a fake login page (T1556)",
@@ -155,3 +158,52 @@ SIMULATED_OSINT = {
         "Abuse of the Google Compute Engine metadata API from compromised container workloads to extract lateral movement credentials."
     ]
 }
+
+# ==========================================
+# VCISO ASSESSMENT DATA
+# ==========================================
+MATURITY_FRAMEWORK = {
+    "Level 1 (Ad-Hoc)": "Highly reactive, fragmented tools, unmanaged devices, reliance on default configurations, and no formalised incident response.",
+    "Level 2 (Basic)": "Centralised management, signature-based prevention, standard patching schedules, and basic MFA for critical accounts.",
+    "Level 3 (Advanced)": "Behavioural detection (EDR) in place, proactive security policies, but visibility remains siloed across different vendors without cross-correlation.",
+    "Level 4 (Optimised)": "Cross-domain telemetry ingestion (XDR), automated containment capabilities, and zero-trust principles applied to identity and network perimeters.",
+    "Level 5 (Proactive)": "24/7 human-led threat hunting (MDR), continuous external attack surface management, and a fully integrated, multi-vendor ecosystem."
+}
+
+ASSESSMENT_DOMAINS = [
+    "Endpoint & Server Security",
+    "Email & Data Protection",
+    "Identity & Access Management (IAM)",
+    "Network & Cloud Perimeter",
+    "Security Operations & Response (SecOps)"
+]
+
+RECOMMENDED_SOLUTION_MAP = {
+    "Endpoint & Server Security": [
+        "Sophos Intercept X Advanced (Primary: Deep learning, anti-ransomware, and XDR telemetry)",
+        "N-able N-central (Patch management, RMM, and automated IT hygiene)"
+    ],
+    "Email & Data Protection": [
+        "Mimecast (Advanced email security, URL protection, and archiving)",
+        "N-able Cove Data Protection (Immutable backups and disaster recovery)"
+    ],
+    "Identity & Access Management (IAM)": [
+        "Sophos ITDR (Identity Threat Detection and Response - monitors compromised credentials)",
+        "Sophos Phish Threat (Security awareness programme and phishing simulation)"
+    ],
+    "Network & Cloud Perimeter": [
+        "Fortinet FortiGate (Next-Generation Firewall and deep packet inspection)",
+        "Sophos ZTNA (Replaces vulnerable VPNs with identity-aware micro-segmentation)"
+    ],
+    "Security Operations & Response (SecOps)": [
+        "Sophos MDR (Primary: 24/7 fully managed threat hunting and incident response)",
+        "Sophos Managed Risk (Continuous vulnerability and attack surface management)"
+    ]
+}
+
+DEFAULT_VCISO_CONTEXT = """
+- Your primary audience is the C-Suite (CIO, CISO) and IT Directors. Focus on business risk, operational efficiency, and a "best-of-breed" strategy.
+- Assume Sophos is the mandatory anchor for Endpoint/MDR, but seamlessly position Mimecast for email, Fortinet for perimeter, and N-able for RMM/Backups.
+- Emphasise how Sophos MDR ingests telemetry from third-party tools like Fortinet and Mimecast to eliminate blind spots.
+- A 24/7 SOC is considered mandatory for Level 5 maturity due to the speed of modern ransomware.
+"""
