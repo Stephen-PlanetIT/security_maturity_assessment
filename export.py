@@ -6,29 +6,20 @@ from pptx import Presentation
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- TEXT CLEANER ---
 def clean_text(text, mode="pdf"):
     if not text: return ""
     text = text.replace('\xa0', ' ').replace('\t', ' ')
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
-    
     if mode == "pdf":
         text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
         text = text.replace('🟢', 'WIN:')
-
     text = text.replace('### ', '').replace('## ', '').replace('# ', '')
-    
     if mode == "mdr":
         text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1 (\2)', text)
         text = text.replace('**', '').replace('*', '').replace('`', '')
-    elif mode == "pptx":
-        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1: \2', text)
-        text = text.replace('**', '').replace('*', '')
-    
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
-# --- PDF HELPERS ---
 class ReportPDF(FPDF):
     def header(self):
         self.set_fill_color(0, 32, 96) 
@@ -57,17 +48,16 @@ def draw_section_header(pdf, title):
     pdf.ln(4)
     pdf.set_text_color(0, 0, 0)
 
-def robust_multi_cell(pdf, w, h, txt, align="L"):
+def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
     safe_txt = clean_text(txt, "pdf")
-    pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align)
+    pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align, fill=fill)
 
 def draw_estate_summary(pdf, inputs):
     draw_section_header(pdf, "Client Estate Summary")
     pdf.set_fill_color(245, 245, 245) 
     pdf.set_font("helvetica", "", 10)
     summary_text = (
-        f"Industry: {inputs['industry']} | Users: {inputs['users']} | Endpoints: {inputs['endpoints']}\n"
-        f"Critical Asset: {inputs['critical_infra']}\n"
+        f"Target Compliance: {inputs.get('target_compliance', 'None')} | Current Certs: {inputs.get('current_cert', 'None')}\n"
         f"MDR Provider: {inputs['mdr_provider']} | Endpoint: {inputs['endpoint']}\n"
         f"Firewall: {inputs['firewall']} | Email: {inputs['email']}"
     )
@@ -107,7 +97,7 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.set_text_color(100, 100, 100) 
     pdf.cell(w=0, h=6, txt=f"Prepared for: {inputs['customer_name']} | By: {inputs['consultant_name']}", ln=True, align="C")
     pdf.set_text_color(0, 0, 0) 
-    pdf.ln(8)
+    pdf.ln(4)
     
     draw_estate_summary(pdf, inputs)
     
@@ -121,6 +111,16 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.set_font("helvetica", "", 10)
     robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction)
     pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+    
+    # NEW COMPLIANCE BLOCK RENDERING
+    pdf.set_fill_color(235, 245, 255) # Light Blue
+    pdf.set_font("helvetica", "B", 10)
+    pdf.set_text_color(0, 32, 96)
+    pdf.cell(0, 8, " COMPLIANCE & FRAMEWORK ALIGNMENT:", ln=True, fill=True)
+    pdf.set_font("helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    robust_multi_cell(pdf, 0, 5, vciso_obj.compliance_alignment, fill=True)
     
     chart_buf = generate_radar_chart(vciso_obj.domain_assessments)
     pdf.image(chart_buf, x=45, w=120)
@@ -163,12 +163,6 @@ def create_vciso_pdf(inputs, vciso_obj):
         pdf.cell(0, 6, clean_text(phase.phase_name, 'pdf'), ln=True)
         pdf.set_font("helvetica", "", 9)
         for milestone in phase.milestones: pdf.cell(0, 5, f"  - {clean_text(milestone, 'pdf')}", ln=True)
-    
-    pdf.ln(4)
-    pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 6, "Advisory Engagement Cadence:", ln=True)
-    pdf.set_font("helvetica", "", 10)
-    for meeting in vciso_obj.engagement_cadence: pdf.cell(0, 5, f"  - {clean_text(meeting, 'pdf')}", ln=True)
 
     return bytes(pdf.output())
 
@@ -179,7 +173,7 @@ def create_vciso_pptx(inputs, vciso_obj):
     slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}\nAdvisor: {inputs['consultant_name']}"
     
     slide = prs.slides.add_slide(prs.slide_layouts[1])
-    slide.shapes.title.text = "Maturity Scores"
+    slide.shapes.title.text = "Maturity Scores & Compliance Alignment"
     content = slide.placeholders[1].text_frame
     for domain in vciso_obj.domain_assessments:
         p = content.add_paragraph()
