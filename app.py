@@ -1,22 +1,11 @@
 # app.py
 import streamlit as st
 import random
+import plotly.graph_objects as go
 from openai import AzureOpenAI
 
-# Import data configurations
 from data import ATTACK_VECTORS, SIMULATED_OSINT
-
-# Import prompts and Pydantic schemas
-from prompts import (
-    SYSTEM_PERSONA, 
-    build_scenario_prompt, 
-    build_mdr_case_prompt, 
-    build_vciso_prompt,
-    ScenarioReport, 
-    MaturityReport 
-)
-
-# Import all export generators
+from prompts import SYSTEM_PERSONA, build_scenario_prompt, build_vciso_prompt, ScenarioReport, MaturityReport 
 from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx
 
 # --- INITIALISATION BLOCK ---
@@ -50,13 +39,10 @@ class CyberScenarioGenerator:
         
         if inputs.get('ir_plan_review') in ["No formal plan", "Over 12 months ago"] or inputs.get('last_tabletop') in ["Never", "Over 12 months ago"]:
              recs.append("• [Secureworks Incident Response Preparedness](https://www.secureworks.com/services/incident-response-readiness): Update your IR plan and conduct tabletop exercises to align with compliance requirements.")
-        
         if inputs.get('ir_retainer') == "None / Ad-Hoc":
              recs.append("• [Sophos Incident Response Retainer](https://www.sophos.com/en-us/services/incident-response-retainer): Establish a formal retainer to guarantee response SLAs.")
-             
         if inputs.get('insurance_status') == "Policy Exists (Untested)":
              recs.append("• **Insurance Readiness Assessment:** Map your current controls against your policy to prevent payout denials.")
-
         if inputs.get('target_compliance') and "None specified" not in inputs['target_compliance']:
              recs.append(f"• **Compliance Gap Assessment:** Engage our advisory team for a formal audit against your target frameworks: {inputs['target_compliance']}.")
 
@@ -80,13 +66,6 @@ class CyberScenarioGenerator:
             st.error(f"LLM Error: {e}")
             return None
 
-    def call_llm_text(self, prompt):
-        if not self.client: return None
-        response = self.client.chat.completions.create(
-            model=self.deployment, messages=[{"role": "system", "content": SYSTEM_PERSONA}, {"role": "user", "content": prompt}], temperature=0.7
-        )
-        return response.choices[0].message.content
-
 # --- API SETUP ---
 try:
     az_key = st.secrets["AZURE_OPENAI_API_KEY"]
@@ -94,16 +73,11 @@ try:
     az_deployment = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
     az_api_version = st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 except Exception:
-    st.error("⚠️ Missing API Credentials! Check `.streamlit/secrets.toml`.")
     az_key, az_endpoint, az_deployment, az_api_version = None, None, None, None
 
 app_engine = CyberScenarioGenerator(api_key=az_key, endpoint=az_endpoint, deployment=az_deployment, api_version=az_api_version)
 
-# ==========================================
-# MODERN FRONTEND ARCHITECTURE
-# ==========================================
-
-# Minimalist Sidebar strictly for global navigation
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Platform Menu")
     if st.session_state['selected_mode'] is not None:
@@ -121,7 +95,6 @@ if st.session_state['selected_mode'] is None:
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
-    
     with col1:
         with st.container(border=True):
             st.markdown("### 📈 vCISO Strategic Assessment")
@@ -147,7 +120,7 @@ else:
     app_mode = st.session_state['selected_mode']
     st.title(app_mode)
     
-    # Initialize default inputs to prevent KeyErrors across different modes
+    # Initialize defaults
     client_inputs = {
         "mfa_status": "None", "phishing_frequency": "None", "training_maturity": "None", "admin_rights": "None",
         "backup_strategy": "None", "last_tabletop": "None", "asset_visibility": "None", "data_classification": "No",
@@ -155,12 +128,11 @@ else:
         "ir_plan_review": "None", "target_compliance": "None specified", "custom_scenario": "", "savviness": "Tier 2: Basic Compliance"
     }
 
-    # The expander auto-collapses if a report has been successfully generated.
     with st.expander("⚙️ Client Discovery & Estate Configuration", expanded=not st.session_state['report_ready']):
+        st.warning("🔒 **Data Privacy Notice:** Do not enter highly sensitive PII, passwords, or regulated IP data into these fields.")
         
-        # COMMON TIER 1: Engagement & Tech Stack
+        # COMMON TIER 1
         col1, col2 = st.columns(2)
-        
         with col1:
             with st.container(border=True):
                 st.subheader("🏢 Engagement Profile")
@@ -190,10 +162,9 @@ else:
                     client_inputs["cloud_env"] = st.selectbox("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "None (On-Prem)"])
                     client_inputs["email"] = st.selectbox("Email Gateway", ["Sophos", "Mimecast", "Proofpoint", "Microsoft Defender", "Other"])
 
-        # SPECIFIC TIER 2: Only show deep GRC questions for vCISO
+        # TIER 2: vCISO SPECIFIC
         if app_mode == "📈 vCISO Assessment":
             col3, col4 = st.columns(2)
-            
             with col3:
                 with st.container(border=True):
                     st.subheader("🧮 Security Culture & Hygiene")
@@ -204,8 +175,6 @@ else:
                     
                     culture_score = {"None / Optional": 0, "Admins Only": 1, "Mandatory for All Users": 3}[q1] + {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q2] + {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q3] + {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
                     savviness_label = "Tier 1: High Risk" if culture_score <= 3 else "Tier 2: Basic Compliance" if culture_score <= 6 else "Tier 3: Conscious" if culture_score <= 8 else "Tier 4: Highly Technical"
-                    st.caption(f"**Calculated Behavioural Savviness:** {savviness_label}")
-                    
                     client_inputs.update({"mfa_status": q1, "phishing_frequency": q2, "training_maturity": q3, "admin_rights": q4, "savviness": savviness_label})
 
             with col4:
@@ -226,7 +195,7 @@ else:
                         client_inputs["data_classification"] = "Yes" if st.checkbox("Formal Data Classification?") else "No"
                         client_inputs["target_compliance"] = ", ".join(target_compliance) if target_compliance else "None specified"
 
-        # SPECIFIC TIER 2: Only show Tactical options for Threat Simulator
+        # TIER 2: TACTICAL SPECIFIC
         elif app_mode == "🔥 Threat Simulator":
             with st.container(border=True):
                 st.subheader("🎯 Tactical Simulation Parameters")
@@ -234,9 +203,8 @@ else:
                 with sim_1:
                     client_inputs["savviness"] = st.selectbox("Assumed Security Culture / Maturity", ["Tier 1: High Risk", "Tier 2: Basic Compliance", "Tier 3: Conscious", "Tier 4: Highly Technical"])
                 with sim_2:
-                    client_inputs["custom_scenario"] = st.text_input("Custom Threat Scenario Override (Optional)", placeholder="e.g., BlackBasta ransomware deployment via compromised MSP")
+                    client_inputs["custom_scenario"] = st.text_input("Custom Threat Scenario Override (Optional)", placeholder="e.g., BlackBasta ransomware deployment")
 
-        # Generate Button at the bottom of the active view
         st.markdown("<br>", unsafe_allow_html=True)
         generate_btn = st.button(f"🚀 Generate {app_mode.split()[1]}", type="primary", use_container_width=True)
 
@@ -244,6 +212,10 @@ else:
     # REPORT GENERATION & RENDERING
     # ==========================================
     if generate_btn:
+        if not app_engine.client:
+            st.error("🚨 API Credentials missing. Please configure your secrets.toml.")
+            st.stop() # Security Halt
+            
         st.session_state['client_inputs'] = client_inputs
         st.session_state['report_ready'] = False 
         
@@ -259,14 +231,15 @@ else:
             elif app_mode == "🔥 Threat Simulator":
                 selected_vector = random.choice(ATTACK_VECTORS)
                 osint_data = f"{app_engine.fetch_osint(client_inputs['endpoint'])} {app_engine.fetch_osint(client_inputs['firewall'])}"
+                
+                # PERFORMANCE: Single Pass LLM generation for Narrative AND MDR Log
                 scenario_obj = app_engine.call_llm_structured(build_scenario_prompt(client_inputs, osint_data, selected_vector, client_inputs["custom_scenario"]), ScenarioReport)
                 if scenario_obj:
-                    mdr_case = app_engine.call_llm_text(build_mdr_case_prompt(client_inputs, scenario_obj.narrative))
                     st.session_state['scenario_obj'] = scenario_obj
-                    st.session_state['mdr_case'] = mdr_case
+                    st.session_state['mdr_case'] = scenario_obj.mdr_case_log
                     st.session_state['recs'] = app_engine.generate_recommendations(client_inputs)
-                    st.session_state['pdf_bytes'] = create_pdf(client_inputs, scenario_obj, st.session_state['recs'], mdr_case)
-                    st.session_state['pptx_bytes'] = create_pptx(client_inputs, scenario_obj, st.session_state['recs'], mdr_case)
+                    st.session_state['pdf_bytes'] = create_pdf(client_inputs, scenario_obj, st.session_state['recs'], st.session_state['mdr_case'])
+                    st.session_state['pptx_bytes'] = create_pptx(client_inputs, scenario_obj, st.session_state['recs'], st.session_state['mdr_case'])
                     st.session_state['report_ready'] = True
         st.rerun()
 
@@ -278,14 +251,27 @@ else:
             tab_exec, tab_gaps, tab_roadmap = st.tabs(["👔 Exec & Risk", "🔍 Gap Analysis", "🗺️ Roadmap"])
             
             with tab_exec:
-                st.subheader("Executive Risk Summary")
-                st.write(vciso_report.executive_summary)
+                col_txt, col_viz = st.columns([1.5, 1])
+                with col_txt:
+                    st.subheader("Executive Risk Summary")
+                    st.write(vciso_report.executive_summary)
+                    st.subheader("The Cost of Inaction")
+                    st.error(vciso_report.cost_of_inaction)
+                    st.subheader("🏅 Compliance & Framework Alignment")
+                    st.info(vciso_report.compliance_alignment)
                 
-                st.subheader("The Cost of Inaction")
-                st.error(vciso_report.cost_of_inaction)
-                
-                st.subheader("🏅 Compliance & Framework Alignment")
-                st.info(vciso_report.compliance_alignment)
+                with col_viz:
+                    # UI UPGRADE: Interactive Plotly Chart instead of static Matplotlib PNG
+                    categories = [d.domain_name for d in vciso_report.domain_assessments]
+                    scores = [d.numeric_maturity_score for d in vciso_report.domain_assessments]
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatterpolar(
+                        r=scores + [scores[0]], theta=categories + [categories[0]],
+                        fill='toself', fillcolor='rgba(0, 32, 96, 0.3)', line=dict(color='#002060', width=2), hoverinfo='text',
+                        text=[f"{c}: {s}/5.0" for c, s in zip(categories + [categories[0]], scores + [scores[0]])]
+                    ))
+                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 5])), showlegend=False, margin=dict(l=40, r=40, t=20, b=20))
+                    st.plotly_chart(fig, use_container_width=True)
                 
             with tab_gaps:
                 for domain in vciso_report.domain_assessments:

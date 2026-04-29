@@ -6,20 +6,31 @@ from pptx import Presentation
 import matplotlib.pyplot as plt
 import numpy as np
 
+# --- TEXT CLEANER (UNICODE SAFE) ---
 def clean_text(text, mode="pdf"):
     if not text: return ""
     text = text.replace('\xa0', ' ').replace('\t', ' ')
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
+    
     if mode == "pdf":
         text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
         text = text.replace('🟢', 'WIN:')
+        # CRITICAL FIX: Safe conversion for British Pound before stripping Unicode
+        text = text.replace('£', 'GBP ')
+
     text = text.replace('### ', '').replace('## ', '').replace('# ', '')
+    
     if mode == "mdr":
         text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1 (\2)', text)
         text = text.replace('**', '').replace('*', '').replace('`', '')
+    elif mode == "pptx":
+        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1: \2', text)
+        text = text.replace('**', '').replace('*', '')
+    
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
+# --- PDF HELPERS ---
 class ReportPDF(FPDF):
     def header(self):
         self.set_fill_color(0, 32, 96) 
@@ -58,8 +69,8 @@ def draw_estate_summary(pdf, inputs):
     pdf.set_font("helvetica", "", 10)
     summary_text = (
         f"Target Compliance: {inputs.get('target_compliance', 'None')} | Current Certs: {inputs.get('current_cert', 'None')}\n"
-        f"MDR Provider: {inputs['mdr_provider']} | Endpoint: {inputs['endpoint']}\n"
-        f"Firewall: {inputs['firewall']} | Email: {inputs['email']}"
+        f"MDR Provider: {inputs.get('mdr_provider', 'N/A')} | Endpoint: {inputs.get('endpoint', 'N/A')}\n"
+        f"Firewall: {inputs.get('firewall', 'N/A')} | Email: {inputs.get('email', 'N/A')}"
     )
     for line in summary_text.split('\n'):
         pdf.cell(w=0, h=7, txt=f"  {line}", ln=True, fill=True)
@@ -79,10 +90,15 @@ def generate_radar_chart(domain_assessments):
     ax.set_ylim(0, 5)
     plt.thetagrids(np.degrees(label_loc), labels=categories)
     plt.tight_layout()
+    
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=300, transparent=True)
     buf.seek(0)
-    plt.close(fig)
+    
+    # MEMORY FIX: Force clear the current figure and close all matplotlib states
+    plt.clf()
+    plt.close('all')
+    
     return buf
 
 # ==========================================
@@ -95,7 +111,7 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.cell(w=0, h=12, txt="vCISO Maturity Assessment & Strategic Roadmap", ln=True, align="C")
     pdf.set_font("helvetica", "I", 11)
     pdf.set_text_color(100, 100, 100) 
-    pdf.cell(w=0, h=6, txt=f"Prepared for: {inputs['customer_name']} | By: {inputs['consultant_name']}", ln=True, align="C")
+    pdf.cell(w=0, h=6, txt=f"Prepared for: {inputs.get('customer_name', 'Client')} | By: {inputs.get('consultant_name', 'Advisor')}", ln=True, align="C")
     pdf.set_text_color(0, 0, 0) 
     pdf.ln(4)
     
@@ -113,8 +129,7 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
     
-    # NEW COMPLIANCE BLOCK RENDERING
-    pdf.set_fill_color(235, 245, 255) # Light Blue
+    pdf.set_fill_color(235, 245, 255)
     pdf.set_font("helvetica", "B", 10)
     pdf.set_text_color(0, 32, 96)
     pdf.cell(0, 8, " COMPLIANCE & FRAMEWORK ALIGNMENT:", ln=True, fill=True)
@@ -170,7 +185,7 @@ def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "vCISO Strategic Security Roadmap"
-    slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}\nAdvisor: {inputs['consultant_name']}"
+    slide.placeholders[1].text = f"Prepared for: {inputs.get('customer_name', 'Client')}\nAdvisor: {inputs.get('consultant_name', 'Advisor')}"
     
     slide = prs.slides.add_slide(prs.slide_layouts[1])
     slide.shapes.title.text = "Maturity Scores & Compliance Alignment"
@@ -206,7 +221,7 @@ def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Breach Simulation"
-    slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}"
+    slide.placeholders[1].text = f"Prepared for: {inputs.get('customer_name', 'Client')}"
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
     return pptx_stream.getvalue()
