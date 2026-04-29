@@ -1,22 +1,18 @@
 # export.py
 import io
 import re
-import textwrap
 from fpdf import FPDF
 from pptx import Presentation
-from pptx.util import Pt, Inches
-from pptx.dml.color import RGBColor
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- TEXT CLEANER (UNICODE SAFE) ---
+# --- TEXT CLEANER ---
 def clean_text(text, mode="pdf"):
     if not text: return ""
     text = text.replace('\xa0', ' ').replace('\t', ' ')
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
     
-    # PDF-Specific Emoji Stripping (Helvetica compatibility)
     if mode == "pdf":
         text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
         text = text.replace('🟢', 'WIN:')
@@ -32,7 +28,7 @@ def clean_text(text, mode="pdf"):
     
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
-# --- PDF ENGINE ---
+# --- PDF HELPERS ---
 class ReportPDF(FPDF):
     def header(self):
         self.set_fill_color(0, 32, 96) 
@@ -79,17 +75,12 @@ def draw_estate_summary(pdf, inputs):
         pdf.cell(w=0, h=7, txt=f"  {line}", ln=True, fill=True)
     pdf.ln(6)
 
-# ==========================================
-# VCISO ASSESSMENT EXPORTS
-# ==========================================
 def generate_radar_chart(domain_assessments):
     categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
+    levels = [d.numeric_maturity_score for d in domain_assessments]
     categories = [*categories, categories[0]]
-    levels = []
-    for d in domain_assessments:
-        match = re.search(r'\d+', d.current_maturity_level)
-        levels.append(int(match.group()) if match else 1)
     levels = [*levels, levels[0]]
+    
     label_loc = np.linspace(start=0, stop=2 * np.pi, num=len(levels))
     fig = plt.figure(figsize=(6, 5))
     ax = plt.subplot(polar=True)
@@ -104,6 +95,9 @@ def generate_radar_chart(domain_assessments):
     plt.close(fig)
     return buf
 
+# ==========================================
+# VCISO ASSESSMENT EXPORTS
+# ==========================================
 def create_vciso_pdf(inputs, vciso_obj):
     pdf = ReportPDF()
     pdf.add_page()
@@ -116,9 +110,11 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.ln(8)
     
     draw_estate_summary(pdf, inputs)
+    
     draw_section_header(pdf, "Executive Summary & Risk Analysis")
     robust_multi_cell(pdf, 0, 5, vciso_obj.executive_summary)
     pdf.ln(2)
+    
     pdf.set_font("helvetica", "B", 10)
     pdf.set_text_color(150, 0, 0)
     pdf.cell(0, 5, "THE COST OF INACTION:", ln=True)
@@ -134,60 +130,69 @@ def create_vciso_pdf(inputs, vciso_obj):
     for domain in vciso_obj.domain_assessments:
         pdf.set_font("helvetica", "B", 12)
         pdf.set_text_color(0, 32, 96)
-        pdf.cell(w=0, h=8, txt=f"{domain.domain_name} - {domain.current_maturity_level}", ln=True)
+        pdf.cell(w=0, h=8, txt=f"{domain.domain_name} - Score: {domain.numeric_maturity_score}/5.0", ln=True)
+        pdf.set_font("helvetica", "B", 9)
+        pdf.set_text_color(128, 128, 128)
+        pdf.cell(0, 5, f"Investment Priority: {domain.budgetary_estimate}", ln=True)
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         robust_multi_cell(pdf, 0, 5, f"Analysis: {domain.current_state_analysis}")
         pdf.ln(2)
         
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 5, "Zero-Cost Quick Wins:", ln=True)
+        pdf.cell(0, 5, "Personalised Quick Wins:", ln=True)
         pdf.set_font("helvetica", "", 9)
-        for win in domain.vendor_agnostic_quick_wins:
-            pdf.cell(0, 5, f"  - {clean_text(win, 'pdf')}", ln=True)
+        for win in domain.vendor_agnostic_quick_wins: pdf.cell(0, 5, f"  - {clean_text(win, 'pdf')}", ln=True)
         pdf.ln(2)
+        
         pdf.set_font("helvetica", "B", 9)
         pdf.cell(0, 5, "Strategic Recommendations:", ln=True)
         pdf.set_font("helvetica", "", 9)
-        for sol in domain.recommended_solutions:
-            pdf.cell(0, 5, f"  - {clean_text(sol, 'pdf')}", ln=True)
+        for sol in domain.recommended_solutions: pdf.cell(0, 5, f"  - {clean_text(sol, 'pdf')}", ln=True)
         pdf.ln(4)
 
     draw_section_header(pdf, "Partnership Roadmap & Success Metrics")
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "12-Month Success Metrics (KPIs):", ln=True)
     pdf.set_font("helvetica", "", 10)
-    for kpi in vciso_obj.success_metrics:
-        # Replaces target emoji with text bullet
-        pdf.cell(0, 5, f"  - {clean_text(kpi, 'pdf')}", ln=True)
+    for kpi in vciso_obj.success_metrics: pdf.cell(0, 5, f"  - {clean_text(kpi, 'pdf')}", ln=True)
         
     pdf.ln(4)
     for phase in vciso_obj.phased_roadmap:
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(0, 6, clean_text(phase.phase_name, 'pdf'), ln=True)
         pdf.set_font("helvetica", "", 9)
-        for milestone in phase.milestones:
-            pdf.cell(0, 5, f"  - {clean_text(milestone, 'pdf')}", ln=True)
+        for milestone in phase.milestones: pdf.cell(0, 5, f"  - {clean_text(milestone, 'pdf')}", ln=True)
     
     pdf.ln(4)
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Advisory Engagement Cadence:", ln=True)
     pdf.set_font("helvetica", "", 10)
-    for meeting in vciso_obj.engagement_cadence:
-        pdf.cell(0, 5, f"  - {clean_text(meeting, 'pdf')}", ln=True)
+    for meeting in vciso_obj.engagement_cadence: pdf.cell(0, 5, f"  - {clean_text(meeting, 'pdf')}", ln=True)
 
     return bytes(pdf.output())
 
-# PPTX and Threat Simulator functions remain as before...
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "vCISO Strategic Security Roadmap"
     slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}\nAdvisor: {inputs['consultant_name']}"
+    
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Maturity Scores"
+    content = slide.placeholders[1].text_frame
+    for domain in vciso_obj.domain_assessments:
+        p = content.add_paragraph()
+        p.text = f"{domain.domain_name}: Score {domain.numeric_maturity_score}/5.0"
+        p.level = 0
+        
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
     return pptx_stream.getvalue()
 
+# ==========================================
+# THREAT SIMULATOR TACTICAL EXPORTS
+# ==========================================
 def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf = ReportPDF()
     pdf.add_page()
@@ -195,12 +200,19 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf.cell(0, 10, "Tactical Threat Simulation Report", ln=True, align='C')
     draw_estate_summary(pdf, inputs)
     robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
+    
+    pdf.add_page()
+    draw_section_header(pdf, "Simulated MDR Investigation Log")
+    pdf.set_font("courier", "", 9)
+    robust_multi_cell(pdf, 0, 5, clean_text(mdr_case, "mdr"))
+    
     return bytes(pdf.output())
 
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Breach Simulation"
+    slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}"
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
     return pptx_stream.getvalue()

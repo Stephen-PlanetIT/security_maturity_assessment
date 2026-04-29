@@ -160,14 +160,14 @@ SIMULATED_OSINT = {
 }
 
 # ==========================================
-# VCISO ASSESSMENT DATA
+# VCISO STRATEGIC ASSESSMENT DATA
 # ==========================================
 MATURITY_FRAMEWORK = {
     "Level 1 (Ad-Hoc)": "Highly reactive, fragmented tools, unmanaged devices, reliance on default configurations, and no formalised incident response.",
     "Level 2 (Basic)": "Centralised management, signature-based prevention, standard patching schedules, and basic MFA for critical accounts.",
-    "Level 3 (Advanced)": "Behavioural detection (EDR) in place, proactive security policies, but visibility remains siloed across different vendors without cross-correlation.",
-    "Level 4 (Optimised)": "Cross-domain telemetry ingestion (XDR), automated containment capabilities, and zero-trust principles applied to identity and network perimeters.",
-    "Level 5 (Proactive)": "24/7 human-led threat hunting (MDR), continuous external attack surface management, and a fully integrated, multi-vendor ecosystem."
+    "Level 3 (Advanced)": "Behavioural detection (EDR) in place, proactive security policies, but visibility remains siloed across different vendors.",
+    "Level 4 (Optimised)": "Cross-domain telemetry ingestion (XDR), automated containment capabilities, and zero-trust principles applied to identity.",
+    "Level 5 (Proactive)": "24/7 human-led threat hunting (MDR), Root Cause Analysis (RCA) capabilities, <60 min response SLAs, and a fully integrated ecosystem."
 }
 
 ASSESSMENT_DOMAINS = [
@@ -175,30 +175,21 @@ ASSESSMENT_DOMAINS = [
     "Email & Data Protection",
     "Identity & Access Management (IAM)",
     "Network & Cloud Perimeter",
-    "Security Operations & Response (SecOps)"
+    "Security Operations & Response (SecOps)",
+    "Governance, Risk & Compliance (GRC)",
+    "Operational Resilience & Backup",
+    "Supply Chain & Third-Party Risk"
 ]
 
 RECOMMENDED_SOLUTION_MAP = {
-    "Endpoint & Server Security": [
-        "Sophos Intercept X Advanced (Primary: Deep learning, anti-ransomware, and XDR telemetry)",
-        "N-able N-central (Patch management, RMM, and automated IT hygiene)"
-    ],
-    "Email & Data Protection": [
-        "Mimecast (Advanced email security, URL protection, and archiving)",
-        "N-able Cove Data Protection (Immutable backups and disaster recovery)"
-    ],
-    "Identity & Access Management (IAM)": [
-        "Sophos ITDR (Identity Threat Detection and Response - monitors compromised credentials)",
-        "Sophos Phish Threat (Security awareness programme and phishing simulation)"
-    ],
-    "Network & Cloud Perimeter": [
-        "Fortinet FortiGate (Next-Generation Firewall and deep packet inspection)",
-        "Sophos ZTNA (Replaces vulnerable VPNs with identity-aware micro-segmentation)"
-    ],
-    "Security Operations & Response (SecOps)": [
-        "Sophos MDR (Primary: 24/7 fully managed threat hunting and incident response)",
-        "Sophos Managed Risk (Continuous vulnerability and attack surface management)"
-    ]
+    "Endpoint & Server Security": ["Sophos Intercept X Advanced with XDR"],
+    "Email & Data Protection": ["Mimecast Email Security", "N-able Cove Data Protection"],
+    "Identity & Access Management (IAM)": ["Sophos ITDR (Identity Threat Detection and Response)", "Sophos Phish Threat"],
+    "Network & Cloud Perimeter": ["Sophos Firewall", "Sophos ZTNA", "Sophos Cloud Optix (CSPM)"],
+    "Security Operations & Response (SecOps)": ["Sophos MDR Complete (24/7 Threat Hunting & RCA)", "Sophos Managed Risk"],
+    "Governance, Risk & Compliance (GRC)": ["Sophos Managed Risk (Vulnerability Management)", "Sophos Phish Threat (Awareness Programme)"],
+    "Operational Resilience & Backup": ["N-able Cove Data Protection (Immutable Cloud Backup)", "Sophos Incident Response Retainer"],
+    "Supply Chain & Third-Party Risk": ["Sophos ZTNA (Secure Vendor Access)", "Sophos Managed Risk"]
 }
 
 DEFAULT_VCISO_CONTEXT = """
