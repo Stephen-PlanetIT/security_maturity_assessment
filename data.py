@@ -74,6 +74,7 @@ RECOMMENDED_SOLUTION_MAP = {
     "Network & Cloud Perimeter": ["Sophos Firewall", "Sophos ZTNA", "Sophos Cloud Optix (CSPM)"],
     "Security Operations & Response (SecOps)": ["Sophos MDR Complete (24/7 Threat Hunting & RCA)", "Sophos Managed Risk"],
     "Governance, Risk & Compliance (GRC)": ["Sophos Managed Risk", "Sophos Phish Threat (Awareness Programme)"],
-    "Operational Resilience & Backup": ["N-able Cove Data Protection", "Sophos Incident Response Retainer"],
+    # ADDED SECUREWORKS TTX HERE:
+    "Operational Resilience & Backup": ["N-able Cove Data Protection", "Sophos Incident Response Retainer", "Secureworks Tabletop Exercises & IR Preparedness"],
     "Supply Chain & Third-Party Risk": ["Sophos ZTNA", "Sophos Managed Risk"]
 }
