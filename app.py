@@ -4,6 +4,7 @@ import random
 import plotly.graph_objects as go
 from openai import AzureOpenAI
 
+# Custom Imports
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from prompts import SYSTEM_PERSONA, build_scenario_prompt, build_vciso_prompt, ScenarioReport, UnifiedEngagementReport 
 from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx

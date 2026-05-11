@@ -1,306 +1,269 @@
-# app.py
-import streamlit as st
-import random
-import plotly.graph_objects as go
-from openai import AzureOpenAI
+# export.py
+import io
+import re
+import os
+from fpdf import FPDF
+from pptx import Presentation
+from pptx.util import Pt, Inches
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
+import matplotlib.pyplot as plt
+import numpy as np
 
-from data import ATTACK_VECTORS, SIMULATED_OSINT
-from prompts import SYSTEM_PERSONA, build_scenario_prompt, build_vciso_prompt, ScenarioReport, UnifiedEngagementReport 
-from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx
+# --- BRANDING COLORS ---
+PLANET_IT_DARK_BLUE = RGBColor(0, 32, 96) 
+PLANET_IT_LIGHT_BLUE = RGBColor(0, 102, 204)
 
-# --- INITIALISATION BLOCK ---
-st.set_page_config(page_title="Planet IT Strategic Advisory Platform", page_icon="🪐", layout="wide")
+# --- TEXT CLEANER ---
+def clean_text(text, mode="pdf"):
+    if not text: return ""
+    text = text.replace('\xa0', ' ').replace('\t', ' ')
+    text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+    text = text.replace('–', '-').replace('—', '-') 
+    if mode == "pdf":
+        text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
+        text = text.replace('🟢', 'WIN:').replace('£', 'GBP ') 
+    text = text.replace('### ', '').replace('## ', '').replace('# ', '')
+    if mode in ["mdr", "pptx"]:
+        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1', text)
+        text = text.replace('**', '').replace('*', '').replace('`', '')
+        text = text.replace('🎯', '').replace('✅', '').replace('🛡️', '').replace('🟢', '')
+    return text.encode('ascii', 'ignore').decode('ascii').strip()
 
-keys_to_init = ['vciso_obj', 'vciso_pdf', 'vciso_pptx', 'scenario_obj', 'mdr_case', 'pdf_bytes', 'pptx_bytes', 'recs', 'report_ready', 'selected_mode']
-for key in keys_to_init:
-    if key not in st.session_state:
-        st.session_state[key] = None
-if 'report_ready' not in st.session_state:
-    st.session_state['report_ready'] = False
+# ==========================================
+# PDF ENGINE (For the PDFExecutiveSummary)
+# ==========================================
+class ReportPDF(FPDF):
+    def header(self):
+        self.set_fill_color(0, 32, 96) 
+        self.rect(0, 0, 210, 20, 'F')   
+        self.set_y(6)
+        self.set_font('helvetica', 'B', 12)
+        self.set_text_color(255, 255, 255)
+        self.cell(0, 10, 'Planet IT Security Advisory & Assessment', align='R', ln=True)
+        self.set_y(25)
+        self.set_text_color(0, 0, 0)
 
-def return_to_dashboard():
-    st.session_state['selected_mode'] = None
-    st.session_state['report_ready'] = False
-    st.session_state['vciso_obj'] = None
-    st.session_state['scenario_obj'] = None
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('helvetica', 'I', 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, f'Page {self.page_no()}', align='C')
 
-# --- BACKEND LOGIC ---
-class CyberScenarioGenerator:
-    def __init__(self, api_key, endpoint, deployment, api_version):
-        self.deployment = deployment
-        self.client = AzureOpenAI(api_key=api_key, api_version=api_version, azure_endpoint=endpoint) if api_key else None
+def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
+    safe_txt = clean_text(txt, "pdf")
+    pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align, fill=fill)
+
+def generate_radar_chart(domain_assessments):
+    categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
+    levels = [d.numeric_maturity_score for d in domain_assessments]
+    categories = [*categories, categories[0]]
+    levels = [*levels, levels[0]]
+    label_loc = np.linspace(start=0, stop=2 * np.pi, num=len(levels))
+    fig = plt.figure(figsize=(6, 5))
+    ax = plt.subplot(polar=True)
+    ax.plot(label_loc, levels, color='#002060', linewidth=2)
+    ax.fill(label_loc, levels, color='#002060', alpha=0.25)
+    ax.set_ylim(0, 5)
+    plt.thetagrids(np.degrees(label_loc), labels=categories)
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=300, transparent=True)
+    buf.seek(0)
+    plt.clf()
+    plt.close('all')
+    return buf
+
+def create_vciso_pdf(inputs, exec_obj):
+    pdf = ReportPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 18)
+    pdf.cell(w=0, h=12, txt="Executive Security Maturity Assessment", ln=True, align="C")
+    pdf.ln(4)
     
-    def fetch_osint(self, vendor):
-        options = SIMULATED_OSINT.get(vendor, [])
-        return random.choice(options) if options else ""
-
-    def generate_recommendations(self, inputs):
-        recs = ["🪐 **PLANET IT SECURITY ADVISORY & ASSESSMENTS**"]
-        
-        if inputs.get('ir_plan_review') in ["No formal plan", "Over 12 months ago"] or inputs.get('last_tabletop') in ["Never", "Over 12 months ago"]:
-             recs.append("• [Secureworks Incident Response Preparedness]: Update your IR plan and conduct tabletop exercises to align with compliance requirements.")
-        if inputs.get('ir_retainer') == "None / Ad-Hoc":
-             recs.append("• [Sophos Incident Response Retainer]: Establish a formal retainer to guarantee response SLAs.")
-        if inputs.get('insurance_status') == "Policy Exists (Untested)":
-             recs.append("• **Insurance Readiness Assessment:** Engage our Planet IT advisory team to map your controls against your policy.")
-        if inputs.get('target_compliance') and "None specified" not in inputs['target_compliance']:
-             recs.append(f"• **Compliance Gap Assessment:** Engage Planet IT for a formal audit against your target frameworks: {inputs['target_compliance']}.")
-
-        recs.append("\n⚙️ **PLANET IT RECOMMENDED TECHNOLOGY STACK**")
-        if inputs.get('mdr_provider', 'None') != "Sophos MDR":
-            recs.append("• [Planet IT Managed SOC (Powered by Sophos MDR)]: Replace your fragmented approach with our fully managed, 24/7 threat hunting service.")
-        if inputs.get('m365_license', 'None') != "None / On-Prem Only":
-            recs.append(f"• [Sophos MDR for Microsoft 365]: Maximise your {inputs.get('m365_license')} investment via our SOC.")
-        recs.append("• [Sophos Managed Risk]: Implement continuous external attack surface management.")
-        return recs
-
-    def call_llm_structured(self, prompt, response_model):
-        if not self.client: return None
-        try:
-            response = self.client.beta.chat.completions.parse(
-                model=self.deployment, messages=[{"role": "system", "content": SYSTEM_PERSONA}, {"role": "user", "content": prompt}],
-                response_format=response_model, temperature=0.7
-            )
-            return response.choices[0].message.parsed
-        except Exception as e:
-            st.error(f"LLM Error: {e}")
-            return None
-
-# --- API SETUP ---
-try:
-    az_key = st.secrets["AZURE_OPENAI_API_KEY"]
-    az_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
-    az_deployment = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
-    az_api_version = st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-except Exception:
-    az_key, az_endpoint, az_deployment, az_api_version = None, None, None, None
-
-app_engine = CyberScenarioGenerator(api_key=az_key, endpoint=az_endpoint, deployment=az_deployment, api_version=az_api_version)
-
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("🪐 Planet IT Menu")
-    if st.session_state['selected_mode'] is not None:
-        st.button("🏠 Return to Dashboard", on_click=return_to_dashboard, use_container_width=True)
-    st.divider()
-    st.caption("Planet IT Strategic Advisory Engine")
-
-# ---------------------------------------------------------
-# VIEW 1: TOP-LEVEL DASHBOARD
-# ---------------------------------------------------------
-if st.session_state['selected_mode'] is None:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.title("Planet IT Advisory Platform")
-    st.markdown("Select an advisory engine below to begin building your engagement deliverables.")
-    st.markdown("<br>", unsafe_allow_html=True)
+    pdf.set_font("helvetica", "B", 14)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, "Executive Risk Summary", ln=True)
+    pdf.set_font("helvetica", "", 11)
+    pdf.set_text_color(0, 0, 0)
+    robust_multi_cell(pdf, 0, 5, exec_obj.executive_summary)
+    pdf.ln(4)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.container(border=True):
-            st.markdown("### 📈 vCISO Strategic Assessment")
-            st.markdown("Generate a comprehensive maturity assessment, gap analysis, and bifurcated deployment roadmap aligned to major compliance frameworks.")
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Launch vCISO Assessment ➔", type="primary", use_container_width=True):
-                st.session_state['selected_mode'] = "📈 vCISO Assessment"
-                st.rerun()
-                
-    with col2:
-        with st.container(border=True):
-            st.markdown("### 🔥 Tactical Threat Simulator")
-            st.markdown("Generate a rapid, highly technical breach narrative and mock MDR case log based specifically on the client's current vulnerabilities.")
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Launch Threat Simulator ➔", type="primary", use_container_width=True):
-                st.session_state['selected_mode'] = "🔥 Threat Simulator"
-                st.rerun()
-
-# ---------------------------------------------------------
-# VIEW 2: DRILL-DOWN CONFIGURATION & REPORTS
-# ---------------------------------------------------------
-else:
-    app_mode = st.session_state['selected_mode']
-    st.title(app_mode)
+    chart_buf = generate_radar_chart(exec_obj.domain_assessments)
+    pdf.image(chart_buf, x=45, w=120)
     
-    client_inputs = {
-        "mfa_status": "None", "phishing_frequency": "None", "training_maturity": "None", "admin_rights": "None",
-        "backup_strategy": "None", "last_tabletop": "None", "asset_visibility": "None", "data_classification": "No",
-        "tprm_status": "None", "ir_retainer": "None", "insurance_status": "None", "current_cert": "None",
-        "ir_plan_review": "None", "target_compliance": "None specified", "custom_scenario": "", "savviness": "Tier 2: Basic Compliance"
-    }
+    pdf.add_page()
+    for domain in exec_obj.domain_assessments:
+        pdf.set_font("helvetica", "B", 12)
+        pdf.set_text_color(0, 32, 96)
+        pdf.cell(w=0, h=8, txt=f"{domain.domain_name} - Score: {domain.numeric_maturity_score}/5.0", ln=True)
+        pdf.set_font("helvetica", "", 10)
+        pdf.set_text_color(0, 0, 0)
+        robust_multi_cell(pdf, 0, 5, f"{domain.current_state_analysis}")
+        pdf.ln(4)
 
-    with st.expander("⚙️ Client Discovery & Estate Configuration", expanded=not st.session_state['report_ready']):
-        st.warning("🔒 **Data Privacy Notice:** Do not enter highly sensitive PII, passwords, or regulated IP data into these fields.")
+    return bytes(pdf.output())
+
+def draw_estate_summary(pdf, inputs):
+    pdf.ln(5)
+    pdf.set_font("helvetica", "B", 14)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, "Client Estate Summary", ln=True)
+    pdf.set_draw_color(200, 200, 200) 
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.get_x(), pdf.get_y(), 195, pdf.get_y()) 
+    pdf.ln(4)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_fill_color(245, 245, 245) 
+    pdf.set_font("helvetica", "", 10)
+    summary_text = (
+        f"Target Compliance: {inputs.get('target_compliance', 'None')} | Current Certs: {inputs.get('current_cert', 'None')}\n"
+        f"MDR Provider: {inputs.get('mdr_provider', 'N/A')} | Endpoint: {inputs.get('endpoint', 'N/A')}\n"
+        f"Firewall: {inputs.get('firewall', 'N/A')} | Email: {inputs.get('email', 'N/A')}"
+    )
+    for line in summary_text.split('\n'):
+        pdf.cell(w=0, h=7, txt=f"  {line}", ln=True, fill=True)
+    pdf.ln(6)
+
+def create_pdf(inputs, scenario_obj, recs, mdr_case):
+    pdf = ReportPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, "Tactical Threat Simulation Report", ln=True, align='C')
+    draw_estate_summary(pdf, inputs)
+    robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
+    
+    pdf.add_page()
+    pdf.ln(5)
+    pdf.set_font("helvetica", "B", 14)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, "Simulated MDR Investigation Log", ln=True)
+    pdf.set_draw_color(200, 200, 200) 
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.get_x(), pdf.get_y(), 195, pdf.get_y()) 
+    pdf.ln(4)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("courier", "", 9)
+    robust_multi_cell(pdf, 0, 5, clean_text(mdr_case, "mdr"))
+    
+    return bytes(pdf.output())
+
+# ==========================================
+# POWERPOINT ENGINE (For the PPTXTechnicalRoadmap & Simulator)
+# ==========================================
+def add_text_block(slide, text, left, top, width, height, font_size=12, bold=False, rgb=(0,0,0)):
+    box = slide.shapes.add_textbox(left, top, width, height)
+    tf = box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = clean_text(text, "pptx")
+    p.font.size = Pt(font_size)
+    p.font.bold = bold
+    p.font.color.rgb = RGBColor(*rgb)
+    return tf
+
+def create_vciso_pptx(inputs, tech_obj, exec_obj):
+    # Template Injection Logic
+    template_path = "planet_it_master_template.pptx"
+    
+    if os.path.exists(template_path):
+        prs = Presentation(template_path)
+        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
+    else:
+        prs = Presentation()
+        prs.slide_width = Inches(10)
+        prs.slide_height = Inches(7.5)
+        blank_layout = prs.slide_layouts[6]
         
-        col1, col2 = st.columns(2)
-        with col1:
-            with st.container(border=True):
-                st.subheader("🏢 Engagement Profile")
-                c1, c2 = st.columns(2)
-                with c1:
-                    client_inputs["customer_name"] = st.text_input("Customer Name", "Acme Corp")
-                    client_inputs["industry"] = st.selectbox("Industry Vertical", ["Healthcare", "Finance", "Manufacturing", "Retail", "Technology", "Education"])
-                    client_inputs["users"] = st.number_input("Number of Users", min_value=1, value=500)
-                with c2:
-                    client_inputs["consultant_name"] = st.text_input("Consultant Name", "Jane Doe")
-                    client_inputs["critical_infra"] = st.text_input("Crown Jewels", "Patient Records Database")
-                    client_inputs["in_house_team"] = st.selectbox("In-House SecOps Team?", ["No", "Yes (9-to-5)", "Yes (24/7)"])
+    # --- SLIDE 1: Title ---
+    slide1 = prs.slides.add_slide(blank_layout)
+    add_text_block(slide1, "TECHNICAL DEPLOYMENT ROADMAP", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(0,32,96))
+    add_text_block(slide1, f"Customer: {inputs.get('customer_name', 'Client')}", Inches(0.5), Inches(3.5), Inches(9), Inches(0.5), font_size=18)
+
+    # --- SLIDE 2: Architecture State ---
+    slide2 = prs.slides.add_slide(blank_layout)
+    add_text_block(slide2, "Current Architecture Analysis", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide2, tech_obj.architecture_current_state, Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=12)
+
+    # --- SLIDE 3: Target Operating Model ---
+    slide3 = prs.slides.add_slide(blank_layout)
+    add_text_block(slide3, "Target Operating Model (TOM)", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide3, tech_obj.target_operating_model, Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=12)
+
+    # --- SLIDES 4+: Implementation Phases ---
+    for phase in tech_obj.implementation_phases:
+        slide_ph = prs.slides.add_slide(blank_layout)
+        add_text_block(slide_ph, phase.phase_name, Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
         
-        with col2:
-            with st.container(border=True):
-                st.subheader("💻 Technology Stack")
-                c3, c4 = st.columns(2)
-                with c3:
-                    client_inputs["endpoints"] = st.number_input("Endpoints", min_value=1, value=600)
-                    client_inputs["mdr_provider"] = st.selectbox("Current MDR", ["None", "Sophos MDR", "CrowdStrike", "Arctic Wolf", "Other"])
-                    client_inputs["endpoint"] = st.selectbox("Endpoint Protection", ["Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Other"])
-                    client_inputs["firewall"] = st.selectbox("Firewall Vendor", ["Fortinet", "Palo Alto", "Cisco", "Sophos", "Other"])
-                with c4:
-                    client_inputs["servers"] = st.number_input("Servers", min_value=1, value=50)
-                    client_inputs["identity"] = st.selectbox("Identity Provider", ["Microsoft Entra ID (Azure AD)", "Okta", "On-Prem AD", "None"])
-                    client_inputs["m365_license"] = st.selectbox("M365 Licensing", ["None", "M365 Business Premium", "Microsoft 365 E5", "Office 365 E3"])
-                    client_inputs["cloud_env"] = st.selectbox("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "None (On-Prem)"])
-                    client_inputs["email"] = st.selectbox("Email Gateway", ["Sophos", "Mimecast", "Proofpoint", "Microsoft Defender", "Other"])
-
-        if app_mode == "📈 vCISO Assessment":
-            col3, col4 = st.columns(2)
-            with col3:
-                with st.container(border=True):
-                    st.subheader("🧮 Security Culture & Hygiene")
-                    q1 = st.selectbox("MFA Enforcement", ["None / Optional", "Admins Only", "Mandatory for All Users"])
-                    q2 = st.selectbox("Phishing Simulations", ["Never", "Annually", "Monthly / Quarterly"])
-                    q3 = st.selectbox("Security Training", ["None", "Annual Compliance Video", "Continuous with active coaching"])
-                    q4 = st.selectbox("Endpoint Privileges", ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
-                    
-                    culture_score = {"None / Optional": 0, "Admins Only": 1, "Mandatory for All Users": 3}[q1] + {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q2] + {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q3] + {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
-                    savviness_label = "Tier 1: High Risk" if culture_score <= 3 else "Tier 2: Basic Compliance" if culture_score <= 6 else "Tier 3: Conscious" if culture_score <= 8 else "Tier 4: Highly Technical"
-                    client_inputs.update({"mfa_status": q1, "phishing_frequency": q2, "training_maturity": q3, "admin_rights": q4, "savviness": savviness_label})
-
-            with col4:
-                with st.container(border=True):
-                    st.subheader("⚖️ GRC, Compliance & Resilience")
-                    grc_1, grc_2 = st.columns(2)
-                    with grc_1:
-                        target_compliance = st.multiselect("Target Frameworks", ["ISO27001", "NIS2 Directive", "PCI:DSS", "NIST CSF 2.0", "DORA", "Cyber Essentials Plus"])
-                        client_inputs["current_cert"] = st.selectbox("Current Baseline Cert", ["None", "Cyber Essentials (CE)", "Cyber Essentials Plus (CE+)", "ISO27001"])
-                        client_inputs["backup_strategy"] = st.selectbox("Backup Strategy", ["On-prem Only", "Cloud (Non-Immutable)", "Immutable Cloud Backup", "None"])
-                        client_inputs["ir_retainer"] = st.selectbox("IR Retainer", ["None / Ad-Hoc", "Basic Retainer (No SLA)", "Formal Retainer with SLA"])
-                        client_inputs["tprm_status"] = st.selectbox("Third-Party Vendor Risk", ["No formal vetting", "Annual Questionnaires", "Continuous ZTNA"])
-                    with grc_2:
-                        client_inputs["ir_plan_review"] = st.selectbox("IR Plan Review", ["No formal plan", "Over 12 months ago", "Within last 12 months"])
-                        client_inputs["last_tabletop"] = st.selectbox("Tabletop Exercise", ["Never", "Over 12 months ago", "Within last 12 months"])
-                        client_inputs["asset_visibility"] = st.selectbox("Asset Inventory", ["Manual (Excel/None)", "Point-in-time Scan", "Continuous/Automated"])
-                        client_inputs["insurance_status"] = st.selectbox("Cyber Insurance", ["None", "Policy Exists (Untested)", "Policy mapped to active IR Plan"])
-                        client_inputs["data_classification"] = "Yes" if st.checkbox("Formal Data Classification?") else "No"
-                        client_inputs["target_compliance"] = ", ".join(target_compliance) if target_compliance else "None specified"
-
-        elif app_mode == "🔥 Threat Simulator":
-            with st.container(border=True):
-                st.subheader("🎯 Tactical Simulation Parameters")
-                sim_1, sim_2 = st.columns(2)
-                with sim_1:
-                    client_inputs["savviness"] = st.selectbox("Assumed Security Culture / Maturity", ["Tier 1: High Risk", "Tier 2: Basic Compliance", "Tier 3: Conscious", "Tier 4: Highly Technical"])
-                with sim_2:
-                    client_inputs["custom_scenario"] = st.text_input("Custom Threat Scenario Override (Optional)", placeholder="e.g., Ransomware deployment via compromised MSP")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        generate_btn = st.button(f"🚀 Generate {app_mode.split()[1]}", type="primary", use_container_width=True)
-
-    # ==========================================
-    # REPORT GENERATION & RENDERING
-    # ==========================================
-    if generate_btn:
-        if not app_engine.client:
-            st.error("🚨 API Credentials missing. Please configure your secrets.toml.")
-            st.stop()
+        # Engineering Tasks
+        tf_tasks = add_text_block(slide_ph, "Engineering Tasks:", Inches(0.5), Inches(1.5), Inches(4.3), Inches(0.5), font_size=14, bold=True)
+        for task in phase.engineering_tasks:
+            p = tf_tasks.add_paragraph()
+            p.text = f"• {clean_text(task, 'pptx')}"
+            p.font.size = Pt(11)
             
-        st.session_state['client_inputs'] = client_inputs
-        st.session_state['report_ready'] = False 
-        
-        with st.spinner("Analysing estate and generating insights..."):
-            if app_mode == "📈 vCISO Assessment":
-                unified_obj = app_engine.call_llm_structured(build_vciso_prompt(client_inputs), UnifiedEngagementReport)
-                if unified_obj:
-                    st.session_state['vciso_obj'] = unified_obj
-                    st.session_state['vciso_pdf'] = create_vciso_pdf(client_inputs, unified_obj.executive_pdf_content)
-                    st.session_state['vciso_pptx'] = create_vciso_pptx(client_inputs, unified_obj.technical_pptx_content, unified_obj.executive_pdf_content)
-                    st.session_state['report_ready'] = True
-                    
-            elif app_mode == "🔥 Threat Simulator":
-                selected_vector = random.choice(ATTACK_VECTORS)
-                osint_data = f"{app_engine.fetch_osint(client_inputs['endpoint'])} {app_engine.fetch_osint(client_inputs['firewall'])}"
-                
-                scenario_obj = app_engine.call_llm_structured(build_scenario_prompt(client_inputs, osint_data, selected_vector, client_inputs["custom_scenario"]), ScenarioReport)
-                if scenario_obj:
-                    st.session_state['scenario_obj'] = scenario_obj
-                    st.session_state['mdr_case'] = scenario_obj.mdr_case_log
-                    st.session_state['recs'] = app_engine.generate_recommendations(client_inputs)
-                    st.session_state['pdf_bytes'] = create_pdf(client_inputs, scenario_obj, st.session_state['recs'], st.session_state['mdr_case'])
-                    st.session_state['pptx_bytes'] = create_pptx(client_inputs, scenario_obj, st.session_state['recs'], st.session_state['mdr_case'])
-                    st.session_state['report_ready'] = True
-        st.rerun()
+        # Products
+        tf_prod = add_text_block(slide_ph, "Solutions Deployed:", Inches(5.2), Inches(1.5), Inches(4.3), Inches(0.5), font_size=14, bold=True)
+        for prod in phase.sophos_products_deployed:
+            p = tf_prod.add_paragraph()
+            p.text = f"• {clean_text(prod, 'pptx')}"
+            p.font.size = Pt(11)
 
-    # --- RENDER RESULTS ---
-    if st.session_state['report_ready']:
-        
-        if app_mode == "📈 vCISO Assessment" and st.session_state['vciso_obj']:
-            exec_report = st.session_state['vciso_obj'].executive_pdf_content
-            tech_report = st.session_state['vciso_obj'].technical_pptx_content
-            
-            tab_exec, tab_tech = st.tabs(["👔 Executive Summary (PDF)", "⚙️ Technical Roadmap (PPTX)"])
-            
-            with tab_exec:
-                col_txt, col_viz = st.columns([1.5, 1])
-                with col_txt:
-                    st.subheader("Executive Risk Summary")
-                    st.write(exec_report.executive_summary)
-                    st.error(f"**The Cost of Inaction:**\n{exec_report.cost_of_inaction}")
-                    st.info(f"**Compliance Alignment:**\n{exec_report.compliance_alignment}")
-                
-                with col_viz:
-                    categories = [d.domain_name for d in exec_report.domain_assessments]
-                    scores = [d.numeric_maturity_score for d in exec_report.domain_assessments]
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatterpolar(
-                        r=scores + [scores[0]], theta=categories + [categories[0]],
-                        fill='toself', fillcolor='rgba(0, 32, 96, 0.3)', line=dict(color='#002060', width=2), hoverinfo='text',
-                        text=[f"{c}: {s}/5.0" for c, s in zip(categories + [categories[0]], scores + [scores[0]])]
-                    ))
-                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 5])), showlegend=False, margin=dict(l=40, r=40, t=20, b=20))
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                for domain in exec_report.domain_assessments:
-                    with st.expander(f"{domain.domain_name} — Score: {domain.numeric_maturity_score}/5.0", expanded=False):
-                        st.markdown(f"**Current State:** {domain.current_state_analysis}")
-                        st.markdown("**Critical Gaps:**")
-                        for gap in domain.critical_gaps: st.markdown(f"- {gap}")
-                        st.markdown("**Recommended Solutions:**")
-                        for sol in domain.recommended_solutions: st.markdown(f"- 🛡️ {sol}")
-                            
-            with tab_tech:
-                st.subheader("Architecture Current State")
-                st.write(tech_report.architecture_current_state)
-                st.subheader("Target Operating Model")
-                st.success(tech_report.target_operating_model)
-                st.subheader("Engineering Phases")
-                for phase in tech_report.implementation_phases:
-                    st.markdown(f"#### {phase.phase_name}")
-                    st.markdown("**Tasks:**")
-                    for task in phase.engineering_tasks: st.markdown(f"- {task}")
-                    st.markdown("**Products Deployed:**")
-                    for prod in phase.sophos_products_deployed: st.markdown(f"- 🛡️ {prod}")
-                        
-            st.divider()
-            col1, col2 = st.columns(2)
-            with col1: st.download_button("📄 Download PDF (Executive Summary)", data=st.session_state['vciso_pdf'], file_name=f"{client_inputs['customer_name'].replace(' ', '_')}_ExecSummary.pdf", mime="application/pdf", use_container_width=True)
-            with col2: st.download_button("📊 Download PPTX (Technical Roadmap)", data=st.session_state['vciso_pptx'], file_name=f"{client_inputs['customer_name'].replace(' ', '_')}_TechRoadmap.pptx", use_container_width=True)
+    pptx_stream = io.BytesIO()
+    prs.save(pptx_stream)
+    return pptx_stream.getvalue()
 
-        elif app_mode == "🔥 Threat Simulator" and st.session_state['scenario_obj']:
-            tab1, tab2, tab3 = st.tabs(["📝 Threat Narrative", "🛡️ MDR Log", "🎯 Recommendations"])
-            with tab1: st.write(st.session_state['scenario_obj'].narrative)
-            with tab2: st.write(st.session_state['mdr_case'])
-            with tab3:
-                for rec in st.session_state['recs']: st.markdown(f"#### {rec}" if "🛡️" in rec else rec)
-                        
-            st.divider()
-            col1, col2 = st.columns(2)
-            with col1: st.download_button("📄 Download PDF Report", data=st.session_state['pdf_bytes'], file_name=f"{client_inputs['customer_name'].replace(' ', '_')}_MDR.pdf", mime="application/pdf", use_container_width=True)
-            with col2: st.download_button("📊 Download PPTX Deck", data=st.session_state['pptx_bytes'], file_name=f"{client_inputs['customer_name'].replace(' ', '_')}_MDR.pptx", use_container_width=True)
+def create_pptx(inputs, scenario_obj, recs, mdr_case):
+    """Generates the Tactical Threat Simulator PPTX."""
+    template_path = "planet_it_master_template.pptx"
+    
+    if os.path.exists(template_path):
+        prs = Presentation(template_path)
+        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
+    else:
+        prs = Presentation()
+        prs.slide_width = Inches(10)
+        prs.slide_height = Inches(7.5)
+        blank_layout = prs.slide_layouts[6]
+
+    # --- Title Slide ---
+    slide1 = prs.slides.add_slide(blank_layout)
+    bg_cover = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(10), Inches(7.5))
+    bg_cover.fill.solid()
+    bg_cover.fill.fore_color.rgb = RGBColor(20, 20, 20) # Dark Theme for Threat Sim
+    
+    add_text_block(slide1, "BREACH SIMULATION & MDR RESPONSE", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(255,255,255))
+    add_text_block(slide1, f"Target Environment: {inputs.get('customer_name', 'Client')}", Inches(0.5), Inches(3.5), Inches(9), Inches(0.5), font_size=20, rgb=(200,50,50))
+
+    # --- Narrative Overview ---
+    slide2 = prs.slides.add_slide(blank_layout)
+    add_text_block(slide2, "Executive Threat Narrative", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide2, scenario_obj.narrative, Inches(0.5), Inches(1.2), Inches(9), Inches(5.5), font_size=11)
+
+    # --- Attack Timeline ---
+    slide3 = prs.slides.add_slide(blank_layout)
+    add_text_block(slide3, "Chronological Attack Progression", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    
+    tf = add_text_block(slide3, "", Inches(0.5), Inches(1.2), Inches(9), Inches(5.5), font_size=11)
+    for event in scenario_obj.timeline:
+        p = tf.add_paragraph()
+        p.text = f"[{event.timestamp}]  {clean_text(event.event_description, 'pptx')}"
+        p.font.size = Pt(11)
+        p.font.bold = True
+
+    # --- MDR Log (Dark Terminal Mode) ---
+    slide4 = prs.slides.add_slide(blank_layout)
+    bg_term = slide4.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(10), Inches(7.5))
+    bg_term.fill.solid()
+    bg_term.fill.fore_color.rgb = RGBColor(10, 10, 10)
+    
+    add_text_block(slide4, "SOC INVESTIGATION LOG - //PLANET IT MANAGED SOC", Inches(0.5), Inches(0.3), Inches(9), Inches(0.6), font_size=18, bold=True, rgb=(0, 255, 0))
+    
+    log_box = add_text_block(slide4, mdr_case, Inches(0.5), Inches(1.0), Inches(9), Inches(6.0), font_size=10, rgb=(0, 200, 0))
+    for paragraph in log_box.paragraphs:
+        paragraph.font.name = 'Courier New'
+
+    pptx_stream = io.BytesIO()
+    prs.save(pptx_stream)
+    return pptx_stream.getvalue()
