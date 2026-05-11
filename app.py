@@ -4,13 +4,12 @@ import random
 import plotly.graph_objects as go
 from openai import AzureOpenAI
 
-# Custom Imports
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from prompts import SYSTEM_PERSONA, build_scenario_prompt, build_vciso_prompt, ScenarioReport, UnifiedEngagementReport 
 from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx
 
 # --- INITIALISATION BLOCK ---
-st.set_page_config(page_title="Strategic Advisory Platform", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Planet IT Strategic Advisory Platform", page_icon="🪐", layout="wide")
 
 keys_to_init = ['vciso_obj', 'vciso_pdf', 'vciso_pptx', 'scenario_obj', 'mdr_case', 'pdf_bytes', 'pptx_bytes', 'recs', 'report_ready', 'selected_mode']
 for key in keys_to_init:
@@ -36,35 +35,31 @@ class CyberScenarioGenerator:
         return random.choice(options) if options else ""
 
     def generate_recommendations(self, inputs):
-        recs = ["🛡️ **SECURITY ASSESSMENTS & ADVISORY**"]
+        recs = ["🪐 **PLANET IT SECURITY ADVISORY & ASSESSMENTS**"]
         
-        # Incident Response & Tabletop Advisory Triggers
         if inputs.get('ir_plan_review') in ["No formal plan", "Over 12 months ago"] or inputs.get('last_tabletop') in ["Never", "Over 12 months ago"]:
-             recs.append("• [Secureworks Incident Response Preparedness](https://www.secureworks.com/services/incident-response-readiness): Update your IR plan and conduct tabletop exercises to align with compliance requirements.")
+             recs.append("• [Secureworks Incident Response Preparedness]: Update your IR plan and conduct tabletop exercises to align with compliance requirements.")
         if inputs.get('ir_retainer') == "None / Ad-Hoc":
-             recs.append("• [Sophos Incident Response Retainer](https://www.sophos.com/en-us/services/incident-response-retainer): Establish a formal retainer to guarantee response SLAs.")
+             recs.append("• [Sophos Incident Response Retainer]: Establish a formal retainer to guarantee response SLAs.")
         if inputs.get('insurance_status') == "Policy Exists (Untested)":
-             recs.append("• **Insurance Readiness Assessment:** Map your current controls against your policy to prevent payout denials.")
+             recs.append("• **Insurance Readiness Assessment:** Engage our Planet IT advisory team to map your controls against your policy.")
         if inputs.get('target_compliance') and "None specified" not in inputs['target_compliance']:
-             recs.append(f"• **Compliance Gap Assessment:** Engage our advisory team for a formal audit against your target frameworks: {inputs['target_compliance']}.")
+             recs.append(f"• **Compliance Gap Assessment:** Engage Planet IT for a formal audit against your target frameworks: {inputs['target_compliance']}.")
 
-        # Technology Advisory Triggers
-        recs.append("\n⚙️ **RECOMMENDED SOPHOS SOLUTIONS**")
+        recs.append("\n⚙️ **PLANET IT RECOMMENDED TECHNOLOGY STACK**")
         if inputs.get('mdr_provider', 'None') != "Sophos MDR":
-            recs.append("• [Sophos MDR](https://www.sophos.com/en-us/products/mdr): Replace your fragmented approach with a fully managed, 24/7 threat hunting service.")
+            recs.append("• [Planet IT Managed SOC (Powered by Sophos MDR)]: Replace your fragmented approach with our fully managed, 24/7 threat hunting service.")
         if inputs.get('m365_license', 'None') != "None / On-Prem Only":
-            recs.append(f"• [Sophos MDR for Microsoft 365](https://www.sophos.com/en-us/products/mdr): Maximise your {inputs.get('m365_license')} investment.")
-        recs.append("• [Sophos Managed Risk](https://www.sophos.com/en-us/products/managed-risk): Implement continuous external attack surface management.")
+            recs.append(f"• [Sophos MDR for Microsoft 365]: Maximise your {inputs.get('m365_license')} investment via our SOC.")
+        recs.append("• [Sophos Managed Risk]: Implement continuous external attack surface management.")
         return recs
 
     def call_llm_structured(self, prompt, response_model):
         if not self.client: return None
         try:
             response = self.client.beta.chat.completions.parse(
-                model=self.deployment, 
-                messages=[{"role": "system", "content": SYSTEM_PERSONA}, {"role": "user", "content": prompt}],
-                response_format=response_model, 
-                temperature=0.7
+                model=self.deployment, messages=[{"role": "system", "content": SYSTEM_PERSONA}, {"role": "user", "content": prompt}],
+                response_format=response_model, temperature=0.7
             )
             return response.choices[0].message.parsed
         except Exception as e:
@@ -82,20 +77,20 @@ except Exception:
 
 app_engine = CyberScenarioGenerator(api_key=az_key, endpoint=az_endpoint, deployment=az_deployment, api_version=az_api_version)
 
-# --- SIDEBAR NAV ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("🛡️ Platform Menu")
+    st.title("🪐 Planet IT Menu")
     if st.session_state['selected_mode'] is not None:
         st.button("🏠 Return to Dashboard", on_click=return_to_dashboard, use_container_width=True)
     st.divider()
-    st.caption("Powered by Azure OpenAI & Sophos Threat Intelligence")
+    st.caption("Planet IT Strategic Advisory Engine")
 
 # ---------------------------------------------------------
 # VIEW 1: TOP-LEVEL DASHBOARD
 # ---------------------------------------------------------
 if st.session_state['selected_mode'] is None:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.title("Strategic Advisory Platform")
+    st.title("Planet IT Advisory Platform")
     st.markdown("Select an advisory engine below to begin building your engagement deliverables.")
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -125,7 +120,6 @@ else:
     app_mode = st.session_state['selected_mode']
     st.title(app_mode)
     
-    # Initialize defaults to prevent KeyErrors
     client_inputs = {
         "mfa_status": "None", "phishing_frequency": "None", "training_maturity": "None", "admin_rights": "None",
         "backup_strategy": "None", "last_tabletop": "None", "asset_visibility": "None", "data_classification": "No",
@@ -133,11 +127,9 @@ else:
         "ir_plan_review": "None", "target_compliance": "None specified", "custom_scenario": "", "savviness": "Tier 2: Basic Compliance"
     }
 
-    # Expander auto-collapses if a report has been successfully generated
     with st.expander("⚙️ Client Discovery & Estate Configuration", expanded=not st.session_state['report_ready']):
         st.warning("🔒 **Data Privacy Notice:** Do not enter highly sensitive PII, passwords, or regulated IP data into these fields.")
         
-        # COMMON TIER 1
         col1, col2 = st.columns(2)
         with col1:
             with st.container(border=True):
@@ -168,7 +160,6 @@ else:
                     client_inputs["cloud_env"] = st.selectbox("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "None (On-Prem)"])
                     client_inputs["email"] = st.selectbox("Email Gateway", ["Sophos", "Mimecast", "Proofpoint", "Microsoft Defender", "Other"])
 
-        # TIER 2: vCISO SPECIFIC
         if app_mode == "📈 vCISO Assessment":
             col3, col4 = st.columns(2)
             with col3:
@@ -201,7 +192,6 @@ else:
                         client_inputs["data_classification"] = "Yes" if st.checkbox("Formal Data Classification?") else "No"
                         client_inputs["target_compliance"] = ", ".join(target_compliance) if target_compliance else "None specified"
 
-        # TIER 2: TACTICAL SPECIFIC
         elif app_mode == "🔥 Threat Simulator":
             with st.container(border=True):
                 st.subheader("🎯 Tactical Simulation Parameters")
@@ -209,7 +199,7 @@ else:
                 with sim_1:
                     client_inputs["savviness"] = st.selectbox("Assumed Security Culture / Maturity", ["Tier 1: High Risk", "Tier 2: Basic Compliance", "Tier 3: Conscious", "Tier 4: Highly Technical"])
                 with sim_2:
-                    client_inputs["custom_scenario"] = st.text_input("Custom Threat Scenario Override (Optional)", placeholder="e.g., BlackBasta ransomware deployment via compromised MSP")
+                    client_inputs["custom_scenario"] = st.text_input("Custom Threat Scenario Override (Optional)", placeholder="e.g., Ransomware deployment via compromised MSP")
 
         st.markdown("<br>", unsafe_allow_html=True)
         generate_btn = st.button(f"🚀 Generate {app_mode.split()[1]}", type="primary", use_container_width=True)
@@ -220,14 +210,13 @@ else:
     if generate_btn:
         if not app_engine.client:
             st.error("🚨 API Credentials missing. Please configure your secrets.toml.")
-            st.stop() # Security Halt
+            st.stop()
             
         st.session_state['client_inputs'] = client_inputs
         st.session_state['report_ready'] = False 
         
         with st.spinner("Analysing estate and generating insights..."):
             if app_mode == "📈 vCISO Assessment":
-                # CALL THE BIFURCATED SCHEMA
                 unified_obj = app_engine.call_llm_structured(build_vciso_prompt(client_inputs), UnifiedEngagementReport)
                 if unified_obj:
                     st.session_state['vciso_obj'] = unified_obj
@@ -239,7 +228,6 @@ else:
                 selected_vector = random.choice(ATTACK_VECTORS)
                 osint_data = f"{app_engine.fetch_osint(client_inputs['endpoint'])} {app_engine.fetch_osint(client_inputs['firewall'])}"
                 
-                # PERFORMANCE: Single Pass LLM generation for Narrative AND MDR Log
                 scenario_obj = app_engine.call_llm_structured(build_scenario_prompt(client_inputs, osint_data, selected_vector, client_inputs["custom_scenario"]), ScenarioReport)
                 if scenario_obj:
                     st.session_state['scenario_obj'] = scenario_obj
@@ -268,7 +256,6 @@ else:
                     st.info(f"**Compliance Alignment:**\n{exec_report.compliance_alignment}")
                 
                 with col_viz:
-                    # UI UPGRADE: Interactive Plotly Chart
                     categories = [d.domain_name for d in exec_report.domain_assessments]
                     scores = [d.numeric_maturity_score for d in exec_report.domain_assessments]
                     fig = go.Figure()
