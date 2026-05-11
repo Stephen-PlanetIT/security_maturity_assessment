@@ -6,33 +6,25 @@ from fpdf import FPDF
 from pptx import Presentation
 from pptx.util import Pt, Inches
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.enum.shapes import MSO_SHAPE
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- BRANDING COLORS ---
 PLANET_IT_DARK_BLUE = RGBColor(0, 32, 96) 
 PLANET_IT_LIGHT_BLUE = RGBColor(0, 102, 204)
 
-# --- TEXT CLEANER ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "planet_it_master_template.pptx")
+
 def clean_text(text, mode="pdf"):
     if not text: return ""
     text = text.replace('\xa0', ' ').replace('\t', ' ')
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
-    if mode == "pdf":
-        text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
-        text = text.replace('🟢', 'WIN:').replace('£', 'GBP ') 
     text = text.replace('### ', '').replace('## ', '').replace('# ', '')
-    if mode in ["mdr", "pptx"]:
-        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1', text)
-        text = text.replace('**', '').replace('*', '').replace('`', '')
-        text = text.replace('🎯', '').replace('✅', '').replace('🛡️', '').replace('🟢', '')
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
 # ==========================================
-# PDF ENGINE (For the PDFExecutiveSummary)
+# PDF ENGINE 
 # ==========================================
 class ReportPDF(FPDF):
     def header(self):
@@ -53,7 +45,10 @@ class ReportPDF(FPDF):
 
 def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
     safe_txt = clean_text(txt, "pdf")
-    pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align, fill=fill)
+    if safe_txt:
+        pdf.set_x(pdf.l_margin) 
+        pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align, fill=fill)
+        pdf.set_x(pdf.l_margin) 
 
 def generate_radar_chart(domain_assessments):
     categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
@@ -75,82 +70,211 @@ def generate_radar_chart(domain_assessments):
     plt.close('all')
     return buf
 
-def create_vciso_pdf(inputs, exec_obj):
-    pdf = ReportPDF()
-    pdf.add_page()
-    pdf.set_font("helvetica", "B", 18)
-    pdf.cell(w=0, h=12, txt="Executive Security Maturity Assessment", ln=True, align="C")
-    pdf.ln(4)
-    
-    pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(0, 32, 96) 
-    pdf.cell(0, 8, "Executive Risk Summary", ln=True)
-    pdf.set_font("helvetica", "", 11)
-    pdf.set_text_color(0, 0, 0)
-    robust_multi_cell(pdf, 0, 5, exec_obj.executive_summary)
-    pdf.ln(4)
-    
-    chart_buf = generate_radar_chart(exec_obj.domain_assessments)
-    pdf.image(chart_buf, x=45, w=120)
-    
-    pdf.add_page()
-    for domain in exec_obj.domain_assessments:
-        pdf.set_font("helvetica", "B", 12)
-        pdf.set_text_color(0, 32, 96)
-        pdf.cell(w=0, h=8, txt=f"{domain.domain_name} - Score: {domain.numeric_maturity_score}/5.0", ln=True)
-        pdf.set_font("helvetica", "", 10)
-        pdf.set_text_color(0, 0, 0)
-        robust_multi_cell(pdf, 0, 5, f"{domain.current_state_analysis}")
-        pdf.ln(4)
-
-    return bytes(pdf.output())
-
 def draw_estate_summary(pdf, inputs):
-    pdf.ln(5)
-    pdf.set_font("helvetica", "B", 14)
+    pdf.ln(2)
+    pdf.set_font("helvetica", "B", 12)
     pdf.set_text_color(0, 32, 96) 
-    pdf.cell(0, 8, "Client Estate Summary", ln=True)
+    pdf.cell(0, 8, "Client Estate & Environmental Summary", ln=True)
     pdf.set_draw_color(200, 200, 200) 
     pdf.set_line_width(0.5)
     pdf.line(pdf.get_x(), pdf.get_y(), 195, pdf.get_y()) 
-    pdf.ln(4)
+    pdf.ln(2)
     pdf.set_text_color(0, 0, 0)
     pdf.set_fill_color(245, 245, 245) 
-    pdf.set_font("helvetica", "", 10)
+    pdf.set_font("helvetica", "", 9)
     summary_text = (
-        f"Target Compliance: {inputs.get('target_compliance', 'None')} | Current Certs: {inputs.get('current_cert', 'None')}\n"
         f"MDR Provider: {inputs.get('mdr_provider', 'N/A')} | Endpoint: {inputs.get('endpoint', 'N/A')}\n"
-        f"Firewall: {inputs.get('firewall', 'N/A')} | Email: {inputs.get('email', 'N/A')}"
+        f"Firewall: {inputs.get('firewall', 'N/A')} | Workspace License: {inputs.get('workspace_license', 'N/A')}\n"
+        f"Identity: {inputs.get('identity', 'N/A')} | Cloud Env: {inputs.get('cloud_env', 'N/A')}\n"
+        f"Target Compliance: {inputs.get('target_compliance', 'None')} | Target Users: {inputs.get('users', 'N/A')}"
     )
     for line in summary_text.split('\n'):
-        pdf.cell(w=0, h=7, txt=f"  {line}", ln=True, fill=True)
-    pdf.ln(6)
+        pdf.cell(w=0, h=6, txt=f"  {line}", ln=True, fill=True)
+    pdf.ln(4)
 
-def create_pdf(inputs, scenario_obj, recs, mdr_case):
+def create_vciso_pdf(inputs, exec_obj):
     pdf = ReportPDF()
+    
+    # --- PAGE 1: THE BOARDROOM TEAR-SHEET ---
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 18)
+    pdf.cell(w=0, h=10, txt="Executive Boardroom Tear-Sheet", ln=True, align="C")
+    draw_estate_summary(pdf, inputs)
+    
+    # Financials Block
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font("helvetica", "B", 12)
+    pdf.cell(0, 8, " Financial Exposure & Benchmarking", ln=True, fill=True)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(60, 8, "Est. Financial Exposure:")
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(0, 8, exec_obj.financial_analysis.estimated_financial_exposure, ln=True)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(60, 8, "Immediate Budget Ask:")
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(0, 8, exec_obj.financial_analysis.immediate_budgetary_ask, ln=True)
+    pdf.ln(2)
+    pdf.set_font("helvetica", "I", 10)
+    robust_multi_cell(pdf, 0, 5, f"Peer Benchmark: {exec_obj.financial_analysis.peer_benchmark_statement}")
+    pdf.ln(4)
+    
+    # Top 3 Risks
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(204, 0, 0)
+    pdf.cell(0, 8, " Top 3 Critical Business Risks", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    for risk in exec_obj.top_3_business_risks:
+        robust_multi_cell(pdf, 0, 6, f"• {risk}")
+    
+    # Radar Chart 
+    chart_buf = generate_radar_chart(exec_obj.domain_assessments)
+    pdf.image(chart_buf, x=45, y=180, w=120)
+
+    # --- PAGE 2: EXECUTIVE PROSE & SETUP ---
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, "Tactical Threat Simulation Report", ln=True, align='C')
-    draw_estate_summary(pdf, inputs)
-    robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
-    
-    pdf.add_page()
-    pdf.ln(5)
-    pdf.set_font("helvetica", "B", 14)
     pdf.set_text_color(0, 32, 96) 
-    pdf.cell(0, 8, "Simulated MDR Investigation Log", ln=True)
-    pdf.set_draw_color(200, 200, 200) 
-    pdf.set_line_width(0.5)
-    pdf.line(pdf.get_x(), pdf.get_y(), 195, pdf.get_y()) 
-    pdf.ln(4)
+    pdf.cell(0, 8, "Executive Posture Summary", ln=True)
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("courier", "", 9)
-    robust_multi_cell(pdf, 0, 5, clean_text(mdr_case, "mdr"))
+    pdf.ln(4)
     
+    pdf.set_font("helvetica", "B", 11)
+    pdf.cell(0, 6, "Current Setup & Posture Analysis", ln=True)
+    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 5, exec_obj.executive_prose.current_setup_summary)
+    pdf.ln(4)
+
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(0, 128, 0) # Green
+    pdf.cell(0, 6, "Current Strengths", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    for strength in exec_obj.executive_prose.current_strengths: robust_multi_cell(pdf, 0, 5, f"• {strength}")
+    pdf.ln(4)
+
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(204, 0, 0) # Red
+    pdf.cell(0, 6, "Primary Weaknesses", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    for weakness in exec_obj.executive_prose.current_weaknesses: robust_multi_cell(pdf, 0, 5, f"• {weakness}")
+    pdf.ln(4)
+    
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 6, "Cloud & Workspace License Optimization", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 5, exec_obj.executive_prose.license_security_analysis)
+    pdf.ln(4)
+    
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(204, 0, 0)
+    pdf.cell(0, 6, "The Cost of Inaction", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 5, exec_obj.cost_of_inaction)
+    pdf.ln(4)
+
+    # --- PAGE 3: STRATEGIC ALIGNMENT ---
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, "Strategic Alignment & Roadmap", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(0, 32, 96)
+    pdf.cell(0, 8, " Compliance & Framework Alignment", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 5, exec_obj.compliance_alignment)
+    pdf.ln(6)
+
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, " Strategic Phased Roadmap", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    for phase in exec_obj.high_level_roadmap:
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 6, phase.phase, ln=True)
+        pdf.set_font("helvetica", "", 10)
+        robust_multi_cell(pdf, 0, 5, phase.summary)
+        pdf.ln(4)
+
+    # --- PAGE 4: DETAILED DOMAIN GAP ANALYSIS ---
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 16)
+    pdf.set_text_color(0, 32, 96) 
+    pdf.cell(0, 8, "Deep-Dive Domain Analysis", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    for domain in exec_obj.domain_assessments:
+        # Domain Header
+        pdf.set_font("helvetica", "B", 14)
+        pdf.set_fill_color(240, 240, 240)
+        pdf.cell(w=0, h=10, txt=f" {domain.domain_name} - Maturity: {domain.numeric_maturity_score}/5.0", ln=True, fill=True)
+        pdf.ln(2)
+        
+        # Current State & Risk Exposure
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 6, "State of the Estate:", ln=True)
+        pdf.set_font("helvetica", "", 10)
+        robust_multi_cell(pdf, 0, 5, domain.current_state_analysis)
+        pdf.ln(2)
+        
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 6, "Risk Exposure Context:", ln=True)
+        pdf.set_font("helvetica", "", 10)
+        safe_risk_exposure = getattr(domain, 'risk_exposure_summary', 'Context unavailable.')
+        robust_multi_cell(pdf, 0, 5, safe_risk_exposure)
+        pdf.ln(2)
+        
+        # Real-World Scenario
+        pdf.set_font("helvetica", "B", 10)
+        pdf.set_text_color(204, 0, 0) 
+        pdf.cell(0, 6, "Real-World Threat Scenario:", ln=True)
+        pdf.set_font("helvetica", "I", 9)
+        safe_scenario = getattr(domain, 'real_world_risk_scenario', 'Scenario data unavailable.')
+        robust_multi_cell(pdf, 0, 5, safe_scenario)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(4)
+        
+        # Recommended Solutions (Deep Dive)
+        pdf.set_font("helvetica", "B", 11)
+        pdf.set_text_color(0, 32, 96)
+        pdf.cell(0, 6, "Advisory Recommendations & Strategic Rationale:", ln=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(2)
+        
+        for rec in domain.recommended_solutions:
+            sol_name = getattr(rec, 'solution_name', 'Solution')
+            desc = getattr(rec, 'description', '')
+            val = getattr(rec, 'business_value', '')
+            rationale = getattr(rec, 'strategic_rationale', 'Rationale unavailable.')
+            
+            # Formatted Recommendation Block
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 5, f"• {sol_name}", ln=True)
+            
+            pdf.set_font("helvetica", "", 9)
+            pdf.set_x(pdf.l_margin + 5) # Indent the details slightly
+            robust_multi_cell(pdf, 0, 5, f"What it is: {desc}")
+            pdf.set_x(pdf.l_margin + 5)
+            robust_multi_cell(pdf, 0, 5, f"Business Value: {val}")
+            pdf.set_x(pdf.l_margin + 5)
+            robust_multi_cell(pdf, 0, 5, f"Strategic Rationale: {rationale}")
+            pdf.ln(4)
+            
+        pdf.ln(8) # Space before next domain
+
     return bytes(pdf.output())
 
 # ==========================================
-# POWERPOINT ENGINE (For the PPTXTechnicalRoadmap & Simulator)
+# POWERPOINT ENGINE 
 # ==========================================
 def add_text_block(slide, text, left, top, width, height, font_size=12, bold=False, rgb=(0,0,0)):
     box = slide.shapes.add_textbox(left, top, width, height)
@@ -163,107 +287,50 @@ def add_text_block(slide, text, left, top, width, height, font_size=12, bold=Fal
     p.font.color.rgb = RGBColor(*rgb)
     return tf
 
+def load_template_or_fail():
+    if not os.path.exists(TEMPLATE_PATH):
+        raise FileNotFoundError(f"CRITICAL ERROR: Cannot find the master template at: {TEMPLATE_PATH}.")
+    return Presentation(TEMPLATE_PATH)
+
+def wipe_existing_slides(prs):
+    for i in range(len(prs.slides) - 1, -1, -1):
+        rId = prs.slides._sldIdLst[i].rId
+        prs.part.drop_rel(rId)
+        del prs.slides._sldIdLst[i]
+
 def create_vciso_pptx(inputs, tech_obj, exec_obj):
-    # Template Injection Logic
-    template_path = "planet_it_master_template.pptx"
-    
-    if os.path.exists(template_path):
-        prs = Presentation(template_path)
-        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
-    else:
-        prs = Presentation()
-        prs.slide_width = Inches(10)
-        prs.slide_height = Inches(7.5)
-        blank_layout = prs.slide_layouts[6]
+    prs = load_template_or_fail()
+    wipe_existing_slides(prs) 
+    content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
         
-    # --- SLIDE 1: Title ---
-    slide1 = prs.slides.add_slide(blank_layout)
-    add_text_block(slide1, "TECHNICAL DEPLOYMENT ROADMAP", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(0,32,96))
-    add_text_block(slide1, f"Customer: {inputs.get('customer_name', 'Client')}", Inches(0.5), Inches(3.5), Inches(9), Inches(0.5), font_size=18)
+    slide1 = prs.slides.add_slide(content_layout)
+    add_text_block(slide1, "OPERATIONAL DEPLOYMENT ROADMAP", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(0,32,96))
+    
+    slide2 = prs.slides.add_slide(content_layout)
+    add_text_block(slide2, "Operational Reality Check", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide2, tech_obj.operational_reality_statement, Inches(0.5), Inches(1.5), Inches(9), Inches(2), font_size=14)
 
-    # --- SLIDE 2: Architecture State ---
-    slide2 = prs.slides.add_slide(blank_layout)
-    add_text_block(slide2, "Current Architecture Analysis", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
-    add_text_block(slide2, tech_obj.architecture_current_state, Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=12)
+    slide3 = prs.slides.add_slide(content_layout)
+    add_text_block(slide3, "Immediate High-Impact Actions", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    tf_qw = add_text_block(slide3, "", Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=14)
+    for win in tech_obj.high_impact_quick_wins:
+        p = tf_qw.add_paragraph()
+        p.text = f"[{win.effort_vs_impact}] {clean_text(win.task, 'pptx')}"
+        p.font.size = Pt(12)
 
-    # --- SLIDE 3: Target Operating Model ---
-    slide3 = prs.slides.add_slide(blank_layout)
-    add_text_block(slide3, "Target Operating Model (TOM)", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
-    add_text_block(slide3, tech_obj.target_operating_model, Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=12)
-
-    # --- SLIDES 4+: Implementation Phases ---
     for phase in tech_obj.implementation_phases:
-        slide_ph = prs.slides.add_slide(blank_layout)
+        slide_ph = prs.slides.add_slide(content_layout)
         add_text_block(slide_ph, phase.phase_name, Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
         
-        # Engineering Tasks
         tf_tasks = add_text_block(slide_ph, "Engineering Tasks:", Inches(0.5), Inches(1.5), Inches(4.3), Inches(0.5), font_size=14, bold=True)
         for task in phase.engineering_tasks:
             p = tf_tasks.add_paragraph()
             p.text = f"• {clean_text(task, 'pptx')}"
             p.font.size = Pt(11)
-            
-        # Products
-        tf_prod = add_text_block(slide_ph, "Solutions Deployed:", Inches(5.2), Inches(1.5), Inches(4.3), Inches(0.5), font_size=14, bold=True)
-        for prod in phase.sophos_products_deployed:
-            p = tf_prod.add_paragraph()
-            p.text = f"• {clean_text(prod, 'pptx')}"
-            p.font.size = Pt(11)
 
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
     return pptx_stream.getvalue()
 
-def create_pptx(inputs, scenario_obj, recs, mdr_case):
-    """Generates the Tactical Threat Simulator PPTX."""
-    template_path = "planet_it_master_template.pptx"
-    
-    if os.path.exists(template_path):
-        prs = Presentation(template_path)
-        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
-    else:
-        prs = Presentation()
-        prs.slide_width = Inches(10)
-        prs.slide_height = Inches(7.5)
-        blank_layout = prs.slide_layouts[6]
-
-    # --- Title Slide ---
-    slide1 = prs.slides.add_slide(blank_layout)
-    bg_cover = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(10), Inches(7.5))
-    bg_cover.fill.solid()
-    bg_cover.fill.fore_color.rgb = RGBColor(20, 20, 20) # Dark Theme for Threat Sim
-    
-    add_text_block(slide1, "BREACH SIMULATION & MDR RESPONSE", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(255,255,255))
-    add_text_block(slide1, f"Target Environment: {inputs.get('customer_name', 'Client')}", Inches(0.5), Inches(3.5), Inches(9), Inches(0.5), font_size=20, rgb=(200,50,50))
-
-    # --- Narrative Overview ---
-    slide2 = prs.slides.add_slide(blank_layout)
-    add_text_block(slide2, "Executive Threat Narrative", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
-    add_text_block(slide2, scenario_obj.narrative, Inches(0.5), Inches(1.2), Inches(9), Inches(5.5), font_size=11)
-
-    # --- Attack Timeline ---
-    slide3 = prs.slides.add_slide(blank_layout)
-    add_text_block(slide3, "Chronological Attack Progression", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
-    
-    tf = add_text_block(slide3, "", Inches(0.5), Inches(1.2), Inches(9), Inches(5.5), font_size=11)
-    for event in scenario_obj.timeline:
-        p = tf.add_paragraph()
-        p.text = f"[{event.timestamp}]  {clean_text(event.event_description, 'pptx')}"
-        p.font.size = Pt(11)
-        p.font.bold = True
-
-    # --- MDR Log (Dark Terminal Mode) ---
-    slide4 = prs.slides.add_slide(blank_layout)
-    bg_term = slide4.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(10), Inches(7.5))
-    bg_term.fill.solid()
-    bg_term.fill.fore_color.rgb = RGBColor(10, 10, 10)
-    
-    add_text_block(slide4, "SOC INVESTIGATION LOG - //PLANET IT MANAGED SOC", Inches(0.5), Inches(0.3), Inches(9), Inches(0.6), font_size=18, bold=True, rgb=(0, 255, 0))
-    
-    log_box = add_text_block(slide4, mdr_case, Inches(0.5), Inches(1.0), Inches(9), Inches(6.0), font_size=10, rgb=(0, 200, 0))
-    for paragraph in log_box.paragraphs:
-        paragraph.font.name = 'Courier New'
-
-    pptx_stream = io.BytesIO()
-    prs.save(pptx_stream)
-    return pptx_stream.getvalue()
+def create_pdf(inputs, scenario_obj, recs, mdr_case): return b''
+def create_pptx(inputs, scenario_obj, recs, mdr_case): return b''
