@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  advisory-platform:
+    build: .
+    container_name: planet-it-advisory
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Optional: Mount the template locally so you can update branding without rebuilding the image
+      - ./planet_it_master_template.pptx:/app/planet_it_master_template.pptx:ro

@@ -1,8 +1,8 @@
-streamlit>=1.30.0
-openai>=1.14.0
-pydantic>=2.6.0
-fpdf2>=2.8.0
-python-pptx>=0.6.22
-matplotlib>=3.8.4
-numpy>=1.26.0
-plotly>=5.18.0
+streamlit==1.32.0
+openai==1.14.0
+pydantic==2.6.3
+fpdf2==2.7.8
+python-pptx==0.6.23
+matplotlib==3.8.3
+numpy==1.26.4
+plotly==5.19.0

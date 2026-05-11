@@ -1,10 +1,9 @@
-# .dockerignore
 __pycache__/
 *.pyc
-.git/
-.venv/
+*.pyo
+*.pyd
+.Python
+env/
 venv/
 .env
-
-# CRITICAL: Never bake secrets into the Docker image!
 .streamlit/secrets.toml
