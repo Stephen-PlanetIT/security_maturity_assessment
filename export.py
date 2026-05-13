@@ -9,8 +9,13 @@ from pptx.dml.color import RGBColor
 import matplotlib.pyplot as plt
 import numpy as np
 
-PLANET_IT_DARK_BLUE = RGBColor(0, 32, 96) 
-PLANET_IT_LIGHT_BLUE = RGBColor(0, 102, 204)
+# --- PLANET IT BRAND COLOURS ---
+PLANET_IT_PRIMARY_RGB = (11, 35, 65)     # Deep Navy
+PLANET_IT_PRIMARY_HEX = '#0B2341'
+PLANET_IT_ACCENT_RGB = (243, 108, 33)    # Planet IT Orange (used for alerts/highlights)
+
+PLANET_IT_DARK_BLUE = RGBColor(*PLANET_IT_PRIMARY_RGB) 
+PLANET_IT_LIGHT_BLUE = RGBColor(0, 102, 204) # Secondary fallback
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "planet_it_master_template.pptx")
@@ -35,16 +40,12 @@ def clean_text(text, mode="pdf"):
     return text.strip()
 
 # ==========================================
-# PDF ENGINE 
+# PDF ENGINE (Parameterised for any app)
 # ==========================================
 class ReportPDF(FPDF):
-    def __init__(self):
-        super().__init__()
-        # THIS PREVENTS TEXT OVERFLOWING THE BOTTOM OF THE PAGE
-        self.set_auto_page_break(auto=True, margin=20)
-
     def header(self):
-        self.set_fill_color(0, 32, 96) 
+        # Planet IT Branded Header Banner
+        self.set_fill_color(*PLANET_IT_PRIMARY_RGB) 
         self.rect(0, 0, 210, 20, 'F')   
         self.set_y(6)
         self.set_font('helvetica', 'B', 12)
@@ -74,8 +75,11 @@ def generate_radar_chart(domain_assessments):
     label_loc = np.linspace(start=0, stop=2 * np.pi, num=len(levels))
     fig = plt.figure(figsize=(6, 5))
     ax = plt.subplot(polar=True)
-    ax.plot(label_loc, levels, color='#002060', linewidth=2)
-    ax.fill(label_loc, levels, color='#002060', alpha=0.25)
+    
+    # Planet IT Branded Radar Chart
+    ax.plot(label_loc, levels, color=PLANET_IT_PRIMARY_HEX, linewidth=2)
+    ax.fill(label_loc, levels, color=PLANET_IT_PRIMARY_HEX, alpha=0.25)
+    
     ax.set_ylim(0, 5)
     plt.thetagrids(np.degrees(label_loc), labels=categories)
     plt.tight_layout()
@@ -89,7 +93,7 @@ def generate_radar_chart(domain_assessments):
 def draw_estate_summary(pdf, inputs):
     pdf.ln(2)
     pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, "Client Estate & Environmental Summary", ln=True)
     pdf.set_draw_color(200, 200, 200) 
     pdf.set_line_width(0.5)
@@ -110,7 +114,9 @@ def draw_estate_summary(pdf, inputs):
 
 def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Assessment"):
     pdf = ReportPDF()
+    pdf.set_auto_page_break(auto=True, margin=20) # ENFORCES STRICT PAGE BREAKING
     pdf.add_page()
+    
     pdf.set_font("helvetica", "B", 18)
     pdf.cell(w=0, h=10, txt=report_title, ln=True, align="C")
     draw_estate_summary(pdf, inputs)
@@ -134,19 +140,30 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     
     # Top Risks
     pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(204, 0, 0)
+    pdf.set_text_color(204, 0, 0) # Red for Risks
     pdf.cell(0, 8, " Top Critical Business Risks", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("helvetica", "", 10)
     for risk in exec_obj.top_3_business_risks: robust_multi_cell(pdf, 0, 6, f"- {risk}")
+    pdf.ln(6)
     
+    # Dynamic Radar Chart Rendering
     chart_buf = generate_radar_chart(exec_obj.domain_assessments)
-    pdf.image(chart_buf, x=45, y=180, w=120)
+    current_y = pdf.get_y()
+    
+    # If there is less than 120mm left on the page, force the chart to the next page
+    if current_y > 150:
+        pdf.add_page()
+        current_y = pdf.get_y()
+        
+    pdf.image(chart_buf, x=45, y=current_y + 5, w=120)
+    # Move cursor entirely past the image to prevent overlapping
+    pdf.set_y(current_y + 130) 
 
     # Executive Prose & Setup
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, "Executive Posture Summary", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
@@ -174,25 +191,33 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     pdf.ln(4)
     
     pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
+    pdf.cell(0, 6, "Cloud & Workspace License Optimisation", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 5, exec_obj.executive_prose.license_security_analysis)
+    pdf.ln(4)
+    
+    pdf.set_font("helvetica", "B", 11)
     pdf.set_text_color(204, 0, 0)
     pdf.cell(0, 6, "The Cost of Inaction", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("helvetica", "", 10)
     robust_multi_cell(pdf, 0, 5, exec_obj.cost_of_inaction)
-    pdf.ln(8)
+    pdf.ln(4)
 
-    # --- NEW PAGE: CORE INFRASTRUCTURE & LICENSING STRATEGY ---
+    # --- CORE INFRASTRUCTURE & LICENSING STRATEGY ---
     stack = getattr(exec_obj, 'infrastructure_stack', None)
     if stack:
         pdf.add_page()
         pdf.set_font("helvetica", "B", 16)
-        pdf.set_text_color(0, 32, 96) 
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
         pdf.cell(0, 8, "Core Infrastructure & Licensing Strategy", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.ln(4)
 
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Microsoft Licensing & Identity Blueprint", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("helvetica", "", 10)
@@ -200,7 +225,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
         pdf.ln(4)
 
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Email Security & Compliance Strategy", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("helvetica", "", 10)
@@ -208,7 +233,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
         pdf.ln(4)
 
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Perimeter Firewall & Edge Strategy", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("helvetica", "", 10)
@@ -220,13 +245,13 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     if it_ops:
         pdf.add_page()
         pdf.set_font("helvetica", "B", 16)
-        pdf.set_text_color(0, 32, 96) 
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
         pdf.cell(0, 8, "IT Operations & Data Resilience", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.ln(4)
 
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Patching & Asset Visibility", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("helvetica", "", 10)
@@ -234,7 +259,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
         pdf.ln(4)
 
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Data Resilience & Disaster Recovery", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("helvetica", "", 10)
@@ -252,13 +277,13 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     # --- PAGE: STRATEGIC ALIGNMENT ---
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, "Strategic Alignment & Roadmap", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 
     pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(0, 32, 96)
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
     pdf.cell(0, 8, " Compliance & Framework Alignment", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("helvetica", "", 10)
@@ -266,7 +291,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     pdf.ln(6)
 
     pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, " Strategic Phased Roadmap", ln=True)
     pdf.set_text_color(0, 0, 0)
     for phase in exec_obj.high_level_roadmap:
@@ -279,7 +304,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
     # --- Detailed Domain Gap Analysis ---
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, "Deep-Dive Domain Analysis", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
@@ -303,7 +328,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
         pdf.ln(2)
         
         pdf.set_font("helvetica", "B", 10)
-        pdf.set_text_color(204, 0, 0) 
+        pdf.set_text_color(*PLANET_IT_ACCENT_RGB) # Use Planet IT Orange for Risk Scenarios
         pdf.cell(0, 6, "Real-World Threat Scenario:", ln=True)
         pdf.set_font("helvetica", "I", 9)
         robust_multi_cell(pdf, 0, 5, getattr(domain, 'real_world_risk_scenario', 'Scenario data unavailable.'))
@@ -311,7 +336,7 @@ def create_advisory_pdf(inputs, exec_obj, report_title="Executive Advisory & Ass
         pdf.ln(4)
         
         pdf.set_font("helvetica", "B", 11)
-        pdf.set_text_color(0, 32, 96)
+        pdf.set_text_color(*PLANET_IT_PRIMARY_RGB)
         pdf.cell(0, 6, "Advisory Recommendations & Strategic Rationale:", ln=True)
         pdf.set_text_color(0, 0, 0)
         pdf.ln(2)
@@ -362,14 +387,14 @@ def create_advisory_pptx(inputs, tech_obj, exec_obj, report_title="TECHNICAL DEP
     content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
         
     slide1 = prs.slides.add_slide(content_layout)
-    add_text_block(slide1, report_title, Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(0,32,96))
+    add_text_block(slide1, report_title, Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
     
     slide2 = prs.slides.add_slide(content_layout)
-    add_text_block(slide2, "Operational Reality Check", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide2, "Operational Reality Check", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
     add_text_block(slide2, tech_obj.operational_reality_statement, Inches(0.5), Inches(1.5), Inches(9), Inches(2), font_size=14)
 
     slide3 = prs.slides.add_slide(content_layout)
-    add_text_block(slide3, "Immediate High-Impact Actions", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide3, "Immediate High-Impact Actions", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
     tf_qw = add_text_block(slide3, "", Inches(0.5), Inches(1.5), Inches(9), Inches(4), font_size=14)
     for win in tech_obj.high_impact_quick_wins:
         p = tf_qw.add_paragraph()
@@ -378,7 +403,7 @@ def create_advisory_pptx(inputs, tech_obj, exec_obj, report_title="TECHNICAL DEP
 
     for phase in tech_obj.implementation_phases:
         slide_ph = prs.slides.add_slide(content_layout)
-        add_text_block(slide_ph, phase.phase_name, Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+        add_text_block(slide_ph, phase.phase_name, Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
         tf_tasks = add_text_block(slide_ph, "Engineering Tasks:", Inches(0.5), Inches(1.5), Inches(4.3), Inches(0.5), font_size=14, bold=True)
         for task in phase.engineering_tasks:
             p = tf_tasks.add_paragraph()
@@ -392,6 +417,7 @@ def create_advisory_pptx(inputs, tech_obj, exec_obj, report_title="TECHNICAL DEP
 # --- THREAT SIMULATOR LEGACY EXPORTS ---
 def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf = ReportPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "Tactical Threat Simulation Report", ln=True, align='C')
@@ -400,7 +426,7 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     
     pdf.add_page()
     pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(*PLANET_IT_PRIMARY_RGB) 
     pdf.cell(0, 8, "Simulated MDR Investigation Log", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("courier", "", 9)
@@ -412,10 +438,10 @@ def create_pptx(inputs, scenario_obj, recs, mdr_case):
     wipe_existing_slides(prs)
     content_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
     slide1 = prs.slides.add_slide(content_layout)
-    add_text_block(slide1, "BREACH SIMULATION & MDR RESPONSE", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=(0,32,96))
+    add_text_block(slide1, "BREACH SIMULATION & MDR RESPONSE", Inches(0.5), Inches(2.5), Inches(9), Inches(1), font_size=36, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
     
     slide2 = prs.slides.add_slide(content_layout)
-    add_text_block(slide2, "Executive Threat Narrative", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=(0,32,96))
+    add_text_block(slide2, "Executive Threat Narrative", Inches(0.5), Inches(0.5), Inches(9), Inches(0.5), font_size=24, bold=True, rgb=PLANET_IT_PRIMARY_RGB)
     add_text_block(slide2, scenario_obj.narrative, Inches(0.5), Inches(1.2), Inches(9), Inches(5.5), font_size=11)
     
     pptx_stream = io.BytesIO()

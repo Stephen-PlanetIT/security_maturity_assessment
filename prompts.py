@@ -2,7 +2,7 @@
 import datetime
 from pydantic import BaseModel, Field
 from typing import List
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS
 from catalog import PLANET_IT_PORTFOLIO
 
 # --- THREAT SIMULATOR SCHEMAS ---
@@ -23,15 +23,15 @@ class DetailedRecommendation(BaseModel):
     strategic_rationale: str = Field(description="Deep context on exactly why this specific tool or service was chosen.")
 
 class DomainAssessment(BaseModel):
-    domain_name: str = Field(description="The exact name of the security domain.")
+    domain_name: str = Field(description="The exact name of the security domain (e.g., 'Email Security' or 'Security Awareness').")
     numeric_maturity_score: float = Field(description="The precise maturity score (1.0 to 5.0) as a float.")
     current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Level 2 (Basic)'.")
-    current_state_analysis: str = Field(description="Objective summary of the client's current posture.")
-    risk_exposure_summary: str = Field(description="A deeper explanation of the underlying risks.")
+    current_state_analysis: str = Field(description="Objective summary of the client's current posture in this specific domain based strictly on inputs.")
+    risk_exposure_summary: str = Field(description="A deeper explanation of the underlying architectural risks.")
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     real_world_risk_scenario: str = Field(description="A brief, highly impactful real-world scenario.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
-    recommended_solutions: List[DetailedRecommendation] = Field(description="Detailed product/service recommendations.")
+    recommended_solutions: List[DetailedRecommendation] = Field(description="Detailed product/service recommendations specifically mapped to the Planet IT portfolio.")
     budgetary_estimate: str = Field(description="Rough cost estimate: 'Low (£)', 'Medium (££)', or 'High (£££)'.")
 
 class HighLevelPhase(BaseModel):
@@ -67,7 +67,7 @@ class PDFExecutiveSummary(BaseModel):
     it_operations_analysis: ITOperationsAnalysis = Field(description="Deep dive into IT operations, patching, backups, and N-able Co-Managed opportunities.")
     cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks of doing nothing.")
     compliance_alignment: str = Field(description="Explanation of how this roadmap accelerates the client toward target compliance.")
-    domain_assessments: List[DomainAssessment] = Field(description="Detailed gap analysis for each of the 8 security domains.")
+    domain_assessments: List[DomainAssessment] = Field(description="EXACTLY 9 domain assessments, one for each major Planet IT category.")
     high_level_roadmap: List[HighLevelPhase] = Field(description="A brief strategic 3-phase roadmap for the executive.")
     success_metrics: List[str] = Field(description="3-4 measurable 12-month KPIs.")
 
@@ -98,21 +98,28 @@ You are a Dual-Role Cybersecurity Expert from Planet IT: A Principal Threat Inte
 GENERAL RULES & STRICT GUARDRAILS:
 - IDENTITY: You represent Planet IT. All advisory, consulting, and SOC services must be attributed to Planet IT.
 - Tone MUST be strictly objective, consultative, formal, and highly technical.
-- Use standard British English spelling.
+- Use standard British English spelling (e.g., 'optimised', 'behavioural', 'programme', 'neutralise').
+
+GAP ANALYSIS TONE RULE (CRITICAL - PREVENT HALLUCINATIONS):
+Do NOT invent specific misconfigurations. If the user states they have a Fortinet Firewall, do not assume it is "configured incorrectly". Instead, focus on architectural limitations. State facts based ONLY on the inputs provided.
 
 MULTI-VENDOR ARCHITECTURE RULES (CRITICAL):
 Planet IT is a vendor-agnostic advisor that builds architectures around Sophos, Fortinet, Mimecast, N-able, and Microsoft.
-1. XDR vs MDR RULE (STRICT): NEVER recommend Sophos XDR to small businesses without a 24/7 dedicated security team. XDR requires humans looking at logs at 3 AM. You MUST default to "Sophos MDR / Planet IT Managed SOC" for 95% of businesses.
+1. THE MDR RULE (STRICT): 
+   - If the client has 'None', mandate Sophos MDR. 
+   - NEVER recommend Sophos XDR to businesses without a 24/7 internal security team. 
+   - If the client uses a third-party MDR (e.g., CrowdStrike, Arctic Wolf, or 'Other Third-Party MDR'), ACKNOWLEDGE their existing security maturity. Do not say they lack MDR. Instead, position the "Planet IT Managed SOC" as a co-managed overlay to tune their existing tool, or suggest a consolidation to Sophos MDR at their next renewal date.
 2. FIREWALL/EDGE: Recommend "Fortinet FortiGate" if the client has over 1000 users OR already has Fortinet deployed. Otherwise, recommend "Sophos Firewall".
-3. EMAIL SECURITY: Recommend "Mimecast" if the client is in a highly regulated industry (Finance, Healthcare, Education). Otherwise, recommend Sophos Email.
-4. MICROSOFT LICENSING: Provide direct licensing upgrade paths. Recommend moving to M365 Business Premium (under 300 users) or M365 E5 (Enterprise) to unlock native security features like Entra ID P1/P2 Conditional Access.
-5. IT OPERATIONS & BACKUP: If patching is manual/failing, recommend "N-able N-central". If backups are weak, recommend "N-able Cove Data Protection".
+3. EMAIL SECURITY: Recommend "Mimecast" if the client is in a highly regulated industry (Finance, Healthcare, Education, Legal). Otherwise, recommend Sophos Email.
+4. MICROSOFT LICENSING: Recommend upgrading to M365 Business Premium (under 300 users) or M365 E5 (Enterprise) to unlock Entra ID Conditional Access.
+5. IDENTITY THREATS: Highlight "Sophos ITDR" to monitor Entra ID/Okta for compromised credentials.
+6. VULNERABILITY MANAGEMENT: If vulnerability scanning is rare/never, mandate "Sophos Managed Risk".
+7. IT OPERATIONS & BACKUP: If patching is manual, recommend "N-able N-central". If backups are weak, recommend "N-able Cove Data Protection".
 
 ROLE 1: TACTICAL THREAT ANALYST
-- Detail how the "Planet IT Managed SOC" neutralised the threat.
+- Detail how "Sophos MDR" neutralised the threat.
 
 ROLE 2: VIRTUAL CISO / LEAD ARCHITECT
-- BIFURCATED REPORTING: Ensure the PDF speaks to the CEO (financials, risk, operations) and the PPTX speaks to the IT Director (execution, quick wins).
 - OPERATIONAL REALITY RULE: If the client has 0 or 1 Security FTEs, heavily push Planet IT Managed Services (SOC & Co-Managed IT) over complex tool deployments.
 """
 
@@ -126,7 +133,7 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
     - Section 3: MDR Response (ONLY authorised actions).
     - Section 4: Recommendations.
     - Section 5: Timeline.
-    - Section 6 (mdr_case_log): Generate a SOC Case Report. Format: Case ID: [Random #-######], Date: {current_time}.
+    - Section 6 (mdr_case_log): Generate a SOC Case Report.
     """
     return f"Act as ROLE 1.\n{base_prompt}\nOSINT: {osint_data}\n{scenario_rules}"
 
@@ -138,15 +145,18 @@ def build_unified_audit_prompt(client_inputs):
     - Target Compliance: {client_inputs.get('target_compliance', 'None')}
     - Current Certifications: {client_inputs.get('current_cert', 'None')}
     - Cyber Insurance: {client_inputs.get('insurance_status', 'None')}
+    - Vulnerability Scanning & Pen Testing: {client_inputs.get('vuln_scanning', 'Unknown')}
     
     SECURITY CULTURE & HYGIENE:
     - Identity Controls: {client_inputs.get('identity_controls', 'None')}
     - Endpoint Privileges: {client_inputs.get('admin_rights', 'None')}
     - Phishing Test Cadence: {client_inputs.get('phishing_frequency', 'None')}
     
-    MODERN ATTACK SURFACE & LICENSING:
+    MODERN ATTACK SURFACE, NETWORK & CLOUD:
+    - Workforce Topology: {client_inputs.get('workforce_distribution', 'Unknown')}
     - Workspace Licensing: {client_inputs.get('workspace_license', 'None')}
     - Cloud Infrastructure: {client_inputs.get('cloud_env', 'None')}
+    - Cloud Complexity: {client_inputs.get('cloud_complexity', 'Unknown')}
     - SaaS Sprawl: {client_inputs.get('saas_sprawl', 'None')}
     
     FINANCIAL & RESOURCING CONTEXT:
@@ -161,6 +171,24 @@ def build_unified_audit_prompt(client_inputs):
     - M365 Backup Status: {client_inputs.get('m365_backup', 'Unknown')}
     - Server Backup Strategy: {client_inputs.get('server_backup', 'Unknown')}
     """
+    
     base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs.get('customer_name', 'Client')}\nCLIENT ENVIRONMENT: Industry: {client_inputs.get('industry', 'N/A')} | Users: {client_inputs.get('users', 500)}\n{discovery_context}\nTECH STACK: MDR: {client_inputs.get('mdr_provider', 'None')}, Endpoint: {client_inputs.get('endpoint', 'None')}, Firewall: {client_inputs.get('firewall', 'None')}"
-    rules = f"YOUR KNOWLEDGE BASE (TRUTH ENGINE): {security_truth}\nFRAMEWORK: {MATURITY_FRAMEWORK}\nDOMAINS: {ASSESSMENT_DOMAINS}\nAct as ROLE 2 and populate the UnifiedEngagementReport JSON schema."
+    
+    rules = f"""
+    YOUR KNOWLEDGE BASE (TRUTH ENGINE): {security_truth}
+    
+    CRITICAL INSTRUCTION FOR DOMAIN ASSESSMENTS:
+    You MUST generate exactly 9 `domain_assessments`. You must analyse the client's gaps against ALL 9 of these Planet IT categories:
+    1. Managed Detection and Response (SOC)
+    2. Endpoint & Server Security
+    3. Network & Edge Security (NOTE: Highlight ZTNA if workforce is remote).
+    4. Email Security
+    5. Identity & Access Management (NOTE: Highlight Sophos ITDR for telemetry and MSFT Licensing for Conditional Access).
+    6. Vulnerability & Exposure Management (NOTE: Recommend Sophos Managed Risk if scanning is ad-hoc/never).
+    7. Security Awareness & Training
+    8. Cloud Security & Posture (NOTE: Highlight Cloud Optix if Cloud Complexity is 'Complex').
+    9. IT Operations & Resilience
+    
+    Act as ROLE 2 and populate the UnifiedEngagementReport JSON schema.
+    """
     return base_prompt + rules
