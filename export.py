@@ -16,21 +16,39 @@ def clean_text(text, mode="pdf"):
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
     
-    # PDF-Specific Emoji Stripping (Helvetica compatibility)
-    if mode == "pdf":
-        text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
-        text = text.replace('🟢', 'WIN:')
-
-    text = text.replace('### ', '').replace('## ', '').replace('# ', '')
+    # Strip markdown block wrappers
+    text = text.replace('```markdown', '').replace('```', '')
     
-    if mode == "mdr":
-        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1 (\2)', text)
+    # Convert Markdown links [Text](URL) into "Text (URL)" so they are readable
+    text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1 (\2)', text)
+    
+    if mode == "pdf":
+        # Translate specific advisory emojis to text labels
+        text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
+        text = text.replace('🟢', 'WIN:').replace('⚙️', 'SYSTEM:').replace('🔄', 'UPDATE:')
+        # Strip generic decorative emojis that crash the Helvetica font encoder
+        text = text.replace('🔍', '').replace('💻', '').replace('📚', '').replace('🔥', '').replace('📈', '')
+
+    if mode == "pptx":
+        # PPTX can't handle the Markdown parser, so we strip everything to flat text
+        text = text.replace('### ', '').replace('## ', '').replace('# ', '')
         text = text.replace('**', '').replace('*', '').replace('`', '')
-    elif mode == "pptx":
-        text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1: \2', text)
-        text = text.replace('**', '').replace('*', '')
+        text = text.replace('//// ', '')
     
     return text.encode('ascii', 'ignore').decode('ascii').strip()
+
+def chunk_long_words(text):
+    # Relaxed limit: 75 chars guarantees no FPDF margin crash, but is long 
+    # enough that it won't arbitrarily slice standard URLs to pieces.
+    words = text.split(' ')
+    safe_words = []
+    for word in words:
+        if len(word) > 75:
+            chunked = ' '.join([word[i:i+75] for i in range(0, len(word), 75)])
+            safe_words.append(chunked)
+        else:
+            safe_words.append(word)
+    return ' '.join(safe_words)
 
 # --- PDF ENGINE ---
 class ReportPDF(FPDF):
@@ -50,20 +68,64 @@ class ReportPDF(FPDF):
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f'Page {self.page_no()}', align='C')
 
+
+def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
+    """A smart Markdown parser that renders visual hierarchy in the PDF."""
+    safe_txt = clean_text(txt, "pdf")
+    paragraphs = safe_txt.split('\n')
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        pdf.set_x(10)
+
+        # 1. Detect Headers (Matches ###, ####, or the //// hallucination)
+        if re.match(r'^(#+|////)\s*', para):
+            header_text = re.sub(r'^(#+|////)\s*', '', para)
+            header_text = header_text.replace('**', '') # Strip bold artifacts
+            pdf.ln(4)
+            pdf.set_font("helvetica", "B", 11)
+            pdf.set_text_color(0, 32, 96) # Dark Blue
+            pdf.multi_cell(w=w, h=6, txt=header_text, align="L")
+            pdf.set_font("helvetica", "", 10)
+            pdf.set_text_color(0, 0, 0)
+            pdf.ln(1.5)
+
+        # 2. Detect Bullet Points
+        elif re.match(r'^[-*]\s+', para):
+            bullet_text = re.sub(r'^[-*]\s+', '', para)
+            bullet_text = bullet_text.replace('**', '') 
+            safe_para = chunk_long_words(bullet_text)
+            pdf.set_x(15) # Indent bullets
+            try:
+                pdf.multi_cell(w=w-5, h=5, txt=f"- {safe_para}", align=align, fill=fill)
+            except Exception:
+                pass
+            pdf.ln(1.5)
+
+        # 3. Normal Paragraph Text
+        else:
+            para = para.replace('**', '') # FPDF 1.x doesn't support inline bold easily
+            safe_para = chunk_long_words(para)
+            try:
+                pdf.multi_cell(w=w, h=5, txt=safe_para, align=align, fill=fill)
+            except Exception:
+                pass
+            pdf.ln(3) # Paragraph spacing for breathability
+
+
 def draw_section_header(pdf, title):
     pdf.ln(5)
     pdf.set_font("helvetica", "B", 14)
     pdf.set_text_color(0, 32, 96) 
-    pdf.cell(0, 8, title, ln=True)
+    robust_multi_cell(pdf, 0, 8, title)
     pdf.set_draw_color(200, 200, 200) 
     pdf.set_line_width(0.5)
     pdf.line(pdf.get_x(), pdf.get_y(), 195, pdf.get_y()) 
     pdf.ln(4)
     pdf.set_text_color(0, 0, 0)
-
-def robust_multi_cell(pdf, w, h, txt, align="L"):
-    safe_txt = clean_text(txt, "pdf")
-    pdf.multi_cell(w=w, h=h, txt=safe_txt, align=align)
 
 def draw_estate_summary(pdf, inputs):
     draw_section_header(pdf, "Client Estate Summary")
@@ -76,8 +138,8 @@ def draw_estate_summary(pdf, inputs):
         f"Firewall: {inputs['firewall']} | Email: {inputs['email']}"
     )
     for line in summary_text.split('\n'):
-        pdf.cell(w=0, h=7, txt=f"  {line}", ln=True, fill=True)
-    pdf.ln(6)
+        robust_multi_cell(pdf, 0, 7, f"  {line}", fill=True)
+    pdf.ln(4)
 
 # ==========================================
 # VCISO ASSESSMENT EXPORTS
@@ -108,19 +170,22 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf = ReportPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 18)
-    pdf.cell(w=0, h=12, txt="vCISO Maturity Assessment & Strategic Roadmap", ln=True, align="C")
+    robust_multi_cell(pdf, 0, 12, "vCISO Maturity Assessment & Strategic Roadmap", align="C")
+    
     pdf.set_font("helvetica", "I", 11)
     pdf.set_text_color(100, 100, 100) 
-    pdf.cell(w=0, h=6, txt=f"Prepared for: {inputs['customer_name']} | By: {inputs.get('consultant_name', 'Advisor')}", ln=True, align="C")
+    robust_multi_cell(pdf, 0, 6, f"Prepared for: {inputs['customer_name']} | By: {inputs.get('consultant_name', 'Advisor')}", align="C")
+    
     pdf.set_text_color(0, 0, 0) 
     pdf.ln(8)
     
     draw_estate_summary(pdf, inputs)
     draw_section_header(pdf, "Executive Summary & Risk Analysis")
     robust_multi_cell(pdf, 0, 5, vciso_obj.executive_summary)
-    pdf.ln(2)
+    
     pdf.set_font("helvetica", "B", 10)
     pdf.set_text_color(150, 0, 0)
+    pdf.ln(4)
     pdf.cell(0, 5, "THE COST OF INACTION:", ln=True)
     pdf.set_font("helvetica", "", 10)
     robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction)
@@ -132,48 +197,39 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.add_page()
     draw_section_header(pdf, "Detailed Domain Analysis")
     for domain in vciso_obj.domain_assessments:
-        pdf.set_font("helvetica", "B", 12)
-        pdf.set_text_color(0, 32, 96)
-        pdf.cell(w=0, h=8, txt=f"{domain.domain_name} - {domain.current_maturity_level}", ln=True)
-        pdf.set_font("helvetica", "", 10)
-        pdf.set_text_color(0, 0, 0)
+        robust_multi_cell(pdf, 0, 8, f"### {domain.domain_name} - {domain.current_maturity_level}")
         robust_multi_cell(pdf, 0, 5, f"Analysis: {domain.current_state_analysis}")
-        pdf.ln(2)
         
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 5, "Zero-Cost Quick Wins:", ln=True)
+        pdf.cell(0, 5, "Zero-Cost Quick Wins:", ln=True) 
         pdf.set_font("helvetica", "", 9)
         for win in domain.vendor_agnostic_quick_wins:
-            pdf.cell(0, 5, f"  - {clean_text(win, 'pdf')}", ln=True)
-        pdf.ln(2)
+            robust_multi_cell(pdf, 0, 5, f"- {win}")
+        
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 5, "Strategic Recommendations:", ln=True)
+        pdf.cell(0, 5, "Strategic Recommendations:", ln=True) 
         pdf.set_font("helvetica", "", 9)
         for sol in domain.recommended_solutions:
-            pdf.cell(0, 5, f"  - {clean_text(sol, 'pdf')}", ln=True)
-        pdf.ln(4)
+            robust_multi_cell(pdf, 0, 5, f"- {sol}")
 
     draw_section_header(pdf, "Partnership Roadmap & Success Metrics")
     pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 6, "12-Month Success Metrics (KPIs):", ln=True)
+    pdf.cell(0, 6, "12-Month Success Metrics (KPIs):", ln=True) 
     pdf.set_font("helvetica", "", 10)
     for kpi in vciso_obj.success_metrics:
-        pdf.cell(0, 5, f"  - {clean_text(kpi, 'pdf')}", ln=True)
+        robust_multi_cell(pdf, 0, 5, f"- {kpi}")
         
-    pdf.ln(4)
     for phase in vciso_obj.phased_roadmap:
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(0, 6, clean_text(phase.phase_name, 'pdf'), ln=True)
-        pdf.set_font("helvetica", "", 9)
+        robust_multi_cell(pdf, 0, 6, f"### {clean_text(phase.phase_name, 'pdf')}")
         for milestone in phase.milestones:
-            pdf.cell(0, 5, f"  - {clean_text(milestone, 'pdf')}", ln=True)
+            robust_multi_cell(pdf, 0, 5, f"- {milestone}")
     
     pdf.ln(4)
     pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 6, "Advisory Engagement Cadence:", ln=True)
+    pdf.cell(0, 6, "Advisory Engagement Cadence:", ln=True) 
     pdf.set_font("helvetica", "", 10)
     for meeting in vciso_obj.engagement_cadence:
-        pdf.cell(0, 5, f"  - {clean_text(meeting, 'pdf')}", ln=True)
+        robust_multi_cell(pdf, 0, 5, f"- {meeting}")
 
     return bytes(pdf.output())
 
@@ -183,7 +239,6 @@ def create_vciso_pptx(inputs, vciso_obj):
     slide.shapes.title.text = "vCISO Strategic Security Roadmap"
     slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}\nAdvisor: {inputs.get('consultant_name', 'Advisor')}"
     
-    # Adding a simple risk slide to avoid empty presentations
     slide2 = prs.slides.add_slide(prs.slide_layouts[1])
     slide2.shapes.title.text = "Executive Summary"
     tf = slide2.shapes.placeholders[1].text_frame
@@ -200,9 +255,31 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf = ReportPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, "Tactical Threat Simulation Report", ln=True, align='C')
+    robust_multi_cell(pdf, 0, 10, "Tactical Threat Simulation Report", align='C')
     draw_estate_summary(pdf, inputs)
+    
+    # 1. The Narrative
+    draw_section_header(pdf, "1. Threat Narrative")
     robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
+    
+    # 2. The Timeline
+    draw_section_header(pdf, "2. Attack Timeline")
+    for t_event in scenario_obj.timeline:
+        robust_multi_cell(pdf, 0, 5, f"- [{t_event.timestamp}] {t_event.event_description}")
+        
+    # 3. The MDR Case Log
+    pdf.add_page()
+    draw_section_header(pdf, "3. Simulated MDR Case Log")
+    robust_multi_cell(pdf, 0, 5, mdr_case)
+    
+    # 4. Strategic Recommendations
+    draw_section_header(pdf, "4. Security Testing & Advisory")
+    for rec in recs:
+        # Prepend a bullet if it's an actionable item to activate the parser
+        if rec.startswith("• "): 
+            rec = rec.replace("• ", "- ")
+        robust_multi_cell(pdf, 0, 5, rec)
+        
     return bytes(pdf.output())
 
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
@@ -215,6 +292,11 @@ def create_pptx(inputs, scenario_obj, recs, mdr_case):
     slide2.shapes.title.text = "Attack Narrative"
     text_preview = scenario_obj.narrative[:500] + "..." if len(scenario_obj.narrative) > 500 else scenario_obj.narrative
     slide2.placeholders[1].text = clean_text(text_preview, "pptx")
+    
+    slide3 = prs.slides.add_slide(prs.slide_layouts[1])
+    slide3.shapes.title.text = "MDR Investigation Log"
+    mdr_preview = mdr_case[:500] + "..." if len(mdr_case) > 500 else mdr_case
+    slide3.placeholders[1].text = clean_text(mdr_preview, "pptx")
     
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
