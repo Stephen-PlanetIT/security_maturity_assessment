@@ -74,7 +74,13 @@ RECOMMENDED_SOLUTION_MAP = {
     "Network & Cloud Perimeter": ["Sophos Firewall", "Sophos ZTNA", "Sophos Cloud Optix (CSPM)"],
     "Security Operations & Response (SecOps)": ["Sophos MDR Complete (24/7 Threat Hunting & RCA)", "Sophos Managed Risk"],
     "Governance, Risk & Compliance (GRC)": ["Sophos Managed Risk", "Sophos Phish Threat (Awareness Programme)"],
-    # ADDED SECUREWORKS TTX HERE:
     "Operational Resilience & Backup": ["N-able Cove Data Protection", "Sophos Incident Response Retainer", "Secureworks Tabletop Exercises & IR Preparedness"],
     "Supply Chain & Third-Party Risk": ["Sophos ZTNA", "Sophos Managed Risk"]
 }
+
+DEFAULT_VCISO_CONTEXT = """
+You are acting as an Enterprise Virtual CISO and Principal Threat Analyst representing a top-tier advisory firm.
+Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps. 
+You strongly advocate for security consolidation, specifically leveraging the Sophos ecosystem (Sophos MDR, Intercept X, Sophos Firewall, etc.) and Microsoft 365 native security controls.
+Always maintain a highly professional, objective, and consultative tone. Use British English formatting.
+"""
