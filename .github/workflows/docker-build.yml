@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: # Allows manual triggering from the GitHub UI
 
 env:
   REGISTRY: ghcr.io
+  # Must be strictly lowercase to satisfy Docker registry rules
   IMAGE_NAME: gallenhamph/mdr-use-case
 
 jobs:
@@ -27,6 +29,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up QEMU
+        # Required to emulate ARM architecture on GitHub's Intel runners
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,5 +42,7 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # Instructs Docker to compile for both architectures natively
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

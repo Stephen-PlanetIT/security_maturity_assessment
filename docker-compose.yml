@@ -1,18 +1,13 @@
-version: '3.8'
-
 services:
   advisory-engine:
     image: ghcr.io/gallenhamph/mdr-use-case:latest
     container_name: advisory-engine
-    build: .
     ports:
       - "8501:8501"
     volumes:
-      # Mount secrets securely at runtime rather than baking them into the image
       - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     restart: unless-stopped
     labels:
-      # Tell Watchtower explicitly to monitor this container
       - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
@@ -24,5 +19,7 @@ services:
       - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_POLL_INTERVAL=300
       - WATCHTOWER_CLEANUP=true
-      - DOCKER_API_VERSION=1.41 # <--- Forces Watchtower to use the modern API
+      - DOCKER_API_VERSION=1.41
+      - REPO_USER=collisbradley@gmail.com
+      - REPO_PASS=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
     restart: unless-stopped
