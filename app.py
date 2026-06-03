@@ -202,7 +202,8 @@ with st.expander("📋 Client Estate & Engagement Data", expanded=True):
         email = st.selectbox("Email Security", ["Sophos", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Other"])
         cloud_env = st.selectbox("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Multi-Cloud", "None (Fully On-Prem)"])
         
-        st.subheader("Additional Surfaces")
+        st.subheader("Governance & Additional Surfaces")
+        compliance = st.multiselect("Target Compliance Frameworks", ["Cyber Essentials / CE+", "ISO 27001", "SOC 2 Type II", "HIPAA", "PCI-DSS", "NIST CSF", "DORA", "CIS Controls"])
         physical_locations = st.number_input("Physical Locations", min_value=1, value=3)
         public_web_apps = st.checkbox("Host Public Web Apps?")
 
@@ -249,7 +250,8 @@ client_inputs = {
     "users": users, "savviness": savviness, "endpoints": endpoints, "servers": servers, 
     "critical_infra": critical_infra, "mdr_provider": mdr_provider, "endpoint": endpoint, "firewall": firewall, 
     "identity": identity, "m365_license": m365_license, "email": email, "cloud_env": cloud_env,
-    "in_house_team": in_house_team, "physical_locations": physical_locations, "public_web_apps": public_web_apps
+    "in_house_team": in_house_team, "physical_locations": physical_locations, "public_web_apps": public_web_apps,
+    "compliance": compliance
 }
 
 # ==========================================
@@ -284,6 +286,9 @@ if app_mode == "📈 vCISO Assessment":
         with tab_exec:
             st.subheader("Executive Risk Summary")
             st.write(vciso_report.executive_summary)
+            
+            st.subheader("Compliance & Framework Alignment")
+            st.info(vciso_report.compliance_alignment)
             
             st.subheader("The Cost of Inaction")
             st.error(vciso_report.cost_of_inaction)

@@ -16,21 +16,15 @@ def clean_text(text, mode="pdf"):
     text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     text = text.replace('–', '-').replace('—', '-') 
     
-    # Strip markdown block wrappers
     text = text.replace('```markdown', '').replace('```', '')
-    
-    # Convert Markdown links [Text](URL) into "Text (URL)" so they are readable
     text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'\1 (\2)', text)
     
     if mode == "pdf":
-        # Translate specific advisory emojis to text labels
         text = text.replace('🎯', 'KPI:').replace('✅', '[DONE]').replace('🗓️', 'DATE:').replace('🛡️', 'REC:')
         text = text.replace('🟢', 'WIN:').replace('⚙️', 'SYSTEM:').replace('🔄', 'UPDATE:')
-        # Strip generic decorative emojis that crash the Helvetica font encoder
         text = text.replace('🔍', '').replace('💻', '').replace('📚', '').replace('🔥', '').replace('📈', '')
 
     if mode == "pptx":
-        # PPTX can't handle the Markdown parser, so we strip everything to flat text
         text = text.replace('### ', '').replace('## ', '').replace('# ', '')
         text = text.replace('**', '').replace('*', '').replace('`', '')
         text = text.replace('//// ', '')
@@ -38,8 +32,6 @@ def clean_text(text, mode="pdf"):
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
 def chunk_long_words(text):
-    # Relaxed limit: 75 chars guarantees no FPDF margin crash, but is long 
-    # enough that it won't arbitrarily slice standard URLs to pieces.
     words = text.split(' ')
     safe_words = []
     for word in words:
@@ -68,7 +60,6 @@ class ReportPDF(FPDF):
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f'Page {self.page_no()}', align='C')
 
-
 def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
     """A smart Markdown parser that renders visual hierarchy in the PDF."""
     safe_txt = clean_text(txt, "pdf")
@@ -81,14 +72,14 @@ def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
 
         pdf.set_x(10)
 
-        # 1. Detect Headers (Matches ###, ####, or the //// hallucination)
+        # 1. Detect Headers
         if re.match(r'^(#+|////)\s*', para):
             header_text = re.sub(r'^(#+|////)\s*', '', para)
-            header_text = header_text.replace('**', '') # Strip bold artifacts
+            header_text = header_text.replace('**', '') 
             pdf.ln(4)
             pdf.set_font("helvetica", "B", 11)
-            pdf.set_text_color(0, 32, 96) # Dark Blue
-            pdf.multi_cell(w=w, h=6, txt=header_text, align="L")
+            pdf.set_text_color(0, 32, 96) 
+            pdf.multi_cell(w=0, h=6, txt=header_text, align="L")
             pdf.set_font("helvetica", "", 10)
             pdf.set_text_color(0, 0, 0)
             pdf.ln(1.5)
@@ -98,23 +89,22 @@ def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
             bullet_text = re.sub(r'^[-*]\s+', '', para)
             bullet_text = bullet_text.replace('**', '') 
             safe_para = chunk_long_words(bullet_text)
-            pdf.set_x(15) # Indent bullets
+            pdf.set_x(15) 
             try:
-                pdf.multi_cell(w=w-5, h=5, txt=f"- {safe_para}", align=align, fill=fill)
+                pdf.multi_cell(w=0, h=5, txt=f"- {safe_para}", align=align, fill=fill)
             except Exception:
-                pass
+                pdf.multi_cell(w=0, h=5, txt="[PDF Rendering Error: Bullet point failed]", align=align)
             pdf.ln(1.5)
 
         # 3. Normal Paragraph Text
         else:
-            para = para.replace('**', '') # FPDF 1.x doesn't support inline bold easily
+            para = para.replace('**', '') 
             safe_para = chunk_long_words(para)
             try:
-                pdf.multi_cell(w=w, h=5, txt=safe_para, align=align, fill=fill)
+                pdf.multi_cell(w=0, h=5, txt=safe_para, align=align, fill=fill)
             except Exception:
-                pass
-            pdf.ln(3) # Paragraph spacing for breathability
-
+                pdf.multi_cell(w=0, h=5, txt="[PDF Rendering Error: Paragraph text failed]", align=align)
+            pdf.ln(3) 
 
 def draw_section_header(pdf, title):
     pdf.ln(5)
@@ -131,9 +121,14 @@ def draw_estate_summary(pdf, inputs):
     draw_section_header(pdf, "Client Estate Summary")
     pdf.set_fill_color(245, 245, 245) 
     pdf.set_font("helvetica", "", 10)
+    
+    comp_list = inputs.get('compliance', [])
+    comp_str = ", ".join(comp_list) if comp_list else "None Specified"
+    
     summary_text = (
         f"Industry: {inputs['industry']} | Users: {inputs['users']} | Endpoints: {inputs['endpoints']}\n"
         f"Critical Asset: {inputs['critical_infra']}\n"
+        f"Compliance Targets: {comp_str}\n"
         f"MDR Provider: {inputs.get('mdr_provider', 'Unknown')} | Endpoint: {inputs['endpoint']}\n"
         f"Firewall: {inputs['firewall']} | Email: {inputs['email']}"
     )
@@ -183,13 +178,13 @@ def create_vciso_pdf(inputs, vciso_obj):
     draw_section_header(pdf, "Executive Summary & Risk Analysis")
     robust_multi_cell(pdf, 0, 5, vciso_obj.executive_summary)
     
-    pdf.set_font("helvetica", "B", 10)
-    pdf.set_text_color(150, 0, 0)
     pdf.ln(4)
-    pdf.cell(0, 5, "THE COST OF INACTION:", ln=True)
-    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 6, "### Compliance & Framework Alignment:")
+    robust_multi_cell(pdf, 0, 5, vciso_obj.compliance_alignment)
+    
+    pdf.ln(4)
+    robust_multi_cell(pdf, 0, 6, "### THE COST OF INACTION:")
     robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction)
-    pdf.set_text_color(0, 0, 0)
     
     chart_buf = generate_radar_chart(vciso_obj.domain_assessments)
     pdf.image(chart_buf, x=45, w=120)
@@ -200,22 +195,16 @@ def create_vciso_pdf(inputs, vciso_obj):
         robust_multi_cell(pdf, 0, 8, f"### {domain.domain_name} - {domain.current_maturity_level}")
         robust_multi_cell(pdf, 0, 5, f"Analysis: {domain.current_state_analysis}")
         
-        pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 5, "Zero-Cost Quick Wins:", ln=True) 
-        pdf.set_font("helvetica", "", 9)
+        robust_multi_cell(pdf, 0, 6, "### Zero-Cost Quick Wins:")
         for win in domain.vendor_agnostic_quick_wins:
             robust_multi_cell(pdf, 0, 5, f"- {win}")
         
-        pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 5, "Strategic Recommendations:", ln=True) 
-        pdf.set_font("helvetica", "", 9)
+        robust_multi_cell(pdf, 0, 6, "### Strategic Recommendations:")
         for sol in domain.recommended_solutions:
             robust_multi_cell(pdf, 0, 5, f"- {sol}")
 
     draw_section_header(pdf, "Partnership Roadmap & Success Metrics")
-    pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 6, "12-Month Success Metrics (KPIs):", ln=True) 
-    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 6, "### 12-Month Success Metrics (KPIs):")
     for kpi in vciso_obj.success_metrics:
         robust_multi_cell(pdf, 0, 5, f"- {kpi}")
         
@@ -225,9 +214,7 @@ def create_vciso_pdf(inputs, vciso_obj):
             robust_multi_cell(pdf, 0, 5, f"- {milestone}")
     
     pdf.ln(4)
-    pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 6, "Advisory Engagement Cadence:", ln=True) 
-    pdf.set_font("helvetica", "", 10)
+    robust_multi_cell(pdf, 0, 6, "### Advisory Engagement Cadence:")
     for meeting in vciso_obj.engagement_cadence:
         robust_multi_cell(pdf, 0, 5, f"- {meeting}")
 
@@ -258,24 +245,19 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     robust_multi_cell(pdf, 0, 10, "Tactical Threat Simulation Report", align='C')
     draw_estate_summary(pdf, inputs)
     
-    # 1. The Narrative
     draw_section_header(pdf, "1. Threat Narrative")
     robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
     
-    # 2. The Timeline
     draw_section_header(pdf, "2. Attack Timeline")
     for t_event in scenario_obj.timeline:
         robust_multi_cell(pdf, 0, 5, f"- [{t_event.timestamp}] {t_event.event_description}")
         
-    # 3. The MDR Case Log
     pdf.add_page()
     draw_section_header(pdf, "3. Simulated MDR Case Log")
     robust_multi_cell(pdf, 0, 5, mdr_case)
     
-    # 4. Strategic Recommendations
     draw_section_header(pdf, "4. Security Testing & Advisory")
     for rec in recs:
-        # Prepend a bullet if it's an actionable item to activate the parser
         if rec.startswith("• "): 
             rec = rec.replace("• ", "- ")
         robust_multi_cell(pdf, 0, 5, rec)
