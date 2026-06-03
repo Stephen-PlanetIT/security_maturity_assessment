@@ -4,9 +4,9 @@ name: Build and Publish Advisory Platform
 # Trigger the workflow on pushes to the main branch or manual dispatch
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "feature/vciso-engine" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "feature/vciso-engine" ]
   workflow_dispatch:
 
 # Environment variables for the registry
