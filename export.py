@@ -235,59 +235,78 @@ def create_vciso_pdf(inputs, vciso_obj):
     pdf.ln(8)
     
     draw_estate_summary(pdf, inputs)
+    
+    # --- Exec Summary ---
     draw_section_header(pdf, "Executive Summary & Risk Analysis")
-    
-    # Strip markdown bold/italic injection from the LLM response
     clean_exec_summary = vciso_obj.executive_summary.replace("**", "").replace("__", "")
-    
-    # Explicitly force regular font weight before drawing the cell
     pdf.set_font("helvetica", "", 11)
-    robust_multi_cell(pdf, 0, 5, clean_exec_summary)
+    # Using align="J" to justify the text across the full page width
+    robust_multi_cell(pdf, 0, 5, clean_exec_summary, align="J")
     
+    # --- NEW: Planet IT Cyber Resiliency Matrix Mapping ---
+    pdf.ln(4)
+    robust_multi_cell(pdf, 0, 6, "### Cyber Resiliency Matrix Alignment:")
+    pdf.set_font("helvetica", "", 11)
+    clean_matrix = vciso_obj.resiliency_matrix_mapping.replace("**", "").replace("__", "")
+    robust_multi_cell(pdf, 0, 5, clean_matrix, align="J")
+    
+    # --- Compliance & Cost of Inaction ---
     pdf.ln(4)
     robust_multi_cell(pdf, 0, 6, "### Compliance & Framework Alignment:")
-    robust_multi_cell(pdf, 0, 5, vciso_obj.compliance_alignment)
+    pdf.set_font("helvetica", "", 11)
+    robust_multi_cell(pdf, 0, 5, vciso_obj.compliance_alignment.replace("**", ""), align="J")
     
     pdf.ln(4)
     robust_multi_cell(pdf, 0, 6, "### THE COST OF INACTION:")
-    robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction)
+    pdf.set_font("helvetica", "", 11)
+    robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction.replace("**", ""), align="J")
     
-    # Generate chart to temp file, inject into PDF, then delete the temp file
     chart_path = generate_radar_chart(vciso_obj.domain_assessments)
-    pdf.image(chart_path, x=45, w=120)
-    os.remove(chart_path)
+    try:
+        pdf.image(chart_path, x=45, w=120)
+    finally:
+        if os.path.exists(chart_path):
+            os.remove(chart_path)
     
+    # --- Detailed Domain Analysis ---
     pdf.add_page()
     draw_section_header(pdf, "Detailed Domain Analysis")
     for domain in vciso_obj.domain_assessments:
         robust_multi_cell(pdf, 0, 8, f"### {domain.domain_name} - {domain.current_maturity_level}")
-        robust_multi_cell(pdf, 0, 5, f"Analysis: {domain.current_state_analysis}")
+        pdf.set_font("helvetica", "", 11)
+        
+        # Justify the deeper analysis text
+        clean_analysis = domain.current_state_analysis.replace("**", "").replace("__", "")
+        robust_multi_cell(pdf, 0, 5, f"Analysis: {clean_analysis}", align="J")
         
         robust_multi_cell(pdf, 0, 6, "### Zero-Cost Quick Wins:")
         for win in domain.vendor_agnostic_quick_wins:
-            robust_multi_cell(pdf, 0, 5, f"- {win}")
+            robust_multi_cell(pdf, 0, 5, f"- {win}", align="L") # Keep lists left-aligned
         
         robust_multi_cell(pdf, 0, 6, "### Strategic Recommendations:")
         for sol in domain.recommended_solutions:
-            robust_multi_cell(pdf, 0, 5, f"- {sol}")
+            robust_multi_cell(pdf, 0, 5, f"- {sol}", align="L")
+        pdf.ln(4)
 
+    # --- Roadmap ---
     draw_section_header(pdf, "Partnership Roadmap & Success Metrics")
     robust_multi_cell(pdf, 0, 6, "### 12-Month Success Metrics (KPIs):")
+    pdf.set_font("helvetica", "", 11)
     for kpi in vciso_obj.success_metrics:
-        robust_multi_cell(pdf, 0, 5, f"- {kpi}")
+        robust_multi_cell(pdf, 0, 5, f"- {kpi}", align="L")
         
     for phase in vciso_obj.phased_roadmap:
         robust_multi_cell(pdf, 0, 6, f"### {clean_text(phase.phase_name, 'pdf')}")
         for milestone in phase.milestones:
-            robust_multi_cell(pdf, 0, 5, f"- {milestone}")
+            robust_multi_cell(pdf, 0, 5, f"- {milestone}", align="L")
     
     pdf.ln(4)
     robust_multi_cell(pdf, 0, 6, "### Advisory Engagement Cadence:")
     for meeting in vciso_obj.engagement_cadence:
-        robust_multi_cell(pdf, 0, 5, f"- {meeting}")
+        robust_multi_cell(pdf, 0, 5, f"- {meeting}", align="L")
 
     return pdf.output(dest='S').encode('latin-1')
-
+    
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])

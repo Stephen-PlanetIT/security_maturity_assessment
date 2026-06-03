@@ -49,11 +49,9 @@ SIMULATED_OSINT = {
 # VCISO STRATEGIC ASSESSMENT DATA
 # ==========================================
 MATURITY_FRAMEWORK = {
-    "Level 1 (Ad-Hoc)": "Highly reactive, fragmented tools, unmanaged devices, and no formalised incident response.",
-    "Level 2 (Basic)": "Centralised management, signature-based prevention, and basic MFA for critical accounts.",
-    "Level 3 (Advanced)": "Behavioural detection (EDR) in place, proactive security policies, but visibility remains siloed.",
-    "Level 4 (Optimised)": "Cross-domain telemetry ingestion (XDR), automated containment, and zero-trust principles applied.",
-    "Level 5 (Proactive)": "24/7 human-led threat hunting (MDR), Root Cause Analysis (RCA), and a fully integrated ecosystem."
+    "Phase 1: Reactive Cybersecurity (Don't Be Here)": "Basic controls (Anti-Virus, Backup & Recovery, MFA, Firewalls, Log Collection). Focused on baseline compliance like Cyber Essentials. Highly vulnerable to modern threats.",
+    "Phase 2: Proactive Cybersecurity": "Advanced tooling and managed services (EDR, XDR, MDR, SIEM, Penetration Testing, Security Awareness Training). Aligns with CE+ and ISO:27001.",
+    "Phase 3: Adaptive Cybersecurity (Be Here)": "Automated and intelligence-led (Zero-Trust Architecture, SOAR, Proactive Threat Hunting, Automated Disaster Recovery, Microsegmentation)."
 }
 
 ASSESSMENT_DOMAINS = [

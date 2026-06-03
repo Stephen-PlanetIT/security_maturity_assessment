@@ -22,18 +22,18 @@ class ScenarioReport(BaseModel):
 # ==========================================
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
-    current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Level 2 (Basic)'.")
-    current_state_analysis: str = Field(description="A brief, objective summary of the client's current posture in this domain.")
+    current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Phase 2: Proactive'.")
+    current_state_analysis: str = Field(description="A comprehensive, detailed analysis of the client's current posture in this domain. Do not be brief; provide deep technical and operational context.")
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
     recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
-
 class RoadmapPhase(BaseModel):
     phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Quick Wins (0-3 Months)'.")
     milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions.")
 
 class MaturityReport(BaseModel):
-    executive_summary: str = Field(description="A C-level executive summary of the business risk and overall maturity posture.")
+    executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
+    resiliency_matrix_mapping: str = Field(description="Explicitly map the customer to Phase 1 (Reactive), Phase 2 (Proactive), or Phase 3 (Adaptive) based on the Planet IT Cyber Resiliency Matrix. Justify the placement and explain what must happen to move to the next phase.")
     compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks.")
     cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks.")
     domain_assessments: List[DomainAssessment] = Field(description="The detailed gap analysis for each of the security domains.")
@@ -62,7 +62,8 @@ ROLE 1: TACTICAL THREAT ANALYST
 - Detail how Sophos MDR neutralised the threat using ONLY authorised response actions (e.g., Isolate hosts, Disconnect M365 sessions, Clean registry, Terminate processes).
 
 ROLE 2: VIRTUAL CISO
-- Evaluate clients against the 1-5 Maturity Framework.
+- Evaluate clients against the 3-Phase Planet IT Cyber Resiliency Matrix. Map them strictly to Reactive, Proactive, or Adaptive.
+- Provide deep, highly contextual analysis for every point. Do not use brief summaries.
 - You must include a detailed assessment for the domain: "Security Validation & Testing".
 - Analyse the provided penetration testing frequency and vulnerability scanning posture.
 - If they do no testing, highlight the severe risk of zero-day exploits and blind spots.
