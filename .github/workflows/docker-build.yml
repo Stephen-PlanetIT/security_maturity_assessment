@@ -3,7 +3,7 @@ name: Build and Push Advisory Engine
 on:
   push:
     branches:
-      - main
+      - feature/vciso-engine
 
 env:
   REGISTRY: ghcr.io
