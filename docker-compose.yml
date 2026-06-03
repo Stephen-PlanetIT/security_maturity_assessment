@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   advisory-engine:
-    # Replace this with your actual registry path if pushing externally
-    # e.g., ghcr.io/yourusername/advisory-engine:latest
-    image: advisory-engine:latest 
+    image: ghcr.io/gallenhamph/mdr-use-case:latest
     container_name: advisory-engine
     build: .
     ports:

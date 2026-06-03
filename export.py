@@ -224,7 +224,7 @@ def create_vciso_pdf(inputs, vciso_obj):
     for meeting in vciso_obj.engagement_cadence:
         robust_multi_cell(pdf, 0, 5, f"- {meeting}")
 
-    return bytes(pdf.output())
+    return pdf.output(dest='S').encode('latin-1')
 
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
@@ -268,7 +268,7 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
             rec = rec.replace("• ", "- ")
         robust_multi_cell(pdf, 0, 5, rec)
         
-    return bytes(pdf.output())
+    return pdf.output(dest='S').encode('latin-1')
 
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
