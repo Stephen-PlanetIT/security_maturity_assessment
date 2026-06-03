@@ -12,7 +12,7 @@ on:
 # Environment variables for the registry
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: gallenhamph/mdr-use-case
 
 jobs:
   build-and-push-image:
