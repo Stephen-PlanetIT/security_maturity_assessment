@@ -1,14 +1,33 @@
 version: '3.8'
 
 services:
-  advisory-platform:
+  advisory-engine:
+    # Replace this with your actual registry path if pushing externally
+    # e.g., ghcr.io/yourusername/advisory-engine:latest
+    image: advisory-engine:latest 
+    container_name: advisory-engine
     build: .
-    container_name: planet-it-advisory
     ports:
       - "8501:8501"
-    restart: unless-stopped
-    env_file:
-      - .env
     volumes:
-      # Optional: Mount the template locally so you can update branding without rebuilding the image
-      - ./planet_it_master_template.pptx:/app/planet_it_master_template.pptx:ro
+      # Mount secrets securely at runtime rather than baking them into the image
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
+    restart: unless-stopped
+    labels:
+      # Tell Watchtower explicitly to monitor this container
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      # Watchtower requires access to the Docker socket to manage containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Only watch containers with the label enabled above
+      - WATCHTOWER_LABEL_ENABLE=true
+      # Check for updates every 300 seconds (5 minutes)
+      - WATCHTOWER_POLL_INTERVAL=300
+      # Remove old images after updating to save disk space
+      - WATCHTOWER_CLEANUP=true
+    restart: unless-stopped
