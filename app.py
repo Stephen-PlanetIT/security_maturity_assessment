@@ -7,14 +7,7 @@ from openai import AzureOpenAI, OpenAI
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 
 # Import prompts and Pydantic schemas
-from prompts import (
-    SYSTEM_PERSONA, 
-    build_scenario_prompt, 
-    build_mdr_case_prompt, 
-    build_vciso_prompt,
-    ScenarioReport, 
-    MaturityReport 
-)
+from prompts import SYSTEM_PERSONA, build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport 
 
 # Import all export generators
 from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx
@@ -53,7 +46,7 @@ class CyberScenarioGenerator:
         recs = []
         recs.append("🛡️ **SECURITY ASSESSMENTS & ADVISORY**")
         
-        if inputs['in_house_team'] == "Yes (24/7)" and ("Tier 3" in inputs['savviness'] or "Tier 4" in inputs['savviness']):
+        if inputs['in_house_team'] == "Yes (24/7)" and ("Phase 2" in inputs['savviness'] or "Phase 3" in inputs['savviness']):
              recs.append("• [Secureworks Adversary Exercises (Red Teaming)](https://www.secureworks.com/services/offensive-security): Emulate a sophisticated adversary to stress-test your mature 24/7 SOC and validate detection capabilities across the kill chain.")
              recs.append("• [Secureworks Threat Hunting Assessment](https://www.secureworks.com/services/threat-hunting): Proactively search your environment for undetected threats or persistence mechanisms that may have bypassed your existing defenses.")
         elif inputs['in_house_team'] != "No":
@@ -252,20 +245,17 @@ with st.expander("📋 Client Estate & Engagement Data", expanded=True):
     culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q3]
     culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
 
-    if culture_score <= 3:
-        savviness_label = "Tier 1: High Risk / Unaware"
-    elif culture_score <= 6:
-        savviness_label = "Tier 2: Basic Compliance"
-    elif culture_score <= 8:
-        savviness_label = "Tier 3: Cautious / Conscious"
+    if culture_score <= 4:
+        savviness_label = "Phase 1: Reactive Culture"
+    elif culture_score <= 7:
+        savviness_label = "Phase 2: Proactive Culture"
     else:
-        savviness_label = "Tier 4: Highly Technical / Optimised"
+        savviness_label = "Phase 3: Adaptive Culture"
 
     savviness_profiles = {
-        "Tier 1: High Risk / Unaware": "Highly susceptible to basic phishing, poor password hygiene, and excessive local admin rights.",
-        "Tier 2: Basic Compliance": "Completes basic training but falls for urgency tactics. MFA is not universally enforced.",
-        "Tier 3: Cautious / Conscious": "Strong culture. Actively reports suspicious emails. Good baseline of MFA and privilege restriction.",
-        "Tier 4: Highly Technical / Optimised": "Zero-trust identity posture. Hard to phish, strict local admin controls, and continuous user coaching."
+        "Phase 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
+        "Phase 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
+        "Phase 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
     }
     
     st.info(f"**Calculated Score: {culture_score}/9** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")

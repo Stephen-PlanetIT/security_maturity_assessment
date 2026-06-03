@@ -133,12 +133,14 @@ def draw_estate_summary(pdf, inputs):
     pdf.ln(2)
 
     def draw_row(label, value):
-        pdf.set_font("helvetica", "B", 10)
-        # Fixed width for labels to keep the columns aligned
-        pdf.cell(50, 6, label + ":", border=0)
-        pdf.set_font("helvetica", "", 10)
-        # multi_cell allows long strings (like compliance arrays) to wrap safely
-        pdf.multi_cell(0, 6, str(value), border=0)
+            pdf.set_x(pdf.l_margin) # Hard-reset the carriage return to the left margin
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(50, 6, label + ":", border=0)
+            pdf.set_font("helvetica", "", 10)
+            
+            # Fallback to "N/A" if the string is empty to prevent multi_cell from hanging
+            safe_string = str(value).strip() if str(value).strip() else "N/A"
+            pdf.multi_cell(0, 6, safe_string, border=0)
 
     # --- Group 1: Organisational Profile ---
     pdf.set_font("helvetica", "B", 11)
@@ -314,7 +316,7 @@ def create_vciso_pdf(inputs, vciso_obj):
     for meeting in vciso_obj.engagement_cadence:
         robust_multi_cell(pdf, 0, 5, f"- {meeting}", align="L")
 
-    return pdf.output(dest='S').encode('latin-1')
+    return bytes(pdf.output())
     
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
@@ -358,7 +360,7 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
             rec = rec.replace("• ", "- ")
         robust_multi_cell(pdf, 0, 5, rec)
         
-    return pdf.output(dest='S').encode('latin-1')
+    return bytes(pdf.output())
 
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
