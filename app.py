@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import random
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 # Import data configurations
 from data import ATTACK_VECTORS, SIMULATED_OSINT
@@ -19,18 +19,30 @@ from prompts import (
 # Import all export generators
 from export import create_pdf, create_pptx, create_vciso_pdf, create_vciso_pptx
 
-# --- BACKEND LOGIC ---
+# --- BACKEND LOGIC & OLLAMA TOGGLE ---
 class CyberScenarioGenerator:
-    def __init__(self, api_key, endpoint, deployment, api_version):
-        self.deployment = deployment
-        if api_key and endpoint:
-            self.client = AzureOpenAI(
-                api_key=api_key,  
-                api_version=api_version,
-                azure_endpoint=endpoint
-            )
+    def __init__(self, provider):
+        self.provider = provider
+        
+        if self.provider == "ollama":
+            self.deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b")
+            base_url = st.secrets.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+            try:
+                self.client = OpenAI(base_url=base_url, api_key="ollama")
+            except Exception as e:
+                st.error(f"🚨 Failed to connect to local Ollama instance: {e}")
+                self.client = None
         else:
-            self.client = None
+            self.deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+            try:
+                self.client = AzureOpenAI(
+                    api_key=st.secrets.get("AZURE_OPENAI_API_KEY"),  
+                    api_version=st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+                    azure_endpoint=st.secrets.get("AZURE_OPENAI_ENDPOINT")
+                )
+            except Exception as e:
+                st.error("⚠️ Missing API Credentials! Please ensure your `.streamlit/secrets.toml` file is configured.")
+                self.client = None
     
     def fetch_osint(self, vendor):
         options = SIMULATED_OSINT.get(vendor, [])
@@ -81,6 +93,7 @@ class CyberScenarioGenerator:
     def call_llm_structured(self, prompt, response_model):
         if not self.client: return None
         try:
+            # Both Azure and Ollama support beta.chat.completions.parse
             response = self.client.beta.chat.completions.parse(
                 model=self.deployment,
                 messages=[
@@ -92,11 +105,11 @@ class CyberScenarioGenerator:
             )
             return response.choices[0].message.parsed
         except Exception as e:
-            st.error(f"Azure OpenAI Parsing Error: {e}")
+            st.error(f"LLM Parsing Error: {e}")
             return None
 
     def call_llm_text(self, prompt):
-        if not self.client: return "⚠️ Error: Please enter valid Azure OpenAI credentials."
+        if not self.client: return "⚠️ Error: Please ensure valid API or local provider credentials."
         try:
             response = self.client.chat.completions.create(
                 model=self.deployment,
@@ -150,28 +163,33 @@ def update_vciso_exports():
 # --- STREAMLIT FRONTEND ---
 st.set_page_config(page_title="Security Advisory Platform", page_icon="🛡️", layout="wide")
 
-try:
-    az_key = st.secrets["AZURE_OPENAI_API_KEY"]
-    az_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
-    az_deployment = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
-    az_api_version = st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-except Exception:
-    st.error("⚠️ Missing API Credentials! Please ensure your `.streamlit/secrets.toml` file is mounted.")
-    az_key, az_endpoint, az_deployment, az_api_version = None, None, None, None
-
-app_engine = CyberScenarioGenerator(api_key=az_key, endpoint=az_endpoint, deployment=az_deployment, api_version=az_api_version)
-
-
-# --- PURE NAVIGATION SIDEBAR ---
+# --- NAVIGATION & UI TOGGLE SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Advisory Engine")
+    
+    st.subheader("⚙️ Engine Configuration")
+    ui_provider = st.radio("AI Engine Provider:", ["☁️ Cloud (Azure OpenAI)", "🖥️ Local (Ollama)"], index=0)
+    
+    # Map UI selection to the backend variables
+    selected_provider = "azure" if "Cloud" in ui_provider else "ollama"
+    
+    st.divider()
     app_mode = st.radio("Select Workflow:", ["📈 vCISO Assessment", "🔥 Tactical Threat Simulator"], index=0)
     st.divider()
     st.caption("Enter client data on the main page. It will persist between workflows.")
 
+# Initialize the LLM Engine based on the sidebar selection
+app_engine = CyberScenarioGenerator(provider=selected_provider)
+
 
 # --- MAIN PAGE DATA ENTRY (COLLAPSIBLE) ---
 st.title(app_mode)
+
+# Display active engine status at the top of the main page
+if app_engine.provider == "ollama":
+    st.info(f"**Active Engine:** Local Inference via Ollama ({app_engine.deployment})")
+else:
+    st.success(f"**Active Engine:** Enterprise Azure Cloud ({app_engine.deployment})")
 
 with st.expander("📋 Client Estate & Engagement Data", expanded=True):
     col1, col2, col3 = st.columns(3)
@@ -264,6 +282,7 @@ client_inputs = {
     "pentest_status": pentest_status, "vuln_scanning": vuln_scanning, "validation_notes": validation_notes
 }
 
+
 # ==========================================
 # ROUTE 1: VCISO ASSESSMENT
 # ==========================================
@@ -272,7 +291,7 @@ if app_mode == "📈 vCISO Assessment":
     
     if st.button("Generate vCISO Roadmap", type="primary"):
         st.session_state['client_inputs'] = client_inputs
-        with st.spinner("Analyzing estate and building maturity roadmap..."):
+        with st.spinner("Analyzing estate and building maturity roadmap... (this may take a few minutes if running locally)"):
             vciso_prompt = build_vciso_prompt(client_inputs)
             vciso_obj = app_engine.call_llm_structured(vciso_prompt, MaturityReport)
             
@@ -297,6 +316,9 @@ if app_mode == "📈 vCISO Assessment":
             st.subheader("Executive Risk Summary")
             st.write(vciso_report.executive_summary)
             
+            st.subheader("Cyber Resiliency Matrix Alignment")
+            st.write(vciso_report.resiliency_matrix_mapping)
+
             st.subheader("Compliance & Framework Alignment")
             st.info(vciso_report.compliance_alignment)
             

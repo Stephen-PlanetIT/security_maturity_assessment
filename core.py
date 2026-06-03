@@ -1,24 +1,35 @@
 # core.py
 import streamlit as st
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 class LLMEngine:
     @staticmethod
     def get_client():
+        provider = st.secrets.get("LLM_PROVIDER", "azure").lower()
+        
         try:
-            return AzureOpenAI(
-                api_key=st.secrets["AZURE_OPENAI_API_KEY"], 
-                api_version=st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"), 
-                azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"]
-            )
+            if provider == "ollama":
+                # Routes from the Docker container back to the Mac host
+                base_url = st.secrets.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+                return OpenAI(
+                    base_url=base_url,
+                    api_key="ollama" # Required by the client, but ignored by Ollama
+                )
+            else:
+                return AzureOpenAI(
+                    api_key=st.secrets["AZURE_OPENAI_API_KEY"], 
+                    api_version=st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"), 
+                    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"]
+                )
         except Exception as e:
-            st.error(f"🚨 API Credentials missing or invalid. Check secrets.toml or .env. Error: {e}")
+            st.error(f"🚨 Client Initialization Error: {e}")
             return None
 
     @staticmethod
     def generate_structured_report(client, deployment, system_persona, user_prompt, response_model):
         if not client: return None
         try:
+            # Ollama natively supports this exact parsing method
             response = client.beta.chat.completions.parse(
                 model=deployment, 
                 messages=[
