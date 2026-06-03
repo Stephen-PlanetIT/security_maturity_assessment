@@ -36,8 +36,7 @@ class MaturityReport(BaseModel):
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer to Phase 1 (Reactive), Phase 2 (Proactive), or Phase 3 (Adaptive) based on the Planet IT Cyber Resiliency Matrix. Justify the placement and explain what must happen to move to the next phase.")
     compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks.")
     cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks.")
-    domain_assessments: List[DomainAssessment] = Field(description="The detailed gap analysis for each of the security domains.")
-    phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap for deploying the recommendations.")
+domain_assessments: List[DomainAssessment] = Field(description="You MUST provide an assessment for ALL 9 security families/domains. Do not skip, merge, or omit any domains.")    phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap for deploying the recommendations.")
     success_metrics: List[str] = Field(description="3-4 measurable 12-month KPIs to track progress.")
     engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings to maintain the partnership.")
     consultant_discovery_guide: List[str] = Field(description="3 provocative, insightful questions for the consultant to ask the client face-to-face to expose blind spots.")
@@ -155,5 +154,12 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 def build_vciso_prompt(client_inputs):
     base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])} | Stack: MDR/SOC: {client_inputs.get('mdr_provider', 'None')}, Endpoint: {client_inputs.get('endpoint', 'Unknown')}, Email: {client_inputs.get('email', 'Unknown')}, Firewall: {client_inputs.get('firewall', 'Unknown')}, Identity: {client_inputs.get('identity', 'Unknown')}\nVALIDATION & TESTING CONTEXT:\n- Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')}\n- Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')}\n- Notes: {client_inputs.get('validation_notes', 'None')}"
     
-    rules = f"ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}\nDOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}\nAUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}\nAct as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."
+    rules = f"""ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
+DOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}
+AUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}
+
+CRITICAL REQUIREMENT: You MUST explicitly assess ALL {len(ASSESSMENT_DOMAINS)} domains (families) listed above. Do not omit, group, or skip any of them.
+
+Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
+    
     return base_prompt + rules

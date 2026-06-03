@@ -198,23 +198,32 @@ def draw_estate_summary(pdf, inputs):
 # VCISO ASSESSMENT EXPORTS
 # ==========================================
 def generate_radar_chart(domain_assessments):
+    # Extract categories (do NOT duplicate the first one for the labels)
     categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
-    categories = [*categories, categories[0]]
+    
     levels = []
     for d in domain_assessments:
-        match = re.search(r'\d+', d.current_maturity_level)
+        match = re.search(r'\d+', str(d.current_maturity_level))
         levels.append(int(match.group()) if match else 1)
+        
+    # Append the first value ONLY to the data array to close the circular line plot
     levels = [*levels, levels[0]]
     label_loc = np.linspace(start=0, stop=2 * np.pi, num=len(levels))
-    fig = plt.figure(figsize=(6, 5))
+    
+    fig = plt.figure(figsize=(7, 6)) # Slightly larger canvas for full family labels
     ax = plt.subplot(polar=True)
     ax.plot(label_loc, levels, color='#002060', linewidth=2)
     ax.fill(label_loc, levels, color='#002060', alpha=0.25)
-    ax.set_ylim(0, 5)
-    plt.thetagrids(np.degrees(label_loc), labels=categories)
+    
+    # Map to the new 1-3 Phase Resiliency Matrix
+    ax.set_ylim(0, 3.2)
+    ax.set_yticks([1, 2, 3])
+    ax.set_yticklabels(['Phase 1', 'Phase 2', 'Phase 3'], color='grey', size=8)
+    
+    # thetagrids must only receive unique angles (drop the 360-degree overlapping point)
+    plt.thetagrids(np.degrees(label_loc[:-1]), labels=categories, fontsize=9)
     plt.tight_layout()
     
-    # Save to a temporary physical file instead of a BytesIO stream
     tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     plt.savefig(tmpfile.name, format='png', dpi=300, transparent=True)
     plt.close(fig)
