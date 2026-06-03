@@ -8,6 +8,8 @@ from pptx.util import Pt, Inches
 from pptx.dml.color import RGBColor
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import tempfile
 
 # --- TEXT CLEANER (UNICODE SAFE) ---
 def clean_text(text, mode="pdf"):
@@ -155,11 +157,13 @@ def generate_radar_chart(domain_assessments):
     ax.set_ylim(0, 5)
     plt.thetagrids(np.degrees(label_loc), labels=categories)
     plt.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300, transparent=True)
-    buf.seek(0)
+    
+    # Save to a temporary physical file instead of a BytesIO stream
+    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    plt.savefig(tmpfile.name, format='png', dpi=300, transparent=True)
     plt.close(fig)
-    return buf
+    
+    return tmpfile.name
 
 def create_vciso_pdf(inputs, vciso_obj):
     pdf = ReportPDF()
@@ -186,8 +190,10 @@ def create_vciso_pdf(inputs, vciso_obj):
     robust_multi_cell(pdf, 0, 6, "### THE COST OF INACTION:")
     robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction)
     
-    chart_buf = generate_radar_chart(vciso_obj.domain_assessments)
-    pdf.image(chart_buf, x=45, w=120)
+    # Generate chart to temp file, inject into PDF, then delete the temp file
+    chart_path = generate_radar_chart(vciso_obj.domain_assessments)
+    pdf.image(chart_path, x=45, w=120)
+    os.remove(chart_path)
     
     pdf.add_page()
     draw_section_header(pdf, "Detailed Domain Analysis")

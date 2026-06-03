@@ -21,13 +21,10 @@ services:
     image: containrrr/watchtower
     container_name: watchtower
     volumes:
-      # Watchtower requires access to the Docker socket to manage containers
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      # Only watch containers with the label enabled above
       - WATCHTOWER_LABEL_ENABLE=true
-      # Check for updates every 300 seconds (5 minutes)
       - WATCHTOWER_POLL_INTERVAL=300
-      # Remove old images after updating to save disk space
       - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.41 # <--- Forces Watchtower to use the modern API
     restart: unless-stopped
