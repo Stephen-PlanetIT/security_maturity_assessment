@@ -208,6 +208,15 @@ with st.expander("📋 Client Estate & Engagement Data", expanded=True):
         public_web_apps = st.checkbox("Host Public Web Apps?")
 
     st.divider()
+    st.subheader("Security Validation & Testing")
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        pentest_status = st.selectbox("Penetration Testing Frequency", ["None", "Ad-hoc / Compliance Driven", "Annual", "Continuous / Red Teaming"])
+    with col_v2:
+        vuln_scanning = st.selectbox("Vulnerability Scanning", ["None", "Quarterly External", "Monthly Authenticated", "Continuous Agent-Based"])
+    validation_notes = st.text_area("Additional Validation Context (e.g., remediation times, recent audit findings)")
+
+    st.divider()
     st.subheader("🧮 Security Culture Calculator")
     calc_c1, calc_c2, calc_c3, calc_c4 = st.columns(4)
     with calc_c1:
@@ -251,7 +260,8 @@ client_inputs = {
     "critical_infra": critical_infra, "mdr_provider": mdr_provider, "endpoint": endpoint, "firewall": firewall, 
     "identity": identity, "m365_license": m365_license, "email": email, "cloud_env": cloud_env,
     "in_house_team": in_house_team, "physical_locations": physical_locations, "public_web_apps": public_web_apps,
-    "compliance": compliance
+    "compliance": compliance,
+    "pentest_status": pentest_status, "vuln_scanning": vuln_scanning, "validation_notes": validation_notes
 }
 
 # ==========================================

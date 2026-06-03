@@ -120,23 +120,79 @@ def draw_section_header(pdf, title):
     pdf.set_text_color(0, 0, 0)
 
 def draw_estate_summary(pdf, inputs):
-    draw_section_header(pdf, "Client Estate Summary")
-    pdf.set_fill_color(245, 245, 245) 
-    pdf.set_font("helvetica", "", 10)
+    def safe_get(key, default="N/A"):
+        val = inputs.get(key, default)
+        if isinstance(val, list):
+            return ", ".join(val) if val else default
+        return str(val) if val else default
+
+    pdf.set_font("helvetica", "B", 13)
+    pdf.set_text_color(0, 32, 96) # Dark Blue branding
+    pdf.cell(0, 8, "Customer Estate & Engagement Profile", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    def draw_row(label, value):
+        pdf.set_font("helvetica", "B", 10)
+        # Fixed width for labels to keep the columns aligned
+        pdf.cell(50, 6, label + ":", border=0)
+        pdf.set_font("helvetica", "", 10)
+        # multi_cell allows long strings (like compliance arrays) to wrap safely
+        pdf.multi_cell(0, 6, str(value), border=0)
+
+    # --- Group 1: Organisational Profile ---
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 8, "Organisational Profile", ln=True)
+    pdf.set_text_color(0, 0, 0)
     
-    comp_list = inputs.get('compliance', [])
-    comp_str = ", ".join(comp_list) if comp_list else "None Specified"
+    draw_row("Industry", safe_get('industry'))
+    draw_row("Headcount", safe_get('users', safe_get('headcount')))
+    draw_row("Endpoints / Servers", f"{safe_get('endpoints')} / {safe_get('servers')}")
+    draw_row("Target Compliance", safe_get('compliance'))
+    draw_row("Crown Jewels", safe_get('critical_infra'))
+    pdf.ln(3)
+
+    # --- Group 2: Technology Stack ---
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 8, "Current Technology Stack", ln=True)
+    pdf.set_text_color(0, 0, 0)
+
+    draw_row("MDR / SOC Provider", safe_get('mdr_provider'))
+    draw_row("Endpoint Security", safe_get('endpoint'))
+    draw_row("Network Firewall", safe_get('firewall'))
+    draw_row("Identity & Access", safe_get('identity'))
+    draw_row("Email Security", safe_get('email'))
+    draw_row("Cloud Environment", safe_get('cloud_env'))
+    pdf.ln(3)
+
+    # --- Group 3: Operations & Validation ---
+    pdf.set_font("helvetica", "B", 11)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 8, "Operations & Validation", ln=True)
+    pdf.set_text_color(0, 0, 0)
+
+    # Trim the lengthy culture tier string for the PDF
+    culture = safe_get('savviness')
+    if "-" in culture: 
+        culture = culture.split("-")[0].strip()
+        
+    draw_row("Security Culture", culture)
+    draw_row("Internal SOC Team", safe_get('in_house_team'))
+    draw_row("Penetration Testing", safe_get('pentest_status'))
+    draw_row("Vuln Scanning", safe_get('vuln_scanning'))
     
-    summary_text = (
-        f"Industry: {inputs['industry']} | Users: {inputs['users']} | Endpoints: {inputs['endpoints']}\n"
-        f"Critical Asset: {inputs['critical_infra']}\n"
-        f"Compliance Targets: {comp_str}\n"
-        f"MDR Provider: {inputs.get('mdr_provider', 'Unknown')} | Endpoint: {inputs['endpoint']}\n"
-        f"Firewall: {inputs['firewall']} | Email: {inputs['email']}"
-    )
-    for line in summary_text.split('\n'):
-        robust_multi_cell(pdf, 0, 7, f"  {line}", fill=True)
+    notes = safe_get('validation_notes', '')
+    if notes and notes != "N/A" and notes.lower() != "none":
+        draw_row("Validation Notes", notes)
+
+    # Add a visual separator before the Exec Summary begins
     pdf.ln(4)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 190, pdf.get_y())
+    pdf.set_draw_color(0, 0, 0)
+    pdf.ln(6)
 
 # ==========================================
 # VCISO ASSESSMENT EXPORTS
@@ -180,7 +236,13 @@ def create_vciso_pdf(inputs, vciso_obj):
     
     draw_estate_summary(pdf, inputs)
     draw_section_header(pdf, "Executive Summary & Risk Analysis")
-    robust_multi_cell(pdf, 0, 5, vciso_obj.executive_summary)
+    
+    # Strip markdown bold/italic injection from the LLM response
+    clean_exec_summary = vciso_obj.executive_summary.replace("**", "").replace("__", "")
+    
+    # Explicitly force regular font weight before drawing the cell
+    pdf.set_font("helvetica", "", 11)
+    robust_multi_cell(pdf, 0, 5, clean_exec_summary)
     
     pdf.ln(4)
     robust_multi_cell(pdf, 0, 6, "### Compliance & Framework Alignment:")

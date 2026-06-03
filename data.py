@@ -62,6 +62,7 @@ ASSESSMENT_DOMAINS = [
     "Identity & Access Management (IAM)",
     "Network & Cloud Perimeter",
     "Security Operations & Response (SecOps)",
+    "Security Validation & Testing",
     "Governance, Risk & Compliance (GRC)",
     "Operational Resilience & Backup",
     "Supply Chain & Third-Party Risk"
@@ -73,6 +74,7 @@ RECOMMENDED_SOLUTION_MAP = {
     "Identity & Access Management (IAM)": ["Sophos ITDR (Identity Threat Detection and Response)", "Sophos Phish Threat"],
     "Network & Cloud Perimeter": ["Sophos Firewall", "Sophos ZTNA", "Sophos Cloud Optix (CSPM)"],
     "Security Operations & Response (SecOps)": ["Sophos MDR Complete (24/7 Threat Hunting & RCA)", "Sophos Managed Risk"],
+    "Security Validation & Testing": ["Sophos Managed Risk", "Planet IT Penetration Testing", "Secureworks Tabletop Exercises"],
     "Governance, Risk & Compliance (GRC)": ["Sophos Managed Risk", "Sophos Phish Threat (Awareness Programme)"],
     "Operational Resilience & Backup": ["N-able Cove Data Protection", "Sophos Incident Response Retainer", "Secureworks Tabletop Exercises & IR Preparedness"],
     "Supply Chain & Third-Party Risk": ["Sophos ZTNA", "Sophos Managed Risk"]

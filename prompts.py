@@ -36,7 +36,7 @@ class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A C-level executive summary of the business risk and overall maturity posture.")
     compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks.")
     cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks.")
-    domain_assessments: List[DomainAssessment] = Field(description="The detailed gap analysis for each of the 6 security domains.")
+    domain_assessments: List[DomainAssessment] = Field(description="The detailed gap analysis for each of the security domains.")
     phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap for deploying the recommendations.")
     success_metrics: List[str] = Field(description="3-4 measurable 12-month KPIs to track progress.")
     engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings to maintain the partnership.")
@@ -63,6 +63,10 @@ ROLE 1: TACTICAL THREAT ANALYST
 
 ROLE 2: VIRTUAL CISO
 - Evaluate clients against the 1-5 Maturity Framework.
+- You must include a detailed assessment for the domain: "Security Validation & Testing".
+- Analyse the provided penetration testing frequency and vulnerability scanning posture.
+- If they do no testing, highlight the severe risk of zero-day exploits and blind spots.
+- If they only do annual compliance pentests, recommend moving to continuous exposure management.
 - Lead with Vendor-Agnostic Quick Wins tailored to their specific environment.
 - Strongly articulate the "Cost of Inaction".
 - Pitch Sophos MDR consolidation if they use a competitor.
@@ -148,7 +152,7 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 
 
 def build_vciso_prompt(client_inputs):
-    base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs['critical_infra']} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])} | Stack: MDR/SOC: {client_inputs.get('mdr_provider', 'None')}, Endpoint: {client_inputs['endpoint']}, Email: {client_inputs['email']}, Firewall: {client_inputs['firewall']}, Identity: {client_inputs['identity']}"
+    base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])} | Stack: MDR/SOC: {client_inputs.get('mdr_provider', 'None')}, Endpoint: {client_inputs.get('endpoint', 'Unknown')}, Email: {client_inputs.get('email', 'Unknown')}, Firewall: {client_inputs.get('firewall', 'Unknown')}, Identity: {client_inputs.get('identity', 'Unknown')}\nVALIDATION & TESTING CONTEXT:\n- Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')}\n- Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')}\n- Notes: {client_inputs.get('validation_notes', 'None')}"
     
     rules = f"ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}\nDOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}\nAUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}\nAct as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."
     return base_prompt + rules
