@@ -4,13 +4,70 @@ from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx
+from catalog import PLANET_IT_PORTFOLIO
 
+class CyberScenarioGenerator:
 class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):
         recs = []
-        if inputs['in_house_team'] == "Yes (24/7)" and ("Phase 2" in inputs['savviness'] or "Phase 3" in inputs['savviness']):
-            recs.append("Leverage internal SOC for proactive threat hunting.")
-        # Add your other recommendation logic here...
+        
+        # Extract variables for cleaner evaluation
+        mdr = inputs.get('mdr_provider', 'None')
+        in_house = inputs.get('in_house_team', 'No')
+        users = inputs.get('users', 0)
+        firewall = inputs.get('firewall', 'Unknown')
+        industry = inputs.get('industry', 'Other')
+        email = inputs.get('email', 'Unknown')
+        identity = inputs.get('identity', 'Unknown')
+        vuln_scan = inputs.get('vuln_scanning', 'None')
+        culture = inputs.get('savviness', '')
+        cloud = inputs.get('cloud_env', 'None (Fully On-Prem)')
+
+        # 1. Managed Detection and Response (MDR)
+        if in_house != "Yes (24/7)" and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
+            item = PLANET_IT_PORTFOLIO["Managed_Detection_and_Response"][0]
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 2. Network & Edge Security
+        if users < 1000 and firewall != "Sophos":
+            item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][0] # Sophos Firewall
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+        elif users >= 1000 and firewall != "Fortinet":
+            item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][1] # FortiGate
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 3. Email Security & Compliance
+        if industry in ["Finance", "Healthcare", "Legal"] and email != "Mimecast":
+            item = PLANET_IT_PORTFOLIO["Email_Security"][1] # Mimecast
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+        elif industry not in ["Finance", "Healthcare", "Legal"] and email != "Sophos":
+            item = PLANET_IT_PORTFOLIO["Email_Security"][0] # Sophos Email
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 4. Identity & Access Management
+        if identity in ["Microsoft Entra ID (Azure AD)", "Okta"]:
+            item = PLANET_IT_PORTFOLIO["Identity_and_Access_Management"][0] # Sophos ITDR
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 5. Attack Surface Management
+        if vuln_scan != "Continuous":
+            item = PLANET_IT_PORTFOLIO["Vulnerability_and_Exposure_Management"][0] # Managed Risk
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 6. Security Culture & Phishing
+        if "Phase 1" in culture:
+            item = PLANET_IT_PORTFOLIO["Security_Awareness_and_Training"][0] # Phish Threat
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 7. Cloud Posture
+        if "AWS" in cloud or "Microsoft Azure" in cloud or "GCP" in cloud:
+            item = PLANET_IT_PORTFOLIO["Cloud_Security_and_Posture"][0] # Cloud Optix
+            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # Fallback for highly mature environments
+        if not recs:
+            recs.append("**Internal SOC Optimisation:** Leverage your existing 24/7 team for proactive threat hunting, as baseline controls are currently saturated.")
+
         return recs
 
 # --- HELPER: EXPORT GENERATORS ---
@@ -159,14 +216,29 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
 
 # --- GLOBAL INPUTS DICTIONARY ---
 client_inputs = {
-    "customer_name": customer_name, "consultant_name": consultant_name, "industry": industry, 
-    "users": users, "savviness": savviness, "endpoints": endpoints, "servers": servers, 
-    "operating_systems": operating_systems, 
-    "critical_infra": critical_infra, "mdr_provider": mdr_provider, "endpoint": endpoint, "firewall": firewall, 
-    "identity": identity, "m365_license": m365_license, "email": email, "cloud_env": cloud_env,
-    "in_house_team": in_house_team, "physical_locations": physical_locations, "public_web_apps": public_web_apps,
-    "compliance": compliance,
-    "pentest_status": pentest_status, "vuln_scanning": vuln_scanning, "validation_notes": validation_notes
+    "customer_name": customer_name, 
+    "consultant_name": consultant_name, 
+    "industry": industry, 
+    "users": users, 
+    "savviness": savviness, 
+    "endpoints": endpoints, 
+    "servers": servers, 
+    "operating_systems": ", ".join(operating_systems) if operating_systems else "None", 
+    "critical_infra": critical_infra, 
+    "mdr_provider": mdr_provider, 
+    "endpoint": endpoint, 
+    "firewall": firewall, 
+    "identity": identity, 
+    "m365_license": m365_license, 
+    "email": email, 
+    "cloud_env": ", ".join(cloud_env) if cloud_env else "None (Fully On-Prem)",
+    "in_house_team": in_house_team, 
+    "physical_locations": physical_locations, 
+    "public_web_apps": public_web_apps,
+    "compliance": ", ".join(compliance) if compliance else "None",
+    "pentest_status": pentest_status, 
+    "vuln_scanning": vuln_scanning, 
+    "validation_notes": validation_notes
 }
 
 st.session_state['client_inputs'] = client_inputs
@@ -183,7 +255,10 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             # Determine provider from the UI sidebar toggle
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
-            deployment = st.secrets.get("LLM_MODEL", "gpt-4o") # Update with your exact model deployment name
+            if provider_flag == "ollama":
+    deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b")
+else:
+    deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
             # Map OSINT from data.py based on the selected tech stack
             selected_vector = random.choice(ATTACK_VECTORS)
