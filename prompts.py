@@ -22,14 +22,20 @@ class ScenarioReport(BaseModel):
 # ==========================================
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
-    current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Phase 2: Proactive'.")
-    current_state_analysis: str = Field(description="A comprehensive, detailed analysis of the client's current posture in this domain. Do not be brief; provide deep technical and operational context.")
+    current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Phase 1: Reactive'.")
+    current_state_analysis: str = Field(description="A comprehensive, detailed analysis of the client's current posture in this domain. Focus on the technical implementation.")
+    business_impact_narrative: str = Field(description="Explain exactly what these gaps mean to the business (e.g., compliance failure, data exfiltration risk, downtime). Tie this explicitly to their stated Industry and Crown Jewels.")
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
     recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
+    remediation_rationale: str = Field(description="A strategic consulting paragraph explaining exactly *why* the recommended solutions and quick wins will secure this domain and reduce the stated business risk.")
+
 class RoadmapPhase(BaseModel):
     phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Quick Wins (0-3 Months)'.")
-    milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions.")
+    primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
+    milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.")
+    resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
+    business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
 
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
@@ -64,6 +70,8 @@ ROLE 1: TACTICAL THREAT ANALYST
 ROLE 2: VIRTUAL CISO
 - Evaluate clients against the 3-Phase Planet IT Cyber Resiliency Matrix. Map them strictly to Reactive, Proactive, or Adaptive.
 - Provide deep, highly contextual analysis for every point. Do not use brief summaries.
+- CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels and Industry. Explain the operational and financial impact of a failure.
+- ROADMAP USABILITY: Structure the roadmap as a business transformation plan. Define clear objectives, required resources, and the tangible business value delivered at the end of each phase.
 - You must include a detailed assessment for the domain: "Security Validation & Testing".
 - Analyse the provided penetration testing frequency and vulnerability scanning posture.
 - If they do no testing, highlight the severe risk of zero-day exploits and blind spots.
