@@ -255,7 +255,7 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
             if provider_flag == "ollama":
-                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b")
+                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b")
             else:
                 deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
@@ -308,7 +308,7 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
             client = LLMEngine.get_client(provider_flag)
             if provider_flag == "ollama":
     # Ensure this matches the exact model name you pulled via the Ollama CLI
-                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b") 
+                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b") 
             else:
                 deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
