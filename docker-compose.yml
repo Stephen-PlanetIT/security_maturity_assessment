@@ -2,10 +2,13 @@ version: '3.8'
 
 services:
   advisory-engine:
-    image: ghcr.io/gallenhamph/mdr-use-case:latest
+    build: .  # <-- THIS IS THE MISSING DIRECTIVE
+    image: advisory-engine:local  # Retags the image locally so it stops pulling from ghcr.io
     container_name: advisory-engine
     ports:
       - "8501:8501"
+    extra_hosts:                                    # <-- ADD THIS BLOCK
+      - "host.docker.internal:host-gateway"         # <-- ADD THIS ROUTE
     volumes:
       - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     restart: unless-stopped

@@ -4,11 +4,12 @@ FROM python:3.10-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies required for matplotlib and fpdf2
+# Install system dependencies required for matplotlib, fpdf2, and healthchecks
 RUN apt-get update && apt-get install -y \
     build-essential \
     libfreetype6-dev \
     libpng-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container
@@ -17,14 +18,13 @@ COPY requirements.txt .
 # Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application logic and static knowledge base
-COPY app.py .
-COPY prompts.py .
-COPY export.py .
-COPY data.py .
+# Copy ALL application logic and static knowledge base
+# (This safely ingests app.py, core.py, data.py, export.py, prompts.py, and catalog.py)
+COPY *.py ./
 
-# Copy the core Planet IT branding template
+# Copy the core Planet IT branding templates
 COPY planet_it_master_template.pptx .
+COPY planet_it_vciso_template.docx .
 
 # Expose the standard Streamlit port
 EXPOSE 8501

@@ -306,7 +306,11 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
             # Determine provider from the UI sidebar toggle
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
-            deployment = st.secrets.get("LLM_MODEL", "gpt-4o") # Update with your exact model deployment name
+            if provider_flag == "ollama":
+    # Ensure this matches the exact model name you pulled via the Ollama CLI
+                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b") 
+            else:
+                deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
             # TRIGGER: Generate the Structured vCISO Report (JSON)
             vciso_prompt = build_vciso_prompt(st.session_state['client_inputs'])
