@@ -338,3 +338,54 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                     file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Deck.pptx", 
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 )
+    # --- FRONTEND RENDERING: vCISO PREVIEW ---
+    if st.session_state.get('vciso_obj'):
+        st.divider()
+        st.subheader("📊 Strategic Assessment Preview")
+        
+        vciso = st.session_state['vciso_obj']
+        
+        # Initialise UI Tabs for clean data presentation
+        tab1, tab2, tab3 = st.tabs(["Executive Brief", "Domain Assessments", "Strategic Roadmap"])
+        
+        with tab1:
+            st.markdown("### Executive Summary")
+            st.markdown(vciso.executive_summary)
+            
+            st.markdown("### Resiliency Matrix Mapping")
+            st.info(vciso.resiliency_matrix_mapping)
+            
+            col_impact, col_comp = st.columns(2)
+            with col_impact:
+                st.markdown("### The Cost of Inaction")
+                st.error(vciso.cost_of_inaction)
+            with col_comp:
+                st.markdown("### Compliance Alignment")
+                st.success(vciso.compliance_alignment)
+                
+        with tab2:
+            st.markdown("### Security Domain Analysis")
+            for domain in vciso.domain_assessments:
+                with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}"):
+                    st.markdown("**Technical Analysis:**")
+                    st.markdown(domain.current_state_analysis)
+                    
+                    st.markdown("**Business Impact:**")
+                    st.markdown(domain.business_impact_narrative)
+                    
+                    st.markdown("**Critical Gaps:**")
+                    for gap in domain.critical_gaps:
+                        st.markdown(f"- {gap}")
+                        
+                    st.markdown("**Remediation Rationale:**")
+                    st.markdown(domain.remediation_rationale)
+                    
+        with tab3:
+            st.markdown("### Phased Implementation")
+            for phase in vciso.phased_roadmap:
+                st.markdown(f"#### {phase.phase_name}: {phase.primary_objective}")
+                for milestone in phase.milestones:
+                    st.markdown(f"- {milestone}")
+                st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
+                st.markdown(f"**Resources:** {phase.resource_requirements}")
+                st.divider()
