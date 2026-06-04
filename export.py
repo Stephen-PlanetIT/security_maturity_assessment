@@ -2,6 +2,8 @@
 import io
 import re
 import textwrap
+from docxtpl import DocxTemplate, InlineImage
+from docx.shared import Inches
 from fpdf import FPDF
 from pptx import Presentation
 from pptx.util import Pt, Inches
@@ -243,10 +245,15 @@ def clean_markdown(text):
 
 def create_vciso_docx(inputs, vciso_obj):
     """Generates the vCISO Word Document using docxtpl."""
-    # Route to the vCISO Master Template
     doc = DocxTemplate("planet_it_vciso_template.docx")
     
-    # Build the context with LLM outputs
+    # 1. Generate the Radar Chart image file
+    chart_path = generate_radar_chart(vciso_obj.domain_assessments)
+    
+    # 2. Convert to an InlineImage for docxtpl (scaled to fit standard margins)
+    radar_img = InlineImage(doc, chart_path, width=Inches(6.0))
+    
+    # 3. Build the context with LLM outputs and the image
     context = {
         'exec_summary': clean_markdown(vciso_obj.executive_summary),
         'matrix_mapping': clean_markdown(vciso_obj.resiliency_matrix_mapping),
@@ -255,15 +262,22 @@ def create_vciso_docx(inputs, vciso_obj):
         'domains': vciso_obj.domain_assessments,
         'roadmap': vciso_obj.phased_roadmap,
         'metrics': vciso_obj.success_metrics,
-        'cadence': vciso_obj.engagement_cadence
+        'cadence': vciso_obj.engagement_cadence,
+        'radar_chart': radar_img
     }
     
     # Unpack all Streamlit UI inputs (customer name, endpoints, etc.) into the template
     context.update(inputs)
     
+    # 4. Render the document
     doc.render(context)
     bio = io.BytesIO()
     doc.save(bio)
+    
+    # 5. Clean up the temporary chart image from the server/container
+    if os.path.exists(chart_path):
+        os.remove(chart_path)
+        
     return bio.getvalue()
 
 # --- Keep your existing create_pdf, create_pptx, and create_vciso_pptx functions below this ---
@@ -318,7 +332,7 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
         
     # If it's a modern fpdf2 bytearray, safely cast it to bytes
     return bytes(raw_pdf)
-    
+
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
