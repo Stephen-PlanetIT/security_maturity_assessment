@@ -7,7 +7,6 @@ from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx
 from catalog import PLANET_IT_PORTFOLIO
 
 class CyberScenarioGenerator:
-class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):
         recs = []
         
@@ -256,9 +255,9 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
             if provider_flag == "ollama":
-    deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b")
-else:
-    deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:32b")
+            else:
+                deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
             # Map OSINT from data.py based on the selected tech stack
             selected_vector = random.choice(ATTACK_VECTORS)
