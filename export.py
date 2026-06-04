@@ -232,100 +232,41 @@ def generate_radar_chart(domain_assessments):
     
     return tmpfile.name
 
-def create_vciso_pdf(inputs, vciso_obj):
-    pdf = ReportPDF()
-    pdf.add_page()
-    pdf.set_font("helvetica", "B", 18)
-    robust_multi_cell(pdf, 0, 12, "vCISO Maturity Assessment & Strategic Roadmap", align="C")
-    
-    pdf.set_font("helvetica", "I", 11)
-    pdf.set_text_color(100, 100, 100) 
-    robust_multi_cell(pdf, 0, 6, f"Prepared for: {inputs['customer_name']} | By: {inputs.get('consultant_name', 'Advisor')}", align="C")
-    
-    pdf.set_text_color(0, 0, 0) 
-    pdf.ln(8)
-    
-    draw_estate_summary(pdf, inputs)
-    
-    # --- Exec Summary ---
-    draw_section_header(pdf, "Executive Summary & Risk Analysis")
-    clean_exec_summary = vciso_obj.executive_summary.replace("**", "").replace("__", "")
-    pdf.set_font("helvetica", "", 11)
-    # Using align="J" to justify the text across the full page width
-    robust_multi_cell(pdf, 0, 5, clean_exec_summary, align="J")
-    
-    # --- NEW: Planet IT Cyber Resiliency Matrix Mapping ---
-    pdf.ln(4)
-    robust_multi_cell(pdf, 0, 6, "### Cyber Resiliency Matrix Alignment:")
-    pdf.set_font("helvetica", "", 11)
-    clean_matrix = vciso_obj.resiliency_matrix_mapping.replace("**", "").replace("__", "")
-    robust_multi_cell(pdf, 0, 5, clean_matrix, align="J")
-    
-    # --- Compliance & Cost of Inaction ---
-    pdf.ln(4)
-    robust_multi_cell(pdf, 0, 6, "### Compliance & Framework Alignment:")
-    pdf.set_font("helvetica", "", 11)
-    robust_multi_cell(pdf, 0, 5, vciso_obj.compliance_alignment.replace("**", ""), align="J")
-    
-    pdf.ln(4)
-    robust_multi_cell(pdf, 0, 6, "### THE COST OF INACTION:")
-    pdf.set_font("helvetica", "", 11)
-    robust_multi_cell(pdf, 0, 5, vciso_obj.cost_of_inaction.replace("**", ""), align="J")
-    
-    chart_path = generate_radar_chart(vciso_obj.domain_assessments)
-    try:
-        pdf.image(chart_path, x=45, w=120)
-    finally:
-        if os.path.exists(chart_path):
-            os.remove(chart_path)
-    
-    # --- Detailed Domain Analysis ---
-    pdf.add_page()
-    draw_section_header(pdf, "Detailed Domain Analysis")
-    for domain in vciso_obj.domain_assessments:
-        robust_multi_cell(pdf, 0, 8, f"### {domain.domain_name} - {domain.current_maturity_level}")
-        pdf.set_font("helvetica", "", 11)
-        
-        # Justify the deeper analysis text
-        clean_analysis = domain.current_state_analysis.replace("**", "").replace("__", "")
-        robust_multi_cell(pdf, 0, 5, f"Analysis: {clean_analysis}", align="J")
-        
-        robust_multi_cell(pdf, 0, 6, "### Zero-Cost Quick Wins:")
-        for win in domain.vendor_agnostic_quick_wins:
-            robust_multi_cell(pdf, 0, 5, f"- {win}", align="L") # Keep lists left-aligned
-        
-        robust_multi_cell(pdf, 0, 6, "### Strategic Recommendations:")
-        for sol in domain.recommended_solutions:
-            robust_multi_cell(pdf, 0, 5, f"- {sol}", align="L")
-        pdf.ln(4)
+import io
+import re
+from docxtpl import DocxTemplate
 
-    # --- Roadmap ---
-    draw_section_header(pdf, "Partnership Roadmap & Success Metrics")
-    robust_multi_cell(pdf, 0, 6, "### 12-Month Success Metrics (KPIs):")
-    pdf.set_font("helvetica", "", 11)
-    for kpi in vciso_obj.success_metrics:
-        robust_multi_cell(pdf, 0, 5, f"- {kpi}", align="L")
-        
-    for phase in vciso_obj.phased_roadmap:
-        robust_multi_cell(pdf, 0, 6, f"### {clean_text(phase.phase_name, 'pdf')}")
-        for milestone in phase.milestones:
-            robust_multi_cell(pdf, 0, 5, f"- {milestone}", align="L")
-    
-    pdf.ln(4)
-    robust_multi_cell(pdf, 0, 6, "### Advisory Engagement Cadence:")
-    for meeting in vciso_obj.engagement_cadence:
-        robust_multi_cell(pdf, 0, 5, f"- {meeting}", align="L")
+def clean_markdown(text):
+    """Strips Markdown bold/italic artifacts from the LLM response."""
+    if not text: return ""
+    return re.sub(r'[*_]', '', text)
 
-    # Grab the raw output from the FPDF engine
-    raw_pdf = pdf.output(dest='S')
+def create_vciso_docx(inputs, vciso_obj):
+    """Generates the vCISO Word Document using docxtpl."""
+    # Route to the vCISO Master Template
+    doc = DocxTemplate("planet_it_vciso_template.docx")
     
-    # If the library returned an old-school string, encode it
-    if isinstance(raw_pdf, str):
-        return raw_pdf.encode('latin-1')
-        
-    # If it's a modern fpdf2 bytearray, safely cast it to bytes
-    return bytes(raw_pdf)
+    # Build the context with LLM outputs
+    context = {
+        'exec_summary': clean_markdown(vciso_obj.executive_summary),
+        'matrix_mapping': clean_markdown(vciso_obj.resiliency_matrix_mapping),
+        'compliance_alignment': clean_markdown(vciso_obj.compliance_alignment),
+        'cost_of_inaction': clean_markdown(vciso_obj.cost_of_inaction),
+        'domains': vciso_obj.domain_assessments,
+        'roadmap': vciso_obj.phased_roadmap,
+        'metrics': vciso_obj.success_metrics,
+        'cadence': vciso_obj.engagement_cadence
+    }
     
+    # Unpack all Streamlit UI inputs (customer name, endpoints, etc.) into the template
+    context.update(inputs)
+    
+    doc.render(context)
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
+
+# --- Keep your existing create_pdf, create_pptx, and create_vciso_pptx functions below this ---
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])

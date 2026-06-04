@@ -4,16 +4,15 @@ from openai import AzureOpenAI, OpenAI
 
 class LLMEngine:
     @staticmethod
-    def get_client():
-        provider = st.secrets.get("LLM_PROVIDER", "azure").lower()
+    def get_client(provider_choice="azure"):
+        provider = provider_choice.lower()
         
         try:
-            if provider == "ollama":
-                # Routes from the Docker container back to the Mac host
+            if "ollama" in provider or "local" in provider:
                 base_url = st.secrets.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
                 return OpenAI(
                     base_url=base_url,
-                    api_key="ollama" # Required by the client, but ignored by Ollama
+                    api_key="ollama" 
                 )
             else:
                 return AzureOpenAI(
