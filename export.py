@@ -316,7 +316,15 @@ def create_vciso_pdf(inputs, vciso_obj):
     for meeting in vciso_obj.engagement_cadence:
         robust_multi_cell(pdf, 0, 5, f"- {meeting}", align="L")
 
-    return bytes(pdf.output())
+    # Grab the raw output from the FPDF engine
+    raw_pdf = pdf.output(dest='S')
+    
+    # If the library returned an old-school string, encode it
+    if isinstance(raw_pdf, str):
+        return raw_pdf.encode('latin-1')
+        
+    # If it's a modern fpdf2 bytearray, safely cast it to bytes
+    return bytes(raw_pdf)
     
 def create_vciso_pptx(inputs, vciso_obj):
     prs = Presentation()
@@ -360,8 +368,16 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
             rec = rec.replace("• ", "- ")
         robust_multi_cell(pdf, 0, 5, rec)
         
-    return bytes(pdf.output())
-
+    # Grab the raw output from the FPDF engine
+    raw_pdf = pdf.output(dest='S')
+    
+    # If the library returned an old-school string, encode it
+    if isinstance(raw_pdf, str):
+        return raw_pdf.encode('latin-1')
+        
+    # If it's a modern fpdf2 bytearray, safely cast it to bytes
+    return bytes(raw_pdf)
+    
 def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
