@@ -33,6 +33,7 @@ class DomainAssessment(BaseModel):
 class RoadmapPhase(BaseModel):
     phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Quick Wins (0-3 Months)'.")
     primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
+    estimated_effort: str = Field(description="Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational').")
     milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.")
     resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
     business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
