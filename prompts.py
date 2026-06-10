@@ -22,31 +22,43 @@ class ScenarioReport(BaseModel):
 # ==========================================
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
-    current_maturity_level: str = Field(description="The graded maturity level, e.g., 'Phase 1: Reactive'.")
+    current_maturity_level: str = Field(description="Must be exactly one of: 'Pillar 1: Reactive Cybersecurity', 'Pillar 2: Proactive Cybersecurity', or 'Pillar 3: Adaptive Cybersecurity'.")
     current_state_analysis: str = Field(description="A comprehensive, detailed analysis of the client's current posture in this domain. Focus on the technical implementation.")
-    business_impact_narrative: str = Field(description="Explain exactly what these gaps mean to the business (e.g., compliance failure, data exfiltration risk, downtime). Tie this explicitly to their stated Industry and Crown Jewels.")
+    business_impact_narrative: str = Field(description="Explain exactly what these gaps mean to the business. MUST include a specific Risk Score calculation (Probability 1-3 x Impact 1-3 = Risk Score 1-9) and outline the specific business/board-level liability.")
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
     recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
-    remediation_rationale: str = Field(description="A strategic consulting paragraph explaining exactly *why* the recommended solutions and quick wins will secure this domain and reduce the stated business risk.")
+    remediation_rationale: str = Field(description="Strategic justification. MUST include a 'Responsibility Matrix' statement clarifying what Planet IT will manage vs. what the Client must enforce (e.g., staff adherence, data ownership).")
 
 class RoadmapPhase(BaseModel):
-    phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Quick Wins (0-3 Months)'.")
+    phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Foundational Hygiene (0-3 Months)'.")
     primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
     estimated_effort: str = Field(description="Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational').")
     milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.")
     resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
     business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
 
+class RadarChartData(BaseModel):
+    iam: int = Field(description="Score out of 5 for Identity & Access Management (IAM)")
+    endpoint: int = Field(description="Score out of 5 for Endpoint & Server Security")
+    network: int = Field(description="Score out of 5 for Network & Cloud Perimeter")
+    email: int = Field(description="Score out of 5 for Email & Data Protection")
+    cloud: int = Field(description="Score out of 5 for Cloud & Infrastructure")
+    secops: int = Field(description="Score out of 5 for Security Operations & Response")
+    testing: int = Field(description="Score out of 5 for Security Validation & Testing")
+    culture: int = Field(description="Score out of 5 for Security Culture & Awareness")
+    grc: int = Field(description="Score out of 5 for Governance, Risk & Compliance")
+
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
-    resiliency_matrix_mapping: str = Field(description="Explicitly map the customer to Phase 1 (Reactive), Phase 2 (Proactive), or Phase 3 (Adaptive) based on the Planet IT Cyber Resiliency Matrix. Justify the placement and explain what must happen to move to the next phase.")
-    compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks.")
-    cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational risks.")
+    radar_chart_data: RadarChartData = Field(description="Scores out of 5 for the maturity radar chart.")
+    resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive). Justify the placement.")
+    compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks (e.g. CE+, ISO 27001).")
+    cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational consequences if the roadmap is ignored, including mention of potential Risk Waivers.")
     domain_assessments: List[DomainAssessment] = Field(description="You MUST provide an assessment for ALL 9 security families/domains. Do not skip, merge, or omit any domains.")
-    phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap for deploying the recommendations.")
-    success_metrics: List[str] = Field(description="3-4 measurable 12-month KPIs to track progress.")
-    engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings to maintain the partnership.")
+    phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap driving the long-tail journey from Reactive to Adaptive capabilities.")
+    success_metrics: List[str] = Field(description="3-4 measurable KPIs to track progress.")
+    engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings (e.g., QBRs) to maintain the partnership.")
     consultant_discovery_guide: List[str] = Field(description="3 provocative, insightful questions for the consultant to ask the client face-to-face to expose blind spots.")
 
 # ==========================================
@@ -66,21 +78,15 @@ GENERAL RULES & STRICT GUARDRAILS:
 
 ROLE 1: TACTICAL THREAT ANALYST
 - Attribute attacks to specific actors. 
-- Detail how Sophos MDR neutralised the threat using ONLY authorised response actions (e.g., Isolate hosts, Disconnect M365 sessions, Clean registry, Terminate processes).
+- Detail how Sophos MDR neutralised the threat using ONLY authorised response actions.
 
 ROLE 2: VIRTUAL CISO
-- Evaluate clients against the 3-Phase Planet IT Cyber Resiliency Matrix. Map them strictly to Reactive, Proactive, or Adaptive.
-- Provide deep, highly contextual analysis for every point. Do not use brief summaries.
-- CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels and Industry. Explain the operational and financial impact of a failure.
-- ROADMAP USABILITY: Structure the roadmap as a business transformation plan. Define clear objectives, required resources, and the tangible business value delivered at the end of each phase.
-- You must include a detailed assessment for the domain: "Security Validation & Testing".
-- Analyse the provided penetration testing frequency and vulnerability scanning posture.
-- If they do no testing, highlight the severe risk of zero-day exploits and blind spots.
-- If they only do annual compliance pentests, recommend moving to continuous exposure management.
+- Evaluate clients against the Planet IT Cyber Resiliency Matrix. Map them strictly to Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive).
+- CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels, Industry, and submitted Operational Telemetry (e.g., RTO, Insurance requirements). Explain the operational and financial impact of a failure.
+- ROADMAP USABILITY: Structure the roadmap as a long-tail business transformation plan stretching into advanced Adaptive capabilities. Define clear objectives, required resources, and the tangible business value delivered at the end of each phase.
+- Analyse the provided penetration testing frequency and vulnerability scanning posture. Recommend continuous exposure management if lacking.
 - Lead with Vendor-Agnostic Quick Wins tailored to their specific environment.
 - Strongly articulate the "Cost of Inaction".
-- Pitch Sophos MDR consolidation if they use a competitor.
-- Define Success Metrics and an Ongoing Engagement Cadence.
 
 BACKGROUND KNOWLEDGE BASE:
 {context_injection}
@@ -99,7 +105,7 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
     scenario_rules = f"""SCENARIO REQUIREMENTS:
     - Section 1 (Threat Actor & Initial Access): Adapt to environment. Include hyperlinked MITRE T-codes and CVEs. Initial Access: "{attack_vector if not custom_scenario else custom_scenario}".
     - Section 2 (Attacker Progression): Detail the *attempted* movement toward {client_inputs['critical_infra']}. The attacker must make initial headway due to environmental or cultural vulnerabilities.
-    - Section 3 (Sophos MDR Interception): CRITICAL RULE - The attack MUST NOT succeed. Sophos MDR must identify behavioural anomalies mid-chain and actively neutralise the threat before exfiltration, encryption, or final objective completion. Detail the specific kill-chain disruption (e.g., host isolation, credential revocation).
+    - Section 3 (Sophos MDR Interception): CRITICAL RULE - The attack MUST NOT succeed. Sophos MDR must identify behavioural anomalies mid-chain and actively neutralise the threat before exfiltration, encryption, or final objective completion.
     - Section 4 (Recommended Solutions): Summarise the defence strategy.
     - Section 5 (Attack Timeline): Provide a chronological timeline. The very first event MUST be anchored exactly at {start_time} and the final MDR neutralisation MUST be anchored exactly at {end_time} (reflecting a 38-minute MTTR).
     """
@@ -117,7 +123,7 @@ def build_mdr_case_prompt(client_inputs, scenario_narrative):
 NARRATIVE TO TRANSLATE:
 {scenario_narrative}
 
-CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EXACT template below. Do not add any conversational filler, introductory text, or concluding remarks. Do not alter the headings.
+CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EXACT template below. Do not add any conversational filler, introductory text, or concluding remarks.
 
 ### MDR Case ID: {case_id}
 **Customer:** {client_inputs['customer_name']}
@@ -141,17 +147,11 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 * **Sophos PID:** [Generate a realistic formatted Sophos PID, e.g., 6012:134151631315154554]
 * **Purpose:** [Brief explanation of what this artifact did in the attack]
 
-**Artifact 2:**
-* **Decoded command line:** [Specific command, script, or executable]
-* **Command path:** [Specific file path]
-* **Sophos PID:** [Generate a realistic formatted Sophos PID]
-* **Purpose:** [Brief explanation of what this artifact did in the attack]
-
 #### Active Users
 [List the active user context during execution, e.g., SYSTEM, ITAdmin.]
 
 #### Timeline
-[Provide a detailed, chronological timeline of the attack progression. You MUST use EXACT timestamps. The very first event MUST occur at {start_time} and the final neutralisation event MUST occur at {end_time}. Space intermediate events logically between these two anchors.]
+[Provide a detailed, chronological timeline of the attack progression. You MUST use EXACT timestamps. The very first event MUST occur at {start_time} and the final neutralisation event MUST occur at {end_time}.]
 
 #### 🛡️ Response Actions
 [List 2-3 bullet points of ONLY authorised MDR actions taken by Sophos to neutralise the threat.]
@@ -162,14 +162,60 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 
 
 def build_vciso_prompt(client_inputs):
-    base_prompt = f"ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}\nCLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])} | Stack: MDR/SOC: {client_inputs.get('mdr_provider', 'None')}, Endpoint: {client_inputs.get('endpoint', 'Unknown')}, Email: {client_inputs.get('email', 'Unknown')}, Firewall: {client_inputs.get('firewall', 'Unknown')}, Identity: {client_inputs.get('identity', 'Unknown')}\nVALIDATION & TESTING CONTEXT:\n- Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')}\n- Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')}\n- Notes: {client_inputs.get('validation_notes', 'None')}"
+    base_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}
+CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
+STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
+
+OPERATIONAL TELEMETRY & RISK FACTORS:
+- MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
+- Patch Management: {client_inputs.get('patching', 'Unknown')}
+- Backup Strategy: {client_inputs.get('backups', 'Unknown')}
+- Cyber Insurance Status: {client_inputs.get('insurance', 'Unknown')}
+- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}"""
     
-    rules = f"""ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
+    rules = f"""
+ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
 DOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}
 AUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}
+
+### THE PLANET IT CYBER RESILIENCY MATRIX (THE THREE PILLARS)
+You must assess the client's current maturity and map them strictly against these three pillars:
+
+**Pillar 1: Reactive Cybersecurity**
+* **Theme:** Foundational Hygiene & Baseline Control.
+* **Scope:** Anti-Virus, Firewalls, Email Gateways, MFA, Basic Backup & Recovery, Log Collection, Vulnerability Assessment, and Cyber Essentials.
+* **Rule:** If a client lacks basic patching (e.g., Manual/Ad-Hoc), functional perimeter controls, universally enforced MFA, or viable backups, they are stuck in Pillar 1. 
+
+**Pillar 2: Proactive Cybersecurity**
+* **Theme:** Active Managed Defence & Human Risk.
+* **Scope:** Managed Detection & Response (MDR), EDR/XDR, Penetration Testing, Security Awareness Training, Digital Forensics & Incident Response (DFIR), SIEM, Threat Intelligence, SASE, and ISO 27001 alignment.
+* **Rule:** This pillar transitions the client from passive tools to active hunting and validated defence.
+
+**Pillar 3: Adaptive Cybersecurity**
+* **Theme:** Adaptive Governance, Automation, and Resilience.
+* **Scope:** Zero-Trust Architecture (ZTA), Microsegmentation, User & Behaviour Analytics (UBA), Security Orchestration Automation & Response (SOAR), Automated Disaster Recovery, Honeypots & Canarys, Continuous IoC Scanning, and Proactive Threat Hunting.
+* **Rule:** The "long tail" of the roadmap must stretch into these advanced controls to demonstrate long-term business value and enterprise resilience.
+
+### STRATEGIC ROADMAP GENERATION (THE LONG TAIL)
+Ensure the 'phased_roadmap' pushes the customer through a transformational journey. You MUST use these exact phase names to maintain continuity:
+* **Phase 1: Foundational Hygiene (0-3 Months)** -> Focuses on eliminating Pillar 1 (Reactive) gaps.
+* **Phase 2: Active Managed Defence (3-9 Months)** -> Focuses on deploying Pillar 2 (Proactive) controls like MDR and Phish Training.
+* **Phase 3: Adaptive Governance & Resilience (10-18+ Months)** -> Focuses on the long tail of Pillar 3 (Adaptive) capabilities, integrating ZTA, UBA, SOAR, and Automated DR into the client's environment.
+
+### RISK SCORING ENGINE
+Whenever you discuss business impact in the domain analysis, you MUST generate a Risk Score using this formula:
+* **Probability (1-3) x Impact (1-3) = Risk Score (1-9)**
+* Example: "Probability: High (3) x Impact: High (3) = Risk Score: 9 (Critical Action Required)."
+* Factor the client's submitted RTO, Cyber Insurance Status, and Operational Telemetry directly into the Impact reasoning.
+
+### RESPONSIBILITY MATRIX
+Planet IT believes in shared accountability. In your 'remediation_rationale', explicitly state the responsibility split. 
+* **Planet IT is responsible for:** Guiding best practice, configuring the stack, 24/7 monitoring, and providing policy frameworks.
+* **The Client is responsible for:** Data ownership, internal staff adherence to policies, and signing Risk Waivers if they refuse critical roadmap items.
 
 CRITICAL REQUIREMENT: You MUST explicitly assess ALL {len(ASSESSMENT_DOMAINS)} domains (families) listed above. Do not omit, group, or skip any of them.
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
-    return base_prompt + rules
+    return base_prompt + "\n\n" + rules

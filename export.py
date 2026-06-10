@@ -243,42 +243,91 @@ def clean_markdown(text):
     if not text: return ""
     return re.sub(r'[*_]', '', text)
 
-def create_vciso_docx(inputs, vciso_obj):
-    """Generates the vCISO Word Document using docxtpl."""
+import io
+from docxtpl import DocxTemplate
+
+def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     doc = DocxTemplate("planet_it_vciso_template.docx")
     
-    # 1. Generate the Radar Chart image file
-    chart_path = generate_radar_chart(vciso_obj.domain_assessments)
+    # --- 1. Generate the Radar Chart Image ---
+    # Convert Pydantic model to list for plotting
+    data = report_data.radar_chart_data
+    labels = list(data.model_dump().keys())
+    values = list(data.model_dump().values())
     
-    # 2. Convert to an InlineImage for docxtpl (scaled to fit standard margins)
-    radar_img = InlineImage(doc, chart_path, width=Inches(6.0))
+    # Plotting logic
+    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+    values += values[:1]
+    angles += angles[:1]
     
-    # 3. Build the context with LLM outputs and the image
+    fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
+    ax.fill(angles, values, color='#003366', alpha=0.25)
+    ax.plot(angles, values, color='#003366', linewidth=2)
+    ax.set_yticklabels([])
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels)
+    
+    chart_buffer = io.BytesIO()
+    plt.savefig(chart_buffer, format='png', bbox_inches='tight')
+    chart_buffer.seek(0)
+    plt.close()
+    
+    # Create the InlineImage object
+    chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
+
+    # 2. Map the frontend inputs and backend LLM data to the template's Jinja2 tags
     context = {
-        'exec_summary': clean_markdown(vciso_obj.executive_summary),
-        'matrix_mapping': clean_markdown(vciso_obj.resiliency_matrix_mapping),
-        'compliance_alignment': clean_markdown(vciso_obj.compliance_alignment),
-        'cost_of_inaction': clean_markdown(vciso_obj.cost_of_inaction),
-        'domains': vciso_obj.domain_assessments,
-        'roadmap': vciso_obj.phased_roadmap,
-        'metrics': vciso_obj.success_metrics,
-        'cadence': vciso_obj.engagement_cadence,
-        'radar_chart': radar_img
-    }
-    
-    # Unpack all Streamlit UI inputs (customer name, endpoints, etc.) into the template
-    context.update(inputs)
-    
-    # 4. Render the document
-    doc.render(context)
-    bio = io.BytesIO()
-    doc.save(bio)
-    
-    # 5. Clean up the temporary chart image from the server/container
-    if os.path.exists(chart_path):
-        os.remove(chart_path)
+        # --- Organisational Profile & Stack Data ---
+        "customer_name": client_inputs.get("customer_name", "Customer"),
+        "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
+        "industry": client_inputs.get("industry", "Unknown"),
+        "users": client_inputs.get("users", "0"),
+        "endpoints": client_inputs.get("endpoints", "0"),
+        "servers": client_inputs.get("servers", "0"),
+        "operating_systems": client_inputs.get("operating_systems", "Unknown"),
+        "cloud_env": client_inputs.get("cloud_env", "Unknown"),
+        "in_house_team": client_inputs.get("in_house_team", "Unknown"),
+        "compliance": client_inputs.get("compliance", "None"),
+        "critical_infra": client_inputs.get("critical_infra", "Unknown"),
+        "radar_chart": chart_image, # Ensure this is mapped so {{ radar_chart }} renders
         
-    return bio.getvalue()
+        
+        # --- Current Technology Stack Data ---
+        "mdr_provider": client_inputs.get("mdr_provider", "None"),
+        "endpoint": client_inputs.get("endpoint", "Unknown"),
+        "firewall": client_inputs.get("firewall", "Unknown"),
+        "identity": client_inputs.get("identity", "Unknown"),
+        "email": client_inputs.get("email", "Unknown"),
+        "savviness": client_inputs.get("savviness", "Unknown"),
+        "pentest_status": client_inputs.get("pentest_status", "Unknown"),
+        "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
+        
+        # --- Strategic LLM Generated Data (Using 'report_data') ---
+        "exec_summary": report_data.executive_summary,
+        "matrix_mapping": report_data.resiliency_matrix_mapping,
+        "compliance_alignment": report_data.compliance_alignment,
+        "cost_of_inaction": report_data.cost_of_inaction,
+        
+        # --- The Complex Arrays (Nested Loops in Word) ---
+        "domains": report_data.domain_assessments,
+        "roadmap": report_data.phased_roadmap,
+        
+        # --- New Consultative Output Items ---
+        "success_metrics": report_data.success_metrics,
+        "engagement_cadence": report_data.engagement_cadence,
+        "consultant_discovery_guide": report_data.consultant_discovery_guide
+    }
+
+    # 3. Render the document, replacing all {{ tags }} and {% loops %}
+    doc.render(context)
+    
+    # 4. Save to a BytesIO buffer (Memory) instead of the local hard drive
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    # Return the raw bytes to app.py for the st.download_button
+    return buffer.getvalue()
 
 # --- Keep your existing create_pdf, create_pptx, and create_vciso_pptx functions below this ---
 def create_vciso_pptx(inputs, vciso_obj):

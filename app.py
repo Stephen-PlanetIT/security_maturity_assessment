@@ -129,7 +129,6 @@ with st.sidebar:
     st.session_state['workflow'] = workflow
     
     st.divider()
-    st.markdown("Enter client data on the main page. It will persist between workflows.")
 
 # --- MAIN PAGE HEADER ---
 st.title("Security Use Case & vCISO Generator")
@@ -213,6 +212,22 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     st.info(f"**Calculated Score: {culture_score}/9** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
     savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
 
+    st.divider()
+
+    ## --- OPERATIONAL & RISK TELEMETRY ---
+    st.markdown("### ⚙️ Operational & Risk Telemetry")
+    
+    op_col1, op_col2 = st.columns(2)
+    
+    with op_col1:
+        mfa_status = st.selectbox("MFA Enforcement", ["None", "Privileged Accounts Only", "Universal / Conditional Access"], index=1)
+        patching = st.selectbox("Patch Management", ["Manual / Ad-hoc", "Automated (OS Only)", "Automated (OS & Third-Party)"], index=0)
+        backups = st.selectbox("Backup Strategy", ["No Formal Backups", "On-Premise Only", "Cloud/Offsite (Standard)", "Immutable / Air-Gapped"], index=1)
+        
+    with op_col2:
+        insurance = st.selectbox("Cyber Insurance Status", ["None", "Exploring Requirements", "Active Policy"], index=0)
+        rto = st.selectbox("Downtime Tolerance", ["< 4 Hours (Critical)", "12-24 Hours", "48+ Hours"], index=1)
+
 # --- GLOBAL INPUTS DICTIONARY ---
 client_inputs = {
     "customer_name": customer_name, 
@@ -237,7 +252,12 @@ client_inputs = {
     "compliance": ", ".join(compliance) if compliance else "None",
     "pentest_status": pentest_status, 
     "vuln_scanning": vuln_scanning, 
-    "validation_notes": validation_notes
+    "validation_notes": validation_notes,
+    "mfa_status": mfa_status,
+    "patching": patching,
+    "backups": backups,
+    "insurance": insurance,
+    "rto": rto
 }
 
 st.session_state['client_inputs'] = client_inputs
@@ -251,7 +271,6 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
     
     if st.button("Generate Threat Scenario", type="primary"):
         with st.spinner("Simulating Attack & MDR Response..."):
-            # Determine provider from the UI sidebar toggle
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
             if provider_flag == "ollama":
@@ -259,7 +278,6 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             else:
                 deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
-            # Map OSINT from data.py based on the selected tech stack
             selected_vector = random.choice(ATTACK_VECTORS)
             osint_list = []
             stack_selections = [endpoint, firewall, identity, email] + cloud_env
@@ -268,7 +286,6 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                     osint_list.extend(SIMULATED_OSINT[item])
             osint_data = " ".join(osint_list)
             
-            # TRIGGER 1: Generate the Structured Narrative & Timeline (JSON)
             scenario_prompt = build_scenario_prompt(st.session_state['client_inputs'], osint_data, selected_vector)
             scenario_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, scenario_prompt, ScenarioReport)
             
@@ -276,7 +293,6 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                 st.session_state['scenario_obj'] = scenario_obj
                 st.session_state['recs'] = CyberScenarioGenerator().generate_recommendations(st.session_state['client_inputs'])
                 
-                # TRIGGER 2: Generate the MDR Case Log (Raw Markdown, bypassing the JSON parser)
                 mdr_prompt = build_mdr_case_prompt(st.session_state['client_inputs'], scenario_obj.narrative)
                 mdr_response = client.chat.completions.create(
                     model=deployment,
@@ -303,16 +319,13 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
     
     if st.button("Generate vCISO Roadmap", type="primary"):
         with st.spinner("Compiling vCISO Assessment..."):
-            # Determine provider from the UI sidebar toggle
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
             if provider_flag == "ollama":
-    # Ensure this matches the exact model name you pulled via the Ollama CLI
                 deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b") 
             else:
                 deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
-            # TRIGGER: Generate the Structured vCISO Report (JSON)
             vciso_prompt = build_vciso_prompt(st.session_state['client_inputs'])
             vciso_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, vciso_prompt, MaturityReport)
             
@@ -342,14 +355,13 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                     file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Deck.pptx", 
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 )
-    # --- FRONTEND RENDERING: vCISO PREVIEW ---
+
     if st.session_state.get('vciso_obj'):
         st.divider()
         st.subheader("📊 Strategic Assessment Preview")
         
         vciso = st.session_state['vciso_obj']
         
-        # Initialise UI Tabs for clean data presentation
         tab1, tab2, tab3 = st.tabs(["Executive Brief", "Domain Assessments", "Strategic Roadmap"])
         
         with tab1:
