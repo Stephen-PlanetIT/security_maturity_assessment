@@ -21,13 +21,20 @@ class CyberScenarioGenerator:
         vuln_scan = inputs.get('vuln_scanning', 'None')
         culture = inputs.get('savviness', '')
         cloud = inputs.get('cloud_env', 'None (Fully On-Prem)')
+        m365_license = inputs.get('m365_license', 'None / On-Prem Only')
 
-        # 1. Managed Detection and Response (MDR)
-        if in_house != "Yes (24/7)" and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
-            item = PLANET_IT_PORTFOLIO["Managed_Detection_and_Response"][0]
-            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+        # Evaluate existing Microsoft investment
+        strong_ms_investment = m365_license in ["Microsoft 365 E5", "M365 Business Premium"]
 
-        # 2. Network & Edge Security
+        # 1. Managed Detection and Response & Endpoint
+        if in_house != "Yes (24/7)":
+            if strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
+                recs.append("**Microsoft / Sophos (MDR):** You have a strong Microsoft investment. We recommend optimising Microsoft Defender XDR and layering Sophos MDR for Microsoft on top to provide 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
+            elif not strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
+                item = PLANET_IT_PORTFOLIO["Managed_Detection_and_Response"][0]
+                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 2. Network & Edge Security (Unchanged: Microsoft does not play heavily in on-prem edge)
         if users < 1000 and firewall != "Sophos":
             item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][0] # Sophos Firewall
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
@@ -39,14 +46,19 @@ class CyberScenarioGenerator:
         if industry in ["Finance", "Healthcare", "Legal"] and email != "Mimecast":
             item = PLANET_IT_PORTFOLIO["Email_Security"][1] # Mimecast
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
-        elif industry not in ["Finance", "Healthcare", "Legal"] and email != "Sophos":
+        elif strong_ms_investment and email not in ["Microsoft Defender", "Mimecast"]:
+            recs.append("**Microsoft (Email Security):** Utilise your existing Microsoft 365 licensing by fully configuring Defender for Office 365 for anti-phishing, safe links, and safe attachments before procuring third-party email gateways.")
+        elif not strong_ms_investment and email != "Sophos":
             item = PLANET_IT_PORTFOLIO["Email_Security"][0] # Sophos Email
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
         # 4. Identity & Access Management
         if identity in ["Microsoft Entra ID (Azure AD)", "Okta"]:
-            item = PLANET_IT_PORTFOLIO["Identity_and_Access_Management"][0] # Sophos ITDR
-            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+            if strong_ms_investment:
+                recs.append("**Microsoft / Sophos (Identity Protection):** Maximise the Conditional Access policies included in your Entra ID licensing, and deploy Sophos ITDR to detect compromised identities bypassing standard MFA.")
+            else:
+                item = PLANET_IT_PORTFOLIO["Identity_and_Access_Management"][0] # Sophos ITDR
+                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
         # 5. Attack Surface Management
         if vuln_scan != "Continuous":
@@ -172,6 +184,10 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     with col_ops2:
         compliance = st.multiselect("Target Compliance", ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF"])
         physical_locations = st.number_input("Physical Locations", min_value=1, value=3)
+        advanced_controls = st.multiselect(
+            "Advanced Adaptive Controls (Pillar 3)", 
+            ["Zero-Trust Architecture (ZTA)", "Network Microsegmentation", "SOAR / Automated Remediation", "User Behaviour Analytics (UBA)", "Automated DR Orchestration", "Deception Tech (Honeypots)"]
+        )
         validation_notes = st.text_area("Validation Notes")
 
     st.divider()
@@ -257,7 +273,8 @@ client_inputs = {
     "patching": patching,
     "backups": backups,
     "insurance": insurance,
-    "rto": rto
+    "rto": rto,
+    "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None"
 }
 
 st.session_state['client_inputs'] = client_inputs

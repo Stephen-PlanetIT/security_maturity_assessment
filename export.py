@@ -255,7 +255,7 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     labels = list(data.model_dump().keys())
     values = list(data.model_dump().values())
     
-    # Plotting logic
+# Plotting logic
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
     values += values[:1]
     angles += angles[:1]
@@ -263,9 +263,14 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
     ax.fill(angles, values, color='#003366', alpha=0.25)
     ax.plot(angles, values, color='#003366', linewidth=2)
-    ax.set_yticklabels([])
+    
+    # --- NEW: HARD LOCK THE AXIS TO THE 3-PILLAR FRAMEWORK ---
+    ax.set_ylim(0, 3) # Force the chart to a max radius of 3
+    ax.set_yticks([1, 2, 3]) # Draw the three ring lines
+    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8) # Label the rings
+    
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, size=9)
     
     chart_buffer = io.BytesIO()
     plt.savefig(chart_buffer, format='png', bbox_inches='tight')

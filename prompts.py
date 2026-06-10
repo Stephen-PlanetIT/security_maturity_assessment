@@ -39,15 +39,15 @@ class RoadmapPhase(BaseModel):
     business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
 
 class RadarChartData(BaseModel):
-    iam: int = Field(description="Score out of 5 for Identity & Access Management (IAM)")
-    endpoint: int = Field(description="Score out of 5 for Endpoint & Server Security")
-    network: int = Field(description="Score out of 5 for Network & Cloud Perimeter")
-    email: int = Field(description="Score out of 5 for Email & Data Protection")
-    cloud: int = Field(description="Score out of 5 for Cloud & Infrastructure")
-    secops: int = Field(description="Score out of 5 for Security Operations & Response")
-    testing: int = Field(description="Score out of 5 for Security Validation & Testing")
-    culture: int = Field(description="Score out of 5 for Security Culture & Awareness")
-    grc: int = Field(description="Score out of 5 for Governance, Risk & Compliance")
+    iam: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    endpoint: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    network: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    email: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    cloud: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    secops: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    testing: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    culture: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    grc: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
 
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
@@ -164,7 +164,8 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 def build_vciso_prompt(client_inputs):
     base_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}
 CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
-STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+ADAPTIVE CONTROLS DEPLOYED: {client_inputs.get('advanced_controls', 'None')}
 VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
 
 OPERATIONAL TELEMETRY & RISK FACTORS:
