@@ -282,7 +282,7 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
 
     # 2. Map the frontend inputs and backend LLM data to the template's Jinja2 tags
     context = {
-        # --- Organisational Profile & Stack Data ---
+        # --- Organisational Profile ---
         "customer_name": client_inputs.get("customer_name", "Customer"),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
         "industry": client_inputs.get("industry", "Unknown"),
@@ -294,30 +294,38 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
         "in_house_team": client_inputs.get("in_house_team", "Unknown"),
         "compliance": client_inputs.get("compliance", "None"),
         "critical_infra": client_inputs.get("critical_infra", "Unknown"),
-        "radar_chart": chart_image, # Ensure this is mapped so {{ radar_chart }} renders
-        
         
         # --- Current Technology Stack Data ---
         "mdr_provider": client_inputs.get("mdr_provider", "None"),
         "endpoint": client_inputs.get("endpoint", "Unknown"),
+        "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"), # NEW
         "firewall": client_inputs.get("firewall", "Unknown"),
         "identity": client_inputs.get("identity", "Unknown"),
         "email": client_inputs.get("email", "Unknown"),
+        "m365_license": client_inputs.get("m365_license", "Unknown"), # NEW
         "savviness": client_inputs.get("savviness", "Unknown"),
+        
+        # --- Operational Telemetry & Validation ---
         "pentest_status": client_inputs.get("pentest_status", "Unknown"),
         "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
+        "remote_access": client_inputs.get("remote_access", "Unknown"), # NEW
+        "saas_backup": client_inputs.get("saas_backup", "Unknown"), # NEW
+        "ir_readiness": client_inputs.get("ir_readiness", "Unknown"), # NEW
+        "mfa_status": client_inputs.get("mfa_status", "Unknown"), # NEW
+        "patching": client_inputs.get("patching", "Unknown"), # NEW
+        "backups": client_inputs.get("backups", "Unknown"), # NEW
+        "insurance": client_inputs.get("insurance", "Unknown"), # NEW
+        "rto": client_inputs.get("rto", "Unknown"), # NEW
+        "advanced_controls": client_inputs.get("advanced_controls", "None"), # NEW
         
-        # --- Strategic LLM Generated Data (Using 'report_data') ---
+        # --- Strategic LLM Generated Data ---
+        "radar_chart": chart_image,
         "exec_summary": report_data.executive_summary,
         "matrix_mapping": report_data.resiliency_matrix_mapping,
         "compliance_alignment": report_data.compliance_alignment,
         "cost_of_inaction": report_data.cost_of_inaction,
-        
-        # --- The Complex Arrays (Nested Loops in Word) ---
         "domains": report_data.domain_assessments,
         "roadmap": report_data.phased_roadmap,
-        
-        # --- New Consultative Output Items ---
         "success_metrics": report_data.success_metrics,
         "engagement_cadence": report_data.engagement_cadence,
         "consultant_discovery_guide": report_data.consultant_discovery_guide

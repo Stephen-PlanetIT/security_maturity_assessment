@@ -28,7 +28,8 @@ class DomainAssessment(BaseModel):
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
     recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
-    remediation_rationale: str = Field(description="Strategic justification. MUST include a 'Responsibility Matrix' statement clarifying what Planet IT will manage vs. what the Client must enforce (e.g., staff adherence, data ownership).")
+    remediation_rationale: str = Field(description="The strategic, architectural justification for the recommended solutions. Explain exactly WHY these specific tools or changes are necessary to neutralise the business risk. Focus strictly on the 'Why'.")
+    shared_responsibility: str = Field(description="The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence).")
 
 class RoadmapPhase(BaseModel):
     phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Foundational Hygiene (0-3 Months)'.")
@@ -81,6 +82,15 @@ ROLE 1: TACTICAL THREAT ANALYST
 - Detail how Sophos MDR neutralised the threat using ONLY authorised response actions.
 
 ROLE 2: VIRTUAL CISO
+### CRITICAL GRADING GUARDRAILS (CONSULTATIVE INTERPRETATION)
+You are an expert consultant. You may use professional interpretation when grading, but you must not ignore critical hygiene gaps. If a client possesses advanced tools but fails fundamental operations, apply the following guardrails:
+
+* **The Capability Mismatch:** If a client has advanced tools (e.g., MDR, XDR) but lacks automated patching, universally enforced MFA, or viable infrastructure backups, explicitly call out a "Capability Mismatch". You must heavily penalise the relevant domain scores (defaulting towards Pillar 1) unless you can explicitly justify how their specific stack provides compensating controls.
+* **Network & Perimeter Guardrail:** "Legacy VPN" or "None" for remote access strongly indicates Pillar 1 maturity due to lateral movement risks. If you score this domain at Pillar 2, you MUST articulate how their endpoint posture or identity controls mitigate this vulnerability.
+* **Cloud & Data Guardrail:** Relying solely on Microsoft/Google for SaaS backup is a critical liability. This must drag down the Cloud domain score, and you must highlight the shared responsibility model.
+* **SecOps & GRC Guardrail:** Without a "Tested IR Plan with Active Retainer", enterprise governance is an illusion. Heavily penalise the GRC and SecOps scores and highlight the risk of voiding their Cyber Insurance policy during an active breach.
+* **Pillar 3 (Adaptive) Guardrail:** To genuinely score a 3 in any domain, you must reference evidence of the specific "Advanced Adaptive Controls" provided in the telemetry (e.g., ZTA, SOAR). Do not invent adaptive capabilities if they are not listed.
+
 - Evaluate clients against the Planet IT Cyber Resiliency Matrix. Map them strictly to Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive).
 - CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels, Industry, and submitted Operational Telemetry (e.g., RTO, Insurance requirements). Explain the operational and financial impact of a failure.
 - ROADMAP USABILITY: Structure the roadmap as a long-tail business transformation plan stretching into advanced Adaptive capabilities. Define clear objectives, required resources, and the tangible business value delivered at the end of each phase.
@@ -164,16 +174,21 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 def build_vciso_prompt(client_inputs):
     base_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}
 CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
-STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+
+STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint Vendor: {client_inputs.get('endpoint', 'Unknown')} | Endpoint Capability: {client_inputs.get('endpoint_posture', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+NETWORK & DATA: Remote Access: {client_inputs.get('remote_access', 'Unknown')} | SaaS Backup (M365): {client_inputs.get('saas_backup', 'Unknown')}
 ADAPTIVE CONTROLS DEPLOYED: {client_inputs.get('advanced_controls', 'None')}
-VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
 
 OPERATIONAL TELEMETRY & RISK FACTORS:
 - MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
 - Patch Management: {client_inputs.get('patching', 'Unknown')}
-- Backup Strategy: {client_inputs.get('backups', 'Unknown')}
+- Infrastructure Backups: {client_inputs.get('backups', 'Unknown')}
+- Incident Response Readiness: {client_inputs.get('ir_readiness', 'Unknown')}
 - Cyber Insurance Status: {client_inputs.get('insurance', 'Unknown')}
-- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}"""
+- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
+
+VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
+"""
     
     rules = f"""
 ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
@@ -186,7 +201,7 @@ You must assess the client's current maturity and map them strictly against thes
 **Pillar 1: Reactive Cybersecurity**
 * **Theme:** Foundational Hygiene & Baseline Control.
 * **Scope:** Anti-Virus, Firewalls, Email Gateways, MFA, Basic Backup & Recovery, Log Collection, Vulnerability Assessment, and Cyber Essentials.
-* **Rule:** If a client lacks basic patching (e.g., Manual/Ad-Hoc), functional perimeter controls, universally enforced MFA, or viable backups, they are stuck in Pillar 1. 
+* **Rule:** If a client lacks basic patching (e.g., Manual/Ad-Hoc), universally enforced MFA, or viable backups, they are stuck in Pillar 1. If they have advanced tools like MDR but lack these foundations, explicitly call out a "Capability Mismatch" where advanced tools are crippled by poor operational hygiene.
 
 **Pillar 2: Proactive Cybersecurity**
 * **Theme:** Active Managed Defence & Human Risk.
@@ -211,7 +226,7 @@ Whenever you discuss business impact in the domain analysis, you MUST generate a
 * Factor the client's submitted RTO, Cyber Insurance Status, and Operational Telemetry directly into the Impact reasoning.
 
 ### RESPONSIBILITY MATRIX
-Planet IT believes in shared accountability. In your 'remediation_rationale', explicitly state the responsibility split. 
+Planet IT believes in shared accountability. In your 'shared_responsibility' field, explicitly state the responsibility split. 
 * **Planet IT is responsible for:** Guiding best practice, configuring the stack, 24/7 monitoring, and providing policy frameworks.
 * **The Client is responsible for:** Data ownership, internal staff adherence to policies, and signing Risk Waivers if they refuse critical roadmap items.
 

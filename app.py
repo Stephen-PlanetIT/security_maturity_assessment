@@ -10,7 +10,7 @@ class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):
         recs = []
         
-        # Extract variables for cleaner evaluation
+        # Extract variables
         mdr = inputs.get('mdr_provider', 'None')
         in_house = inputs.get('in_house_team', 'No')
         users = inputs.get('users', 0)
@@ -22,60 +22,59 @@ class CyberScenarioGenerator:
         culture = inputs.get('savviness', '')
         cloud = inputs.get('cloud_env', 'None (Fully On-Prem)')
         m365_license = inputs.get('m365_license', 'None / On-Prem Only')
+        
+        # Extract new telemetry
+        patching = inputs.get('patching', 'Unknown')
+        backups = inputs.get('backups', 'Unknown')
+        mfa_status = inputs.get('mfa_status', 'Unknown')
 
-        # Evaluate existing Microsoft investment
         strong_ms_investment = m365_license in ["Microsoft 365 E5", "M365 Business Premium"]
 
-        # 1. Managed Detection and Response & Endpoint
-        if in_house != "Yes (24/7)":
+        # 1. MDR & The Capability Mismatch (Endpoint)
+        if mdr in ["Sophos MDR", "Planet IT Managed SOC"] and patching == "Manual / Ad-hoc":
+            recs.append("**Capability Mismatch (MDR vs Hygiene):** You have invested in advanced MDR (Pillar 2), but without automated patch management (Pillar 1), your estate generates excessive, preventable noise. We urgently recommend a Managed Patching (RMM) deployment to secure the foundation.")
+        elif in_house != "Yes (24/7)":
             if strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
-                recs.append("**Microsoft / Sophos (MDR):** You have a strong Microsoft investment. We recommend optimising Microsoft Defender XDR and layering Sophos MDR for Microsoft on top to provide 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
+                recs.append("**Microsoft / Sophos (MDR):** Optimise Microsoft Defender XDR and layer Sophos MDR for Microsoft to provide 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
             elif not strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
                 item = PLANET_IT_PORTFOLIO["Managed_Detection_and_Response"][0]
                 recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
-        # 2. Network & Edge Security (Unchanged: Microsoft does not play heavily in on-prem edge)
-        if users < 1000 and firewall != "Sophos":
-            item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][0] # Sophos Firewall
-            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
-        elif users >= 1000 and firewall != "Fortinet":
-            item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][1] # FortiGate
-            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+        # 2. Foundational Hygiene (Patching & Backups)
+        if backups in ["No Formal Backups", "On-Premise Only"]:
+            recs.append("**Data Resilience (Immutable Backups):** Your current backup strategy leaves you highly vulnerable to ransomware encryption. We recommend deploying an offsite, air-gapped immutable backup solution (e.g., Veeam/Cove).")
+        if mfa_status in ["None", "Privileged Accounts Only"]:
+            recs.append("**Identity Hardening (MFA):** Universal MFA enforcement via Conditional Access is a mandatory Pillar 1 requirement. This must be remediated immediately.")
 
-        # 3. Email Security & Compliance
+        # 3. Network & Edge Security (Ignore Rip-and-Replace for Palo Alto/Check Point)
+        if firewall not in ["Palo Alto", "Check Point", "Fortinet", "Sophos"]:
+            if users < 1000:
+                item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][0] # Sophos
+                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+            else:
+                item = PLANET_IT_PORTFOLIO["Network_and_Edge_Security"][1] # FortiGate
+                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+
+        # 4. Email Security
         if industry in ["Finance", "Healthcare", "Legal"] and email != "Mimecast":
             item = PLANET_IT_PORTFOLIO["Email_Security"][1] # Mimecast
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
         elif strong_ms_investment and email not in ["Microsoft Defender", "Mimecast"]:
-            recs.append("**Microsoft (Email Security):** Utilise your existing Microsoft 365 licensing by fully configuring Defender for Office 365 for anti-phishing, safe links, and safe attachments before procuring third-party email gateways.")
+            recs.append("**Microsoft (Email Security):** Configure Defender for Office 365 natively for anti-phishing before procuring third-party gateways.")
         elif not strong_ms_investment and email != "Sophos":
-            item = PLANET_IT_PORTFOLIO["Email_Security"][0] # Sophos Email
+            item = PLANET_IT_PORTFOLIO["Email_Security"][0] # Sophos
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
-
-        # 4. Identity & Access Management
-        if identity in ["Microsoft Entra ID (Azure AD)", "Okta"]:
-            if strong_ms_investment:
-                recs.append("**Microsoft / Sophos (Identity Protection):** Maximise the Conditional Access policies included in your Entra ID licensing, and deploy Sophos ITDR to detect compromised identities bypassing standard MFA.")
-            else:
-                item = PLANET_IT_PORTFOLIO["Identity_and_Access_Management"][0] # Sophos ITDR
-                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
         # 5. Attack Surface Management
         if vuln_scan != "Continuous":
-            item = PLANET_IT_PORTFOLIO["Vulnerability_and_Exposure_Management"][0] # Managed Risk
+            item = PLANET_IT_PORTFOLIO["Vulnerability_and_Exposure_Management"][0] # ConnectSecure
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
-        # 6. Security Culture & Phishing
-        if "Phase 1" in culture:
-            item = PLANET_IT_PORTFOLIO["Security_Awareness_and_Training"][0] # Phish Threat
+        # 6. Security Culture
+        if "Pillar 1" in culture:
+            item = PLANET_IT_PORTFOLIO["Security_Awareness_and_Training"][0] # Hoxhunt/Phish Threat
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
-        # 7. Cloud Posture
-        if "AWS" in cloud or "Microsoft Azure" in cloud or "GCP" in cloud:
-            item = PLANET_IT_PORTFOLIO["Cloud_Security_and_Posture"][0] # Cloud Optix
-            recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
-
-        # Fallback for highly mature environments
         if not recs:
             recs.append("**Internal SOC Optimisation:** Leverage your existing 24/7 team for proactive threat hunting, as baseline controls are currently saturated.")
 
@@ -163,8 +162,32 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         servers = st.number_input("Number of Servers", min_value=1, value=50)
         operating_systems = st.multiselect("Operating Systems in Use", ["Windows 10/11", "Windows Server", "macOS", "Linux", "ChromeOS"], default=["Windows 10/11", "Windows Server"])
         mdr_provider = st.selectbox("Current MDR / SOC Provider", ["None", "Sophos MDR", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"])
-        endpoint = st.selectbox("Endpoint Security", ["Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Trend Micro", "Symantec", "N-able", "Other"])
+        
+        endpoint = st.selectbox("Endpoint Security Vendor", ["Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Trend Micro", "Symantec", "N-able", "Other"])
+        
+        # --- NEW FIELD: ENDPOINT CAPABILITY ---
+        endpoint_posture = st.selectbox("Endpoint Capability (Licensing)", [
+            "Legacy AV Only (Signatures/Heuristics)", 
+            "Next-Gen AV (NGAV / Deep Learning)", 
+            "EDR Deployed (Endpoint Detection & Response)", 
+            "XDR Deployed (Cross-Domain Telemetry)",
+            "Full ZTNA / Device Control Enforced"
+        ], index=2)
+        
         firewall = st.selectbox("Firewall Vendor", ["Fortinet", "Palo Alto", "Cisco", "Sophos", "Check Point", "SonicWall", "Other"])
+
+        remote_access = st.selectbox("Remote Access Strategy", [
+            "None / Cloud Only", 
+            "Legacy VPN (Client-based)", 
+            "Always-On VPN", 
+            "Zero Trust Network Access (ZTNA) / SASE"
+        ], index=1)
+        
+        saas_backup = st.selectbox("M365 / SaaS Backup", [
+            "None (Relying on Microsoft/Google)", 
+            "Basic Retention Policies Only", 
+            "Dedicated Third-Party SaaS Backup"
+        ], index=0)
         
     with col3:
         st.subheader("Cloud & Identity")
@@ -213,16 +236,16 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q4]
 
     if culture_score <= 4:
-        savviness_label = "Phase 1: Reactive Culture"
+        savviness_label = "Pillar 1: Reactive Culture"
     elif culture_score <= 7:
-        savviness_label = "Phase 2: Proactive Culture"
+        savviness_label = "Pillar 2: Proactive Culture"
     else:
-        savviness_label = "Phase 3: Adaptive Culture"
+        savviness_label = "Pillar 3: Adaptive Culture"
 
     savviness_profiles = {
-        "Phase 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
-        "Phase 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
-        "Phase 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
+        "Pillar 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
+        "Pillar 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
+        "Pillar 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
     }
     
     st.info(f"**Calculated Score: {culture_score}/9** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
@@ -243,6 +266,11 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     with op_col2:
         insurance = st.selectbox("Cyber Insurance Status", ["None", "Exploring Requirements", "Active Policy"], index=0)
         rto = st.selectbox("Downtime Tolerance", ["< 4 Hours (Critical)", "12-24 Hours", "48+ Hours"], index=1)
+        ir_readiness = st.selectbox("Incident Response (IR) Readiness", [
+            "No Formal Plan", 
+            "Documented IR Plan (Untested)", 
+            "Tested IR Plan with Active Retainer"
+        ], index=0)
 
 # --- GLOBAL INPUTS DICTIONARY ---
 client_inputs = {
@@ -253,10 +281,14 @@ client_inputs = {
     "savviness": savviness, 
     "endpoints": endpoints, 
     "servers": servers, 
+    "remote_access": remote_access,
+    "saas_backup": saas_backup,
+    "ir_readiness": ir_readiness,
     "operating_systems": ", ".join(operating_systems) if operating_systems else "None", 
     "critical_infra": critical_infra, 
     "mdr_provider": mdr_provider, 
     "endpoint": endpoint, 
+    "endpoint_posture": endpoint_posture, # NEW LINE
     "firewall": firewall, 
     "identity": identity, 
     "m365_license": m365_license, 
