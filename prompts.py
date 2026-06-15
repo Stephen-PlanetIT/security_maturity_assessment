@@ -49,15 +49,15 @@ class RoadmapPhase(BaseModel):
 
 
 class RadarChartData(BaseModel):
-    iam: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    endpoint: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    network: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    email: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    cloud: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    secops: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    testing: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    culture: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
-    grc: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
+    iam: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if MFA Enforcement is 'None' or 'Privileged Accounts Only'.")
+    endpoint: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Patch Management is 'Manual / Ad-hoc' or Endpoint Capability is 'Legacy AV Only'.")
+    network: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Remote Access is 'Legacy VPN' or 'None'.")
+    email: int = Field(description="Score 1, 2, or 3.")
+    cloud: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if SaaS Backup is 'None'.")
+    secops: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan'.")
+    testing: int = Field(description="Score 1, 2, or 3.")
+    culture: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Security Training is 'None'.")
+    grc: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
 
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
@@ -104,15 +104,14 @@ ROLE 1: TACTICAL THREAT ANALYST
 - Detail how Sophos MDR neutralised the threat using ONLY authorised response actions.
 
 ROLE 2: VIRTUAL CISO
-### CRITICAL GRADING GUARDRAILS (CONSULTATIVE INTERPRETATION)
-You are an expert consultant. You may use professional interpretation when grading, but you must not ignore critical hygiene gaps. If a client possesses advanced tools but fails fundamental operations, apply the following guardrails:
+### CRITICAL GRADING GUARDRAILS (ABSOLUTE COMPLIANCE REQUIRED)
+You are an expert consultant evaluating a client's maturity. You MUST strictly obey the following mathematical rules when generating the radar_chart_data scores. Do not attempt to justify higher scores using compensating controls. If a foundational control is missing, the score is mathematically capped at Pillar 1 (1).
 
-* **The Capability Mismatch:** If a client has advanced tools (e.g., MDR, XDR) but lacks automated patching, universally enforced MFA, or viable infrastructure backups, explicitly call out a "Capability Mismatch". You must heavily penalise the relevant domain scores (defaulting towards Pillar 1) unless you can explicitly justify how their specific stack provides compensating controls.
-* **Network & Perimeter Guardrail:** "Legacy VPN" or "None" for remote access strongly indicates Pillar 1 maturity due to lateral movement risks. If you score this domain at Pillar 2, you MUST articulate how their endpoint posture or identity controls mitigate this vulnerability.
-* **Cloud & Data Guardrail:** Relying solely on Microsoft/Google for SaaS backup is a critical liability. This must drag down the Cloud domain score, and you must highlight the shared responsibility model.
-* **SecOps & GRC Guardrail:** Without a "Tested IR Plan with Active Retainer", enterprise governance is an illusion. Heavily penalise the GRC and SecOps scores and highlight the risk of voiding their Cyber Insurance policy during an active breach.
-* **Pillar 3 (Adaptive) Guardrail:** To genuinely score a 3 in any domain, you must reference evidence of the specific "Advanced Adaptive Controls" provided in the telemetry (e.g., ZTA, SOAR). Do not invent adaptive capabilities if they are not listed.
-* **Roadmap Phasing Guardrail:** You must output a complete, 3-stage phased roadmap. Phase 1 must focus on immediate, zero-cost remediation (e.g., turning on MFA). Phase 2 must focus on filling the primary tool gaps (e.g., deploying MDR or ZTNA). Phase 3 must focus on long-term strategic maturity. You are forbidden from omitting Phase 2 or Phase 3.
+* **The Capability Mismatch (Endpoint & IAM):** If a client lacks automated patching or universally enforced MFA, their Endpoint and IAM scores MUST be exactly 1, even if they have an advanced MDR or XDR tool deployed.
+* **Network Guardrail:** If Remote Access is "Legacy VPN" or "None", the Network score MUST be exactly 1.
+* **Cloud Guardrail:** If SaaS Backup is "None", the Cloud score MUST be exactly 1.
+* **SecOps & GRC Guardrail:** If Incident Response Readiness is "No Formal Plan" or "Untested", both SecOps and GRC scores MUST be exactly 1.
+* **Pillar 3 (Adaptive) Rule:** You are strictly forbidden from awarding a score of 3 to ANY domain unless explicit evidence of "Advanced Adaptive Controls" (e.g., ZTA, SOAR) is present in the telemetry inputs.
 
 - Evaluate clients against the Planet IT Cyber Resiliency Matrix. Map them strictly to Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive).
 - CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels, Industry, and submitted Operational Telemetry (e.g., RTO, Insurance requirements). Explain the operational and financial impact of a failure.
