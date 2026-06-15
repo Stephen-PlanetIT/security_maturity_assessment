@@ -23,12 +23,18 @@ class ScenarioReport(BaseModel):
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
     current_maturity_level: str = Field(description="Must be exactly one of: 'Pillar 1: Reactive Cybersecurity', 'Pillar 2: Proactive Cybersecurity', or 'Pillar 3: Adaptive Cybersecurity'.")
-    current_state_analysis: str = Field(description="A comprehensive, detailed analysis of the client's current posture in this domain. Focus on the technical implementation.")
-    business_impact_narrative: str = Field(description="Explain exactly what these gaps mean to the business. MUST include a specific Risk Score calculation (Probability 1-3 x Impact 1-3 = Risk Score 1-9) and outline the specific business/board-level liability.")
+    current_state_analysis: str = Field(
+        description="A comprehensive analysis of the current posture. You must write a minimum of two detailed paragraphs. Bullet points are strictly prohibited."
+    )
+    business_impact_narrative: str = Field(
+        description="Explain exactly what these gaps mean to the business (Probability x Impact). Write in full, descriptive sentences. Do not use lists."
+    )
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
     recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
-    remediation_rationale: str = Field(description="The strategic, architectural justification for the recommended solutions. Explain exactly WHY these specific tools or changes are necessary to neutralise the business risk. Focus strictly on the 'Why'.")
+    remediation_rationale: str = Field(
+        description="The strategic, architectural justification. Explain the behaviour of the attack path and why this specific tool severs it. Must be a detailed, multi-paragraph narrative."
+    )
     shared_responsibility: str = Field(description="The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence).")
 
 class RoadmapPhase(BaseModel):
@@ -97,6 +103,13 @@ You are an expert consultant. You may use professional interpretation when gradi
 - Analyse the provided penetration testing frequency and vulnerability scanning posture. Recommend continuous exposure management if lacking.
 - Lead with Vendor-Agnostic Quick Wins tailored to their specific environment.
 - Strongly articulate the "Cost of Inaction".
+
+### CONSULTATIVE VERBOSITY & FORMATTING
+You are writing for a C-level and technical director audience. Terse, high-level summaries are unacceptable. 
+* You must provide deep, narrative-driven reasoning for every assessment.
+* Explain the 'why' behind every 'what'. 
+* Bullet points and numbered lists are strictly prohibited within narrative fields (such as analysis, rationale, and summaries). You must write flowing, comprehensive paragraphs.
+* Use UK English spellings (e.g., analyse, behaviour, programme).
 
 BACKGROUND KNOWLEDGE BASE:
 {context_injection}
