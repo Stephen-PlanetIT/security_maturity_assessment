@@ -38,12 +38,15 @@ class DomainAssessment(BaseModel):
     shared_responsibility: str = Field(description="The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence).")
 
 class RoadmapPhase(BaseModel):
-    phase_name: str = Field(description="The phase timeline, e.g., 'Phase 1: Foundational Hygiene (0-3 Months)'.")
+    phase_title: str = Field(description="Must be strictly named: 'Phase 1: Foundational Hygiene', 'Phase 2: Active Managed Defence', or 'Phase 3: Adaptive Governance & Resilience'.")    
+    timeline: str = Field(description="e.g., '0-3 Months', '3-9 Months', '10-18+ Months'.")
     primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
+    key_deliverables: List[str] = Field(description="3-4 specific tactical deliverables for this phase.")
     estimated_effort: str = Field(description="Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational').")
     milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.")
     resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
     business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
+
 
 class RadarChartData(BaseModel):
     iam: int = Field(description="Score strictly 1 (Reactive), 2 (Proactive), or 3 (Adaptive). MUST match the text assessment.")
@@ -58,17 +61,28 @@ class RadarChartData(BaseModel):
 
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
-    radar_chart_data: RadarChartData = Field(description="Scores out of 5 for the maturity radar chart.")
-    resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive). Justify the placement.")
-    compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks (e.g. CE+, ISO 27001).")
-    cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational consequences if the roadmap is ignored, including mention of potential Risk Waivers.")
-    domain_assessments: List[DomainAssessment] = Field(description="You MUST provide an assessment for ALL 9 security families/domains. Do not skip, merge, or omit any domains.")
-    phased_roadmap: List[RoadmapPhase] = Field(
-        description="You MUST generate EXACTLY THREE phases (Phase 1, Phase 2, Phase 3). Do not stop after the first phase. This array must always contain exactly 3 items."
+    radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
+    resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
+    compliance_alignment: str = Field(description="A summary of framework alignment.")
+    cost_of_inaction: str = Field(description="Operational consequences if the roadmap is ignored.")
+    
+    # --- LOCKED DOMAIN LENGTH ---
+    domain_assessments: List[DomainAssessment] = Field(
+        description="You MUST generate an assessment loop for ALL 9 security domains. Do not skip, merge, or omit. This array must contain exactly 9 items.",
+        min_items=9,
+        max_items=9
     )
-    success_metrics: List[str] = Field(description="3-4 measurable KPIs to track progress.")
-    engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings (e.g., QBRs) to maintain the partnership.")
-    consultant_discovery_guide: List[str] = Field(description="3 provocative, insightful questions for the consultant to ask the client face-to-face to expose blind spots.")
+    
+    # --- LOCKED ROADMAP LENGTH ---
+    phased_roadmap: List[RoadmapPhase] = Field(
+        description="You MUST generate exactly 3 sequential roadmap objects tracking Phases 1, 2, and 3. This array must contain exactly 3 items.",
+        min_items=3,
+        max_items=3
+    )
+    
+    success_metrics: List[str] = Field(description="3-4 measurable KPIs.")
+    engagement_cadence: List[str] = Field(description="Schedule of advisory meetings.")
+    consultant_discovery_guide: List[str] = Field(description="Provocative questions for the discovery phase.")
 
 # ==========================================
 # CONTEXT INJECTION & MASTER PERSONA

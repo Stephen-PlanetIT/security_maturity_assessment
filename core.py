@@ -28,7 +28,19 @@ class LLMEngine:
     def generate_structured_report(client, deployment, system_persona, user_prompt, response_model):
         if not client: return None
         try:
-            # Ollama natively supports this exact parsing method
+            # Safely build extra parameters to prevent local model truncation
+            extra_params = {}
+            if "ollama" in str(client.base_url).lower():
+                extra_params["extra_body"] = {
+                    "options": {
+                        "num_ctx": 16384,    # Expands input context memory
+                        "num_predict": 8192   # Allocates huge token budget for 9 domains
+                    }
+                }
+            else:
+                # Modern Azure / OpenAI o-series handling
+                extra_params["max_completion_tokens"] = 8192
+
             response = client.beta.chat.completions.parse(
                 model=deployment, 
                 messages=[
@@ -36,7 +48,8 @@ class LLMEngine:
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format=response_model, 
-                temperature=0.7
+                temperature=0.7,
+                **extra_params
             )
             return response.choices[0].message.parsed
         except Exception as e:
