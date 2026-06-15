@@ -63,7 +63,9 @@ class MaturityReport(BaseModel):
     compliance_alignment: str = Field(description="A summary of how the current posture and proposed roadmap align with the client's target compliance frameworks (e.g. CE+, ISO 27001).")
     cost_of_inaction: str = Field(description="A stark, objective statement on the financial and operational consequences if the roadmap is ignored, including mention of potential Risk Waivers.")
     domain_assessments: List[DomainAssessment] = Field(description="You MUST provide an assessment for ALL 9 security families/domains. Do not skip, merge, or omit any domains.")
-    phased_roadmap: List[RoadmapPhase] = Field(description="A 3-phase strategic roadmap driving the long-tail journey from Reactive to Adaptive capabilities.")
+    phased_roadmap: List[RoadmapPhase] = Field(
+        description="You MUST generate EXACTLY THREE phases (Phase 1, Phase 2, Phase 3). Do not stop after the first phase. This array must always contain exactly 3 items."
+    )
     success_metrics: List[str] = Field(description="3-4 measurable KPIs to track progress.")
     engagement_cadence: List[str] = Field(description="A schedule of ongoing advisory meetings (e.g., QBRs) to maintain the partnership.")
     consultant_discovery_guide: List[str] = Field(description="3 provocative, insightful questions for the consultant to ask the client face-to-face to expose blind spots.")
@@ -96,6 +98,7 @@ You are an expert consultant. You may use professional interpretation when gradi
 * **Cloud & Data Guardrail:** Relying solely on Microsoft/Google for SaaS backup is a critical liability. This must drag down the Cloud domain score, and you must highlight the shared responsibility model.
 * **SecOps & GRC Guardrail:** Without a "Tested IR Plan with Active Retainer", enterprise governance is an illusion. Heavily penalise the GRC and SecOps scores and highlight the risk of voiding their Cyber Insurance policy during an active breach.
 * **Pillar 3 (Adaptive) Guardrail:** To genuinely score a 3 in any domain, you must reference evidence of the specific "Advanced Adaptive Controls" provided in the telemetry (e.g., ZTA, SOAR). Do not invent adaptive capabilities if they are not listed.
+* **Roadmap Phasing Guardrail:** You must output a complete, 3-stage phased roadmap. Phase 1 must focus on immediate, zero-cost remediation (e.g., turning on MFA). Phase 2 must focus on filling the primary tool gaps (e.g., deploying MDR or ZTNA). Phase 3 must focus on long-term strategic maturity. You are forbidden from omitting Phase 2 or Phase 3.
 
 - Evaluate clients against the Planet IT Cyber Resiliency Matrix. Map them strictly to Pillar 1 (Reactive), Pillar 2 (Proactive), or Pillar 3 (Adaptive).
 - CONTEXTUAL REASONING REQUIREMENT: You must explicitly tie technical gaps in the domains to the customer's Crown Jewels, Industry, and submitted Operational Telemetry (e.g., RTO, Insurance requirements). Explain the operational and financial impact of a failure.
