@@ -25,6 +25,7 @@ COPY *.py ./
 # Copy the core Planet IT branding templates
 COPY planet_it_master_template.pptx .
 COPY planet_it_vciso_template.docx .
+COPY planet_it_threat_scenario_template.docx .
 
 # Expose the standard Streamlit port
 EXPOSE 8501
