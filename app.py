@@ -386,18 +386,11 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             else:
                 st.error("Engine failed to generate the scenario.")
         
-    if st.session_state.get('pdf_bytes') or st.session_state.get('threat_docx_bytes'):
+    if st.session_state.get('threat_docx_bytes'):
         st.subheader("📥 Export Deliverables")
         dl_threat_col1, dl_threat_col2 = st.columns(2)
+        
         with dl_threat_col1:
-            if st.session_state.get('pdf_bytes'):
-                st.download_button(
-                    "📄 Download Threat Simulation (PDF)", 
-                    data=st.session_state['pdf_bytes'], 
-                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Simulation.pdf", 
-                    mime="application/pdf"
-                )
-        with dl_threat_col2:
             if st.session_state.get('threat_docx_bytes'):
                 st.download_button(
                     "📄 Download Threat Report (Word)", 
