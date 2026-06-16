@@ -3,7 +3,7 @@ import random
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import ATTACK_VECTORS, SIMULATED_OSINT
-from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx, create_threat_docx
+from export import create_vciso_docx, create_vciso_pptx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 
 def validate_platform_config():
