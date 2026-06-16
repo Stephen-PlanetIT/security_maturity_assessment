@@ -60,11 +60,11 @@ class RadarChartData(BaseModel):
     grc: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
 
 class MaturityReport(BaseModel):
-    executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture.")
+    executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs.")
     radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
     compliance_alignment: str = Field(description="A summary of framework alignment.")
-    cost_of_inaction: str = Field(description="Operational consequences if the roadmap is ignored.")
+    cost_of_inaction: str = Field(description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
     
     # --- LOCKED DOMAIN LENGTH ---
     domain_assessments: List[DomainAssessment] = Field(
