@@ -3,7 +3,7 @@ import random
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import ATTACK_VECTORS, SIMULATED_OSINT
-from export import create_vciso_docx, create_vciso_pptx, create_threat_docx
+from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 
 def validate_platform_config():
@@ -386,11 +386,18 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             else:
                 st.error("Engine failed to generate the scenario.")
         
-    if st.session_state.get('threat_docx_bytes'):
+    if st.session_state.get('pdf_bytes') or st.session_state.get('threat_docx_bytes'):
         st.subheader("📥 Export Deliverables")
         dl_threat_col1, dl_threat_col2 = st.columns(2)
-        
         with dl_threat_col1:
+            if st.session_state.get('pdf_bytes'):
+                st.download_button(
+                    "📄 Download Threat Simulation (PDF)", 
+                    data=st.session_state['pdf_bytes'], 
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Simulation.pdf", 
+                    mime="application/pdf"
+                )
+        with dl_threat_col2:
             if st.session_state.get('threat_docx_bytes'):
                 st.download_button(
                     "📄 Download Threat Report (Word)", 

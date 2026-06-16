@@ -361,7 +361,7 @@ def create_vciso_pptx(inputs, vciso_obj):
 # ==========================================
 # THREAT SIMULATOR EXPORTS
 # ==========================================
-#def create_pdf(inputs, scenario_obj, recs, mdr_case):
+def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf = ReportPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
@@ -395,7 +395,7 @@ def create_vciso_pptx(inputs, vciso_obj):
     # If it's a modern fpdf2 bytearray, safely cast it to bytes
     return bytes(raw_pdf)
 
-#def create_pptx(inputs, scenario_obj, recs, mdr_case):
+def create_pptx(inputs, scenario_obj, recs, mdr_case):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Breach Simulation"
