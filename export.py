@@ -247,7 +247,8 @@ import io
 from docxtpl import DocxTemplate
 
 def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
-    doc = DocxTemplate("planet_it_vciso_template.docx")
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template.docx")
+    doc = DocxTemplate(template_path)
     
     # --- 1. Generate the Radar Chart Image ---
     # Convert Pydantic model to list for plotting
@@ -417,7 +418,8 @@ def create_pptx(inputs, scenario_obj, recs, mdr_case):
 
 def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: str) -> bytes:
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
-    doc = DocxTemplate("planet_it_threat_scenario_template.docx")
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_threat_scenario_template.docx")
+    doc = DocxTemplate(template_path)
     
     # Structure the context variables mirroring the template structure
     context = {
