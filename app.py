@@ -473,7 +473,7 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
         with tab3:
             st.markdown("### Phased Implementation")
             for phase in vciso.phased_roadmap:
-                st.markdown(f"#### {phase.phase_name}: {phase.primary_objective}")
+                st.markdown(f"#### {phase.phase_title}: {phase.primary_objective}")
                 for milestone in phase.milestones:
                     st.markdown(f"- {milestone}")
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
