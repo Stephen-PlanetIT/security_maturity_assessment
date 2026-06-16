@@ -20,7 +20,7 @@ class LLMEngine:
                     api_key=st.secrets["AZURE_OPENAI_API_KEY"], 
                     api_version=st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"), 
                     azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
-                    timeout=60.0 
+                    timeout=180.0 
                 )
         except Exception as e:
             st.error(f"🚨 Client Initialization Error: {e}")
