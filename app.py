@@ -6,6 +6,26 @@ from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx
 from catalog import PLANET_IT_PORTFOLIO
 
+def validate_platform_config():
+    """Validates that necessary secrets exist before runtime."""
+    if "Local" in st.session_state.get('ai_engine', ''):
+        required = ["OLLAMA_BASE_URL", "OLLAMA_MODEL"]
+        for secret in required:
+            if not st.secrets.get(secret):
+                st.warning(f"⚠️ Missing Ollama configuration in secrets.toml: {secret}")
+    else:
+        required = ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"]
+        for secret in required:
+            if not st.secrets.get(secret):
+                st.warning(f"⚠️ Missing Azure OpenAI configuration in secrets.toml: {secret}")
+
+def get_optimal_deployment_name(provider_flag):
+    """Fetches the correct deployment string based on the active provider."""
+    if provider_flag == "ollama":
+        return st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b")
+    else:
+        return st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+
 class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):
         recs = []
@@ -117,6 +137,7 @@ def update_vciso_exports():
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Security Use Case Generator", layout="wide")
+validate_platform_config() # Fails fast if keys are missing
 
 # --- SIDEBAR & ENGINE CONFIGURATION ---
 with st.sidebar:
@@ -320,8 +341,12 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
     
     if st.button("Generate Threat Scenario", type="primary"):
         with st.spinner("Simulating Attack & MDR Response..."):
+           # Inside your Generate buttons:
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
+            deployment = get_optimal_deployment_name(provider_flag)
+
+# Proceed directly to LLMEngine.generate_structured_report...
             if provider_flag == "ollama":
                 deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b")
             else:
