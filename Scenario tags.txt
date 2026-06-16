@@ -1,0 +1,65 @@
+I have successfully integrated a Microsoft Word (.docx) export for the Threat Scenario, mimicking the structure of the existing vCISO assessment Word export.
+
+Here is a summary of the changes implemented:
+1. **Added `create_threat_docx` to `export.py`**:
+   - Uses `docxtpl` (exactly like `create_vciso_docx`) with the template name `"planet_it_threat_template.docx"`.
+   - Passes comprehensive organisational profile, current technology stack, operational telemetry & validation metrics, plus the complete threat scenario dataset (`threat_narrative`, `threat_timeline`, `mdr_case_log`, and `recommendations`).
+2. **Updated `app.py`**:
+   - Imported the new `create_threat_docx` helper.
+   - Updated the threat simulation export pipeline (`update_exports()`) to generate Word bytes on simulation completion and store them as `st.session_state['threat_docx_bytes']`.
+   - Refactored the UI "Export Deliverables" section in the Tactical Threat Simulator to render side-by-side columns with "Download Threat Simulation (PDF)" and "Download Threat Report (Word)".
+
+### Template Jinja2 Tag Reference Guide
+To create your `planet_it_threat_template.docx` template, use the following variables:
+
+#### Organisational Profile
+* `{{ customer_name }}` — Name of the customer (e.g. Acme Corp)
+* `{{ consultant_name }}` — Name of the consultant (e.g. Jane Doe)
+* `{{ industry }}` — Industry segment
+* `{{ users }}` — Total headcount
+* `{{ endpoints }}` — Number of endpoints
+* `{{ servers }}` — Number of servers
+* `{{ operating_systems }}` — Operating systems in use
+* `{{ cloud_env }}` — Cloud environments in use
+* `{{ in_house_team }}` — Internal SOC team size/presence
+* `{{ compliance }}` — Target compliance standards
+* `{{ critical_infra }}` — Crown Jewels
+
+#### Current Technology Stack
+* `{{ mdr_provider }}` — Active MDR/SOC partner
+* `{{ endpoint }}` — Endpoint security vendor
+* `{{ endpoint_posture }}` — Endpoint capability licensing tier
+* `{{ firewall }}` — Network firewall vendor
+* `{{ identity }}` — Identity provider
+* `{{ email }}` — Email security gateway
+* `{{ m365_license }}` — Microsoft 365 licensing
+* `{{ savviness }}` — Security culture profile
+
+#### Operational Telemetry & Validation
+* `{{ pentest_status }}` — Penetration testing frequency
+* `{{ vuln_scanning }}` — Vulnerability scanning frequency
+* `{{ remote_access }}` — Remote access strategy
+* `{{ saas_backup }}` — M365/SaaS backup vendor
+* `{{ ir_readiness }}` — Incident Response plan status
+* `{{ mfa_status }}` — MFA enforcement level
+* `{{ patching }}` — Patch management status
+* `{{ backups }}` — Backup strategy details
+* `{{ insurance }}` — Cyber insurance status
+* `{{ rto }}` — Downtime tolerance (RTO)
+* `{{ advanced_controls }}` — Pillar 3 advanced controls
+
+#### Threat Simulation Content
+* `{{ threat_narrative }}` — Detailed narrative story of the simulated attack.
+* `{{ mdr_case_log }}` — Simulated MDR Case Log.
+* **Attack Timeline Loop:**
+  ```jinja
+  {% for event in threat_timeline %}
+  - [{{ event.timestamp }}] {{ event.event_description }}
+  {% endfor %}
+  ```
+* **Strategic Advisory Recommendations Loop:**
+  ```jinja
+  {% for rec in recommendations %}
+  - {{ rec }}
+  {% endfor %}
+  ```

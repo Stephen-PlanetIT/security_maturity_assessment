@@ -3,7 +3,7 @@ import random
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import ATTACK_VECTORS, SIMULATED_OSINT
-from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx
+from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 
 def validate_platform_config():
@@ -102,7 +102,7 @@ class CyberScenarioGenerator:
 
 # --- HELPER: EXPORT GENERATORS ---
 def update_exports():
-    """Generates the PDF and PPTX for the Threat Simulator."""
+    """Generates the PDF, PPTX, and Word Doc for the Threat Simulator."""
     if st.session_state.get('scenario_obj'):
         try:
             st.session_state['pdf_bytes'] = create_pdf(
@@ -115,6 +115,12 @@ def update_exports():
                 st.session_state['client_inputs'], 
                 st.session_state['scenario_obj'], 
                 st.session_state['recs'], 
+                st.session_state['mdr_case']
+            )
+            st.session_state['threat_docx_bytes'] = create_threat_docx(
+                st.session_state['client_inputs'],
+                st.session_state['scenario_obj'],
+                st.session_state['recs'],
                 st.session_state['mdr_case']
             )
         except Exception as e:
@@ -380,13 +386,25 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             else:
                 st.error("Engine failed to generate the scenario.")
         
-    if st.session_state.get('pdf_bytes'):
-        st.download_button(
-            "📄 Download Threat Simulation (PDF)", 
-            data=st.session_state['pdf_bytes'], 
-            file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Simulation.pdf", 
-            mime="application/pdf"
-        )
+    if st.session_state.get('pdf_bytes') or st.session_state.get('threat_docx_bytes'):
+        st.subheader("📥 Export Deliverables")
+        dl_threat_col1, dl_threat_col2 = st.columns(2)
+        with dl_threat_col1:
+            if st.session_state.get('pdf_bytes'):
+                st.download_button(
+                    "📄 Download Threat Simulation (PDF)", 
+                    data=st.session_state['pdf_bytes'], 
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Simulation.pdf", 
+                    mime="application/pdf"
+                )
+        with dl_threat_col2:
+            if st.session_state.get('threat_docx_bytes'):
+                st.download_button(
+                    "📄 Download Threat Report (Word)", 
+                    data=st.session_state['threat_docx_bytes'], 
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Report.docx", 
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
 elif st.session_state['workflow'] == "📈 vCISO Assessment":
     st.header("vCISO Assessment")

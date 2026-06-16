@@ -414,3 +414,62 @@ def create_pptx(inputs, scenario_obj, recs, mdr_case):
     pptx_stream = io.BytesIO()
     prs.save(pptx_stream)
     return pptx_stream.getvalue()
+
+def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: str) -> bytes:
+    """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
+    doc = DocxTemplate("planet_it_threat_template.docx")
+    
+    # Structure the context variables mirroring the template structure
+    context = {
+        # --- Organisational Profile ---
+        "customer_name": client_inputs.get("customer_name", "Customer"),
+        "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
+        "industry": client_inputs.get("industry", "Unknown"),
+        "users": client_inputs.get("users", "0"),
+        "endpoints": client_inputs.get("endpoints", "0"),
+        "servers": client_inputs.get("servers", "0"),
+        "operating_systems": client_inputs.get("operating_systems", "Unknown"),
+        "cloud_env": client_inputs.get("cloud_env", "Unknown"),
+        "in_house_team": client_inputs.get("in_house_team", "Unknown"),
+        "compliance": client_inputs.get("compliance", "None"),
+        "critical_infra": client_inputs.get("critical_infra", "Unknown"),
+        
+        # --- Technology Stack ---
+        "mdr_provider": client_inputs.get("mdr_provider", "None"),
+        "endpoint": client_inputs.get("endpoint", "Unknown"),
+        "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"),
+        "firewall": client_inputs.get("firewall", "Unknown"),
+        "identity": client_inputs.get("identity", "Unknown"),
+        "email": client_inputs.get("email", "Unknown"),
+        "m365_license": client_inputs.get("m365_license", "Unknown"),
+        "savviness": client_inputs.get("savviness", "Unknown"),
+        
+        # --- Operational Telemetry & Validation ---
+        "pentest_status": client_inputs.get("pentest_status", "Unknown"),
+        "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
+        "remote_access": client_inputs.get("remote_access", "Unknown"),
+        "saas_backup": client_inputs.get("saas_backup", "Unknown"),
+        "ir_readiness": client_inputs.get("ir_readiness", "Unknown"),
+        "mfa_status": client_inputs.get("mfa_status", "Unknown"),
+        "patching": client_inputs.get("patching", "Unknown"),
+        "backups": client_inputs.get("backups", "Unknown"),
+        "insurance": client_inputs.get("insurance", "Unknown"),
+        "rto": client_inputs.get("rto", "Unknown"),
+        "advanced_controls": client_inputs.get("advanced_controls", "None"),
+        
+        # --- Threat Simulation Content ---
+        "threat_narrative": scenario_obj.narrative,
+        "threat_timeline": scenario_obj.timeline,
+        "mdr_case_log": mdr_case,
+        "recommendations": recs,
+    }
+    
+    # Render the docx template with our context mapping
+    doc.render(context)
+    
+    # Save document into a BytesIO memory stream
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    return buffer.getvalue()
