@@ -3,56 +3,81 @@
 ## Overview
 The **Planet IT Strategic Advisory Platform** is an AI-powered, enterprise-grade consulting engine built to generate highly customised, compliance-aligned security assessments and tactical threat simulations. 
 
-Designed for security consultants, the platform leverages advanced Large Language Models (LLMs) and a proprietary bifurcated logic schema to analyse a client's environment. It instantly generates boardroom-ready Executive Summaries (PDF) and deep Technical Deployment Roadmaps (PPTX), aligned to the **Planet IT Cyber Resiliency Matrix**.
+Designed for security consultants, the platform leverages advanced Large Language Models (LLMs) to analyse a client's environment. It instantly generates boardroom-ready strategic deliverables: deep Technical Deployment Roadmaps in Microsoft Word (`.docx`) and Microsoft PowerPoint (`.pptx`) formats, aligned to the **Planet IT Cyber Resiliency Matrix**.
+
+---
 
 ## 🚀 Core Capabilities
 
 ### 1. vCISO Strategic Assessment Engine
-* **Planet IT Resiliency Matrix Mapping:** Evaluates the client's estate against 9 security domains (including Security Validation & Testing) and strictly maps them to Phase 1 (Reactive), Phase 2 (Proactive), or Phase 3 (Adaptive).
-* **Bifurcated Deliverables:** Automatically splits LLM generation into two distinct streams: a high-level, risk-focused Executive Summary (PDF) and a deep, engineering-focused Deployment Roadmap (PPTX).
-* **Compliance & GRC Mapping:** Maps gaps to major frameworks (ISO27001, NIS2, DORA) and calculates an internal Security Culture Tier.
+* **Planet IT Resiliency Matrix Mapping:** Evaluates the client's estate across 9 security domains (including Security Validation & Testing) and strictly maps them to:
+  1. **Pillar 1: Reactive Cybersecurity** (Foundational Hygiene)
+  2. **Pillar 2: Proactive Cybersecurity** (Active Managed Defence)
+  3. **Pillar 3: Adaptive Cybersecurity** (Adaptive Governance & Resilience)
+* **The Capability Mismatch Rule:** Mathematically penalises maturity scores to Pillar 1 if advanced enterprise tools (e.g., MDR) are present but foundational hygiene (e.g., Automated Patching, Enforced MFA, Immutable Backups) is absent.
+* **C-Level Contextual Intelligence:** Generates comprehensive, multi-paragraph Executive Summaries and deep, flowing "Cost of Inaction" analyses directly referencing client-specific threat landscapes, Crown Jewels, insurance status, and downtime tolerances (RTO).
+* **Compliance & GRC Mapping:** Aligns security gaps directly to target frameworks (e.g., ISO 27001, Cyber Essentials Plus, PCI DSS, NIST CSF) and dynamically calculates an overall Security Culture Tier.
 
 ### 2. Tactical Threat Simulator
-* **Single-Pass Generation:** Utilises a highly optimised LLM call to simultaneously generate a strategic breach narrative and a highly technical SOC Investigation Log.
-* **Stack-Specific Attacks:** Modifies the attack vector and OSINT data based on the client's exact firewall, endpoint, and identity providers.
+* **Single-Pass Scenario Generation:** Utilises highly optimised prompt framing to simultaneously generate a realistic strategic breach narrative and a detailed SOC Incident Case Log (with PIDs, cmdlines, and MITRE references).
+* **Stack-Specific Attacks:** Customises the attack vector and OSINT mapping to target weaknesses specifically present in the client's firewall, endpoint, email, and identity provider environments.
 
-### 3. Enterprise Export Engine
-* **Memory-Safe PDF Generation:** Uses a hardened FPDF pipeline with full-page justification and sanitised Markdown rendering.
-* **Dynamic Radar Charts:** Generates accurately scaled, 3-phase Matplotlib radar charts dynamically mapped to the assessment domains.
-* **Master Template Injection:** Actively reads a local `planet_it_master_template.pptx` file and seamlessly injects AI-generated content into pre-branded corporate slides.
+### 3. Enterprise Export Pipeline
+* **Dynamic Radar Charts:** Renders publication-quality polar area charts using `matplotlib` strictly hard-capped to a maximum radius of 3 (representing the Three-Pillar Cyber Resiliency Matrix).
+* **Structured Word Doc Rendering:** Uses `docxtpl` to inject AI-generated assessments and recommendations directly into pre-formatted, corporate-branded templates (`planet_it_vciso_template.docx`).
+* **PowerPoint Master Slide Injection:** Utilises `python-pptx` to programmatically inject strategic assessment roadmaps and executive briefs into high-quality client presentations.
 
-### 4. Dual LLM Inference Engine (Hybrid Cloud/Local)
-* **Dynamic UI Provider Routing:** A built-in sidebar toggle allows you to seamlessly switch between enterprise-grade Azure OpenAI (`gpt-4o`) for rapid generation, or local on-device inference via Ollama (e.g., `deepseek-r1:32b`) for zero-cost, private execution without restarting the application.
+### 4. Dual LLM Inference Engine (Cloud & Local)
+* **Sidebar Toggle:** Instantly routes generation traffic between:
+  * **☁️ Cloud (Azure OpenAI):** Utilises high-performance Azure endpoints with strict API configurations (`max_completion_tokens`) and long-tail timeouts (`180s`) to safely construct massive, multi-page structured reports.
+  * **🖥️ Local (Ollama):** Targets local models (e.g., `deepseek-r1:14b`) with beta completion parsing and custom context limit payloads (`num_ctx: 16384`, `num_predict: 8192`) to bypass local token truncation.
 
 ---
 
 ## 🛠️ Architecture & File Structure
 
-The application follows a modular, scalable architecture:
+The application maintains a strictly targeted, modular architecture:
 
-* `app.py`: The core Streamlit application, UI dashboard, and LLM routing logic.
-* `prompts.py`: Houses the Pydantic schemas and the Planet IT Master Persona guardrails.
-* `export.py`: The document generation engine (PDF creation, Matplotlib charting, PPTX injection).
-* `data.py`: The static knowledge base containing OSINT data, threat vectors, the Cyber Resiliency Matrix, and the authorised Planet IT/Sophos solution map.
-* `planet_it_master_template.pptx`: The visual anchor; a blank, branded corporate deck used for PPTX injection.
-* `docker-compose.yml` & `Dockerfile`: Multi-architecture (`amd64`/`arm64`) containerisation setup ensuring the app runs flawlessly on both Intel and Apple Silicon hardware.
+* `app.py`: Streamlit frontend layout, user input telemetry, security culture calculation, and workflow state routing.
+* `core.py`: LLM engine client abstraction, endpoint routing, resilient exponential backoff retry loops, and structured JSON schema completions.
+* `prompts.py`: Strict, typed Pydantic schema models (`MaturityReport`, `DomainAssessment`, `RoadmapPhase`, `RadarChartData`) and master consulting system personas.
+* `catalog.py`: The unified Planet IT security solution portfolio, vendor alignment logic, and corporate value propositions.
+* `data.py`: Static knowledge base holding attack vectors, static OSINT simulation maps, and Cyber Resiliency Matrix parameters.
+* `export.py`: Document generation pipelines handling DocxTemplate renderings, python-pptx templates, and custom Matplotlib radar generation.
 
 ---
 
-## ⚙️ Configuration & Secrets
+## ⚙️ Setup & Execution
 
-The platform requires a `.streamlit/secrets.toml` file in the root directory to house your API credentials and local endpoint configurations. You must define both Azure and Ollama parameters here. 
-
-Create `.streamlit/secrets.toml` with the following format:
+### 1. Configure Streamlit Secrets
+Create a `.streamlit/secrets.toml` file in the project root containing your API credentials and environment options:
 
 ```toml
 # --- Azure OpenAI Configuration (For Cloud Mode) ---
 AZURE_OPENAI_API_KEY = "your_azure_api_key_here"
-AZURE_OPENAI_ENDPOINT = "[https://your-endpoint.openai.azure.com/](https://your-endpoint.openai.azure.com/)"
+AZURE_OPENAI_ENDPOINT = "https://your-endpoint.openai.azure.com/"
 AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
 AZURE_OPENAI_API_VERSION = "2024-02-15-preview"
 
 # --- Ollama Configuration (For Local Mode) ---
-# Use host.docker.internal if running the app in Docker. Use localhost if running locally via Python.
-OLLAMA_BASE_URL = "[http://host.docker.internal:11434/v1](http://host.docker.internal:11434/v1)"
-OLLAMA_MODEL = "deepseek-r1:32b" # e.g., deepseek-r1:32b or qwen2.5:32b
+OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
+OLLAMA_MODEL = "deepseek-r1:14b"
+```
+
+### 2. Local Python Environment
+To run the application locally outside of a container:
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run Streamlit
+streamlit run app.py
+```
+
+### 3. Docker Container Deployment
+The application is fully containerised with a multi-architecture (`amd64`/`arm64`) build. Since files are copied during build time, you **must rebuild the image** after modifying python files on disk:
+
+```bash
+# Build and run the service
+docker-compose up --build
+```
