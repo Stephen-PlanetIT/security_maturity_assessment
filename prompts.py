@@ -67,7 +67,7 @@ class MaturityReport(BaseModel):
     cost_of_inaction: str = Field(description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
     
     # --- LOCKED DOMAIN LENGTH ---
-    domain_assessments: List[DomainAssessment] = Field(
+    domain_assessment: List[DomainAssessment] = Field(
         description="You MUST generate an assessment loop for ALL 9 security domains. Do not skip, merge, or omit. This array must contain exactly 9 items.",
         min_items=9,
         max_items=9
