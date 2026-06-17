@@ -6,6 +6,17 @@ from pydantic import BaseModel, Field
 from typing import List
 from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_VCISO_CONTEXT
 
+SYSTEM_PERSONA = "You are a Principal Cybersecurity Architect and Senior Threat Intelligence Analyst."
+
+# ==========================================
+# PYDANTIC MODELS: Maturity Report
+# ==========================================
+class MaturityReport(BaseModel):
+    client_name: str = Field(description="The name of the client organization.")
+    report_date: datetime.datetime = Field(default=datetime.datetime.now(), description="The date the report was generated.")
+    maturity_level_overall: str = Field(description="An aggregated maturity level across all domains (e.g., 'Pillar 2').")
+    domain_assessments: List[DomainAssessment] = Field(description="List of individual domain assessments.")
+
 # ==========================================
 # PYDANTIC MODELS: THREAT SIMULATOR
 # ==========================================
@@ -30,6 +41,7 @@ class ScenarioReport(BaseModel):
 # ==========================================
 # PYDANTIC MODELS: VCISO ASSESSMENT
 # ==========================================
+
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
     current_maturity_level: str = Field(description="Must be exactly one of: 'Pillar 1: Reactive Cybersecurity', 'Pillar 2: Proactive Cybersecurity', or 'Pillar 3: Adaptive Cybersecurity'.")
@@ -64,6 +76,30 @@ class RadarChartData(BaseModel):
     email: int = Field(description="Score 1, 2, or 3.")
     cloud: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if SaaS Backup is 'None'.")
     secops: int = Field(description="Score 1, 2, or 3.")
+
+def build_mdr_case_prompt(context: DEFAULT_VCISO_CONTEXT) -> str:
+    prompt = (
+        f"Given the following context:\n"
+        f"- Current Maturity Level: {context.current_maturity_level}\n"
+        f"- Business Impact Narrative: {context.business_impact_narrative}\n"
+        f"- Critical Gaps: {', '.join(context.critical_gaps)}\n"
+        f"Generate a detailed MDR case log that includes:\n"
+        f"- A brief overview of the incident.\n"
+        f"- The timeline of detection and response actions taken by Sophos MDR."
+    )
+    return prompt
+
+def build_vciso_prompt(context: DEFAULT_VCISO_CONTEXT) -> str:
+    prompt = (
+        f"Given the following context:\n"
+        f"- Current Maturity Level: {context.current_maturity_level}\n"
+        f"- Business Impact Narrative: {context.business_impact_narrative}\n"
+        f"- Critical Gaps: {', '.join(context.critical_gaps)}\n"
+        f"Generate a comprehensive vCISO report that includes:\n"
+        f"- An executive summary of the current security posture and its implications.\n"
+        f"- A detailed analysis of each security domain."
+    )
+    return prompt
 
 def build_scenario_prompt(context: DEFAULT_VCISO_CONTEXT) -> str:
     prompt = (
