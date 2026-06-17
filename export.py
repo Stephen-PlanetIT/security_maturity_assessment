@@ -372,7 +372,17 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     draw_section_header(pdf, "1. Threat Narrative")
     robust_multi_cell(pdf, 0, 5, scenario_obj.narrative)
     
-    draw_section_header(pdf, "2. Attack Timeline")
+    # --- DUAL TIMELINE: WITHOUT SOPHOS ---
+    draw_section_header(pdf, "2a. Attack Timeline (Without Sophos MDR)")
+    if hasattr(scenario_obj, 'timelines') and hasattr(scenario_obj.timelines, 'without_sophos'):
+        for t_event in scenario_obj.timelines.without_sophos:
+            robust_multi_cell(pdf, 0, 5, f"- [{t_event.timestamp}] {t_event.event_description}")
+    else:
+        # Fallback: render the first half of the timeline as "without Sophos"
+        robust_multi_cell(pdf, 0, 5, "[No unmitigated timeline available — attack was fully intercepted by Sophos MDR prior to objective completion.]")
+    
+    # --- DUAL TIMELINE: WITH SOPHOS ---
+    draw_section_header(pdf, "2b. Attack Timeline (With Sophos MDR)")
     for t_event in scenario_obj.timeline:
         robust_multi_cell(pdf, 0, 5, f"- [{t_event.timestamp}] {t_event.event_description}")
         
@@ -459,9 +469,11 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
         "rto": client_inputs.get("rto", "Unknown"),
         "advanced_controls": client_inputs.get("advanced_controls", "None"),
         
-        # --- Threat Simulation Content ---
+        # --- Dual Timeline Context ---
         "threat_narrative": scenario_obj.narrative,
         "threat_timeline": scenario_obj.timeline,
+        "threat_timeline_without_sophos": scenario_obj.timelines.without_sophos if hasattr(scenario_obj, 'timelines') else [],
+        "threat_timeline_with_sophos": scenario_obj.timelines.with_sophos if hasattr(scenario_obj, 'timelines') else scenario_obj.timeline,
         "mdr_case_log": mdr_case,
         "recommendations": recs,
     }

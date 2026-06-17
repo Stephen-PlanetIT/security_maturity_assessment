@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   advisory-engine:
-    build: .  # <-- THIS IS THE MISSING DIRECTIVE
-    image: ghcr.io/gallenhamph/mdr-use-case:latest  # Retags the image locally so it stops pulling from ghcr.io
+    #build: .  # <-- THIS IS THE MISSING DIRECTIVE
+    image: ghcr.io/gallenhamph/mdr-use-case:latest  
     container_name: advisory-engine
     ports:
       - "8501:8501"

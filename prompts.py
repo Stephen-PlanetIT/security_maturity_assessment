@@ -13,9 +13,32 @@ class TimelineEvent(BaseModel):
     timestamp: str = Field(description="The timestamp of the event, e.g., '02:00 UTC'")
     event_description: str = Field(description="A detailed description of the attack progression or MDR intervention.")
 
+class ThreatTimelines(BaseModel):
+    without_sophos: List[TimelineEvent] = Field(
+        description="The FULL unmitigated attack timeline showing what would occur WITHOUT Sophos MDR. Must span from initial access through to objective completion (exfiltration, encryption, or final objective). Do NOT include any MDR detection or intervention events.",
+        min_items=5,
+        max_items=12
+    )
+    with_sophos: List[TimelineEvent] = Field(
+        description="The attack timeline WITH Sophos MDR interception. First event at start_time, last event at end_time (38-min MTTR). Must show detection, isolation, and neutralisation by Sophos MDR before objective completion.",
+        min_items=5,
+        max_items=12
+    )
+
 class ScenarioReport(BaseModel):
-    narrative: str = Field(description="Sections 1 through 4: The full, highly technical threat narrative and MDR response formatted in Markdown.")
-    timeline: List[TimelineEvent] = Field(description="Section 5: The chronological attack timeline.")
+    narrative: str = Field(
+        description="Sections 1 through 4: The full, highly technical threat narrative and MDR response formatted in Markdown. "
+        "Section 1 (Threat Actor & Initial Access): Adapt to environment. Include hyperlinked MITRE T-codes and CVEs. "
+        "Section 2 (Attacker Progression): Detail the *attempted* movement toward the Crown Jewels. The attacker must make initial headway due to environmental or cultural vulnerabilities. "
+        "Section 3 (Sophos MDR Interception): CRITICAL RULE - The attack MUST NOT succeed. Sophos MDR must identify behavioural anomalies mid-chain and actively neutralise the threat before exfiltration, encryption, or final objective completion. "
+        "Section 4 (Recommended Solutions): Summarise the defence strategy in a consultative, third-person tone. Do NOT use first-person ('we', 'our') or second-person ('you', 'your')."
+    )
+    timeline: List[TimelineEvent] = Field(
+        description="Section 5: The chronological attack timeline showing the WITH-Sophos MDR version. First event at start_time, last event at end_time (38-min MTTR)."
+    )
+    timelines: ThreatTimelines = Field(
+        description="Dual timelines: one showing the unmitigated attack path (without_sophos) and one showing the MDR-protected path (with_sophos)."
+    )
 
 # ==========================================
 # PYDANTIC MODELS: VCISO ASSESSMENT
@@ -145,8 +168,9 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
     - Section 1 (Threat Actor & Initial Access): Adapt to environment. Include hyperlinked MITRE T-codes and CVEs. Initial Access: "{attack_vector if not custom_scenario else custom_scenario}".
     - Section 2 (Attacker Progression): Detail the *attempted* movement toward {client_inputs['critical_infra']}. The attacker must make initial headway due to environmental or cultural vulnerabilities.
     - Section 3 (Sophos MDR Interception): CRITICAL RULE - The attack MUST NOT succeed. Sophos MDR must identify behavioural anomalies mid-chain and actively neutralise the threat before exfiltration, encryption, or final objective completion.
-    - Section 4 (Recommended Solutions): Summarise the defence strategy.
-    - Section 5 (Attack Timeline): Provide a chronological timeline. The very first event MUST be anchored exactly at {start_time} and the final MDR neutralisation MUST be anchored exactly at {end_time} (reflecting a 38-minute MTTR).
+    - Section 4 (Recommended Solutions): Summarise the defence strategy in a consultative, third-person tone. Do NOT use first-person ('we', 'our') or second-person ('you', 'your').
+    - Section 5 (Attack Timeline - With Sophos): Provide a chronological timeline showing the WITH-Sophos MDR version. The very first event MUST be anchored exactly at {start_time} and the final MDR neutralisation MUST be anchored exactly at {end_time} (reflecting a 38-minute MTTR).
+    - Section 6 (Attack Timeline - Without Sophos): Provide a separate chronological timeline showing what would happen WITHOUT Sophos MDR. This timeline must show the unmitigated attack path progressing through to objective completion (exfiltration, encryption, or final objective). Do NOT include any MDR detection or intervention events.
     """
     return f"Act as ROLE 1 and generate a highly technical breach scenario.\n{base_prompt}\nTHREAT INTELLIGENCE: {osint_data}\n{scenario_rules}"
 

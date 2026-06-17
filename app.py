@@ -52,19 +52,19 @@ class CyberScenarioGenerator:
 
         # 1. MDR & The Capability Mismatch (Endpoint)
         if mdr in ["Sophos MDR", "Planet IT Managed SOC"] and patching == "Manual / Ad-hoc":
-            recs.append("**Capability Mismatch (MDR vs Hygiene):** You have invested in advanced MDR (Pillar 2), but without automated patch management (Pillar 1), your estate generates excessive, preventable noise. We urgently recommend a Managed Patching (RMM) deployment to secure the foundation.")
+            recs.append("**Capability Mismatch (MDR vs Hygiene):** Investment in advanced MDR (Pillar 2) without automated patch management (Pillar 1) generates excessive, preventable noise in the estate. A managed patching (RMM) deployment is recommended to secure the operational foundation before layering advanced detection.")
         elif in_house != "Yes (24/7)":
             if strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
-                recs.append("**Microsoft / Sophos (MDR):** Optimise Microsoft Defender XDR and layer Sophos MDR for Microsoft to provide 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
+                recs.append("**Microsoft / Sophos (MDR):** Optimisation of Microsoft Defender XDR with Sophos MDR overlay provides 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
             elif not strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
                 item = PLANET_IT_PORTFOLIO["Managed_Detection_and_Response"][0]
                 recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
         # 2. Foundational Hygiene (Patching & Backups)
         if backups in ["No Formal Backups", "On-Premise Only"]:
-            recs.append("**Data Resilience (Immutable Backups):** Your current backup strategy leaves you highly vulnerable to ransomware encryption. We recommend deploying an offsite, air-gapped immutable backup solution (e.g., Veeam/Cove).")
+            recs.append("**Data Resilience (Immutable Backups):** The current backup strategy presents significant vulnerability to ransomware encryption. Deployment of an offsite, air-gapped immutable backup solution (e.g., Veeam/Cove) is recommended to ensure recoverability.")
         if mfa_status in ["None", "Privileged Accounts Only"]:
-            recs.append("**Identity Hardening (MFA):** Universal MFA enforcement via Conditional Access is a mandatory Pillar 1 requirement. This must be remediated immediately.")
+            recs.append("**Identity Hardening (MFA):** Universal MFA enforcement via Conditional Access is a mandatory Pillar 1 requirement. Immediate remediation is required to close the most prevalent credential-based attack vector.")
 
         # 3. Network & Edge Security (Ignore Rip-and-Replace for Palo Alto/Check Point)
         if firewall not in ["Palo Alto", "Check Point", "Fortinet", "Sophos"]:
@@ -96,7 +96,7 @@ class CyberScenarioGenerator:
             recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
 
         if not recs:
-            recs.append("**Internal SOC Optimisation:** Leverage your existing 24/7 team for proactive threat hunting, as baseline controls are currently saturated.")
+            recs.append("**Internal SOC Optimisation:** Leverage the existing 24/7 team for proactive threat hunting, as baseline controls are currently saturated.")
 
         return recs
 
