@@ -35,6 +35,7 @@ class LLMEngine:
             extra_params = {}
             if "ollama" in str(client.base_url).lower():
                 extra_params["extra_body"] = {
+                    "keep_alive": 0,  # Unload model from VRAM/RAM immediately after generation
                     "options": {
                         "num_ctx": 16384,    
                         "num_predict": 8192,   
