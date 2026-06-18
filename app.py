@@ -347,16 +347,9 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
     
     if st.button("Generate Threat Scenario", type="primary"):
         with st.spinner("Simulating Attack & MDR Response..."):
-           # Inside your Generate buttons:
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
             deployment = get_optimal_deployment_name(provider_flag)
-
-# Proceed directly to LLMEngine.generate_structured_report...
-            if provider_flag == "ollama":
-                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b")
-            else:
-                deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             
             selected_vector = random.choice(ATTACK_VECTORS)
             osint_list = []
@@ -374,12 +367,8 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                 st.session_state['recs'] = CyberScenarioGenerator().generate_recommendations(st.session_state['client_inputs'])
                 
                 mdr_prompt = build_mdr_case_prompt(st.session_state['client_inputs'], scenario_obj.narrative)
-                mdr_response = client.chat.completions.create(
-                    model=deployment,
-                    messages=[{"role": "system", "content": SYSTEM_PERSONA}, {"role": "user", "content": mdr_prompt}],
-                    temperature=0.7
-                )
-                st.session_state['mdr_case'] = mdr_response.choices[0].message.content
+                mdr_response = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, mdr_prompt, temperature=0.7)
+                st.session_state['mdr_case'] = mdr_response
                 
                 update_exports()
                 st.success("Threat Simulation Generated Successfully.")
@@ -413,10 +402,7 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
         with st.spinner("Compiling vCISO Assessment..."):
             provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
             client = LLMEngine.get_client(provider_flag)
-            if provider_flag == "ollama":
-                deployment = st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b") 
-            else:
-                deployment = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+            deployment = get_optimal_deployment_name(provider_flag)
             
             vciso_prompt = build_vciso_prompt(st.session_state['client_inputs'])
             vciso_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, vciso_prompt, MaturityReport)
