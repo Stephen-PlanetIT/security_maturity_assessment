@@ -13,7 +13,7 @@ class LLMEngine:
                 return OpenAI(
                     base_url=base_url,
                     api_key="ollama",
-                    timeout=90.0  # Slightly longer timeout for heavy local generation
+                    timeout=360.0  # Slightly longer timeout for heavy local generation
                 )
             else:
                 return AzureOpenAI(

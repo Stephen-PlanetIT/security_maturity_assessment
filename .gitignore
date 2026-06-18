@@ -1,18 +1,30 @@
-# Environments
-.env
-.DS_store
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Streamlit secrets
-.streamlit/secrets.toml
-
-# Python cache
+# Python cache & bytecode
 __pycache__/
 *.py[cod]
 *$py.class
-~$anet_it_vciso_template.docx
+
+# Virtual environments
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Secrets & environment
+.env
+.streamlit/secrets.toml
+
+# IDE & agent configs
+.clinerules
+.cursorrules
+.gitignore
+
+# Version control
+.git/
+
+# macOS
+.DS_Store
+
+# Generated client outputs (not templates)
+Acme_Corp*.docx
+~$*.docx
