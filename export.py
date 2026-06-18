@@ -281,6 +281,12 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     # Create the InlineImage object
     chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
 
+    # Pre-process list fields that the template renders as raw strings (not via {% for %} loops)
+    # The template renders {{ r.key_deliverables }} directly, so convert List[str] to a bullet string
+    for phase in report_data.phased_roadmap:
+        if isinstance(phase.key_deliverables, list):
+            phase.key_deliverables = "\n".join(f"• {item}" for item in phase.key_deliverables)
+
     # 2. Map the frontend inputs and backend LLM data to the template's Jinja2 tags
     context = {
         # --- Organisational Profile ---
