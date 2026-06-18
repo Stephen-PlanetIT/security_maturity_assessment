@@ -6,6 +6,10 @@ from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_pptx, create_vciso_docx, create_vciso_pptx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 
+# --- VERSION TRACKER ---
+with open("VERSION", "r") as f:
+    APP_VERSION = f.read().strip()
+
 def validate_platform_config():
     """Validates that necessary secrets exist before runtime."""
     if "Local" in st.session_state.get('ai_engine', ''):
@@ -483,3 +487,11 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
                 st.markdown(f"**Resources:** {phase.resource_requirements}")
                 st.divider()
+
+st.divider()
+st.markdown(
+    "<div style='text-align: center; color: #999; font-size: 0.8rem;'>"
+    f"Security Use Case & vCISO Generator — v{APP_VERSION}"
+    "</div>",
+    unsafe_allow_html=True
+)
