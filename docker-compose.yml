@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   advisory-engine:
     #build: .  # <-- THIS IS THE MISSING DIRECTIVE

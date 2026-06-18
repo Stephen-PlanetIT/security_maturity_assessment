@@ -1,4 +1,5 @@
 # data.py
+import os
 
 # ==========================================
 # THREAT SIMULATOR DATA
@@ -78,9 +79,77 @@ RECOMMENDED_SOLUTION_MAP = {
     "Supply Chain & Third-Party Risk": ["Sophos ZTNA", "Sophos Managed Risk"]
 }
 
-DEFAULT_VCISO_CONTEXT = """
+# ==========================================
+# KNOWLEDGE BASE — LOADED FROM DISK
+# ==========================================
+
+def _load_mdr_context():
+    """Load and condense the MDR operations knowledge base from context.txt."""
+    ctx_path = os.path.join(os.path.dirname(__file__), "context.txt")
+    try:
+        with open(ctx_path, "r") as f:
+            text = f.read()
+        # Condense to ~500 words by taking the first meaningful paragraphs
+        lines = text.split('\n')
+        condensed = []
+        word_count = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith('Table of Contents') or stripped.startswith(' '):
+                continue
+            words = stripped.split()
+            if word_count + len(words) > 500:
+                break
+            condensed.append(stripped)
+            word_count += len(words)
+        return ' '.join(condensed)
+    except FileNotFoundError:
+        return "MDR context file not available."
+
+
+def _serialise_portfolio():
+    """Build a compact Markdown reference table from PLANET_IT_PORTFOLIO."""
+    # Import here to avoid circular dependency at module level
+    from catalog import PLANET_IT_PORTFOLIO
+    
+    lines = ["## Planet IT Solution Portfolio", ""]
+    for category_key, products in PLANET_IT_PORTFOLIO.items():
+        category_name = category_key.replace('_', ' ')
+        lines.append(f"### {category_name}")
+        for product in products:
+            vendor = product['vendor']
+            tier = product['tier']
+            value = product['planet_it_value_add']
+            features = "; ".join(product['core_features'])
+            triggers = "; ".join(product['trigger_conditions'])
+            lines.append(f"- **{vendor}** (Tier: {tier})")
+            lines.append(f"  - Features: {features}")
+            lines.append(f"  - Best for: {triggers}")
+            lines.append(f"  - Value: {value}")
+        lines.append("")
+    return '\n'.join(lines)
+
+
+# Load MDR context at module import time
+LOADED_MDR_CONTEXT = _load_mdr_context()
+
+# Build the portfolio reference table at module import time
+PORTFOLIO_KNOWLEDGE = _serialise_portfolio()
+
+# ==========================================
+# MASTER VCISO CONTEXT (Knowledge-Injected)
+# ==========================================
+DEFAULT_VCISO_CONTEXT = f"""
 You are acting as an Enterprise Virtual CISO and Principal Threat Analyst representing a top-tier advisory firm.
 Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps. 
 You strongly advocate for security consolidation, specifically leveraging the Sophos ecosystem (Sophos MDR, Intercept X, Sophos Firewall, etc.) and Microsoft 365 native security controls.
 Always maintain a highly professional, objective, and consultative tone. Use British English formatting.
+
+### MDR Operations Knowledge Base
+{LOADED_MDR_CONTEXT}
+
+### Authorised Solution Portfolio
+{PORTFOLIO_KNOWLEDGE}
+
+When generating domain assessments and roadmap recommendations, reference the Authorised Solution Portfolio above to recommend specific products. Match the product tier to the client's size and environment. Always explain why a specific product is appropriate for the client's context.
 """

@@ -143,6 +143,9 @@ You are an expert consultant evaluating a client's maturity. You MUST strictly o
 - Lead with Vendor-Agnostic Quick Wins tailored to their specific environment.
 - Strongly articulate the "Cost of Inaction".
 
+### VENDOR BAN CONSTRAINT
+If the client has explicitly banned specific vendors, you MUST NOT recommend, mention, or suggest those vendors in any section of the report. Suggest functionally equivalent alternatives from other providers instead. If all viable vendors in a category are banned, state that a solution is required and Planet IT can advise on suitable alternatives.
+
 ### CONSULTATIVE VERBOSITY & FORMATTING
 You are writing for a C-level and technical director audience. Terse, high-level summaries are unacceptable. 
 * You must provide deep, narrative-driven reasoning for every assessment.
@@ -225,6 +228,15 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 
 
 def build_vciso_prompt(client_inputs):
+    banned = client_inputs.get('banned_vendors', [])
+    ban_clause = ""
+    if banned:
+        ban_list = ", ".join(banned)
+        ban_clause = f"""
+### VENDOR BAN CONSTRAINT (STRICT COMPLIANCE REQUIRED)
+The client has explicitly banned the following vendors: [{ban_list}].
+You MUST NOT recommend, mention, or suggest any of these banned vendors in any section of the report, including domain assessments, recommended solutions, phased roadmap, or any other field. Suggest functionally equivalent alternatives from other providers instead. If all viable vendors in a category are banned, state that a solution is required and Planet IT can advise on suitable alternatives.
+"""
     base_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}
 CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
 
@@ -284,4 +296,4 @@ CRITICAL REQUIREMENT: You MUST explicitly assess ALL {len(ASSESSMENT_DOMAINS)} d
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
-    return base_prompt + "\n\n" + rules
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + rules

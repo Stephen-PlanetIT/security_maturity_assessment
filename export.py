@@ -5,9 +5,6 @@ import textwrap
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
 from fpdf import FPDF
-from pptx import Presentation
-from pptx.util import Pt, Inches
-from pptx.dml.color import RGBColor
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -28,11 +25,6 @@ def clean_text(text, mode="pdf"):
         text = text.replace('🟢', 'WIN:').replace('⚙️', 'SYSTEM:').replace('🔄', 'UPDATE:')
         text = text.replace('🔍', '').replace('💻', '').replace('📚', '').replace('🔥', '').replace('📈', '')
 
-    if mode == "pptx":
-        text = text.replace('### ', '').replace('## ', '').replace('# ', '')
-        text = text.replace('**', '').replace('*', '').replace('`', '')
-        text = text.replace('//// ', '')
-    
     return text.encode('ascii', 'ignore').decode('ascii').strip()
 
 def chunk_long_words(text):
@@ -234,51 +226,51 @@ def generate_radar_chart(domain_assessments):
     
     return tmpfile.name
 
-import io
-import re
-from docxtpl import DocxTemplate
 
-def clean_markdown(text):
-    """Strips Markdown bold/italic artifacts from the LLM response."""
-    if not text: return ""
-    return re.sub(r'[*_]', '', text)
+def generate_radar_chart_from_values(labels, values, figsize=(4, 4)):
+    """
+    Generate a radar chart from raw label/value pairs.
+    Hard-capped to max radius 3 (Three-Pillar Cyber Resiliency Matrix).
+    Returns the path to a temporary PNG file.
+    """
+    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+    values_closed = values + values[:1]
+    angles_closed = angles + angles[:1]
+    
+    fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(polar=True))
+    ax.fill(angles_closed, values_closed, color='#003366', alpha=0.25)
+    ax.plot(angles_closed, values_closed, color='#003366', linewidth=2)
+    
+    # Hard lock to the 3-pillar framework
+    ax.set_ylim(0, 3)
+    ax.set_yticks([1, 2, 3])
+    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8)
+    
+    ax.set_xticks(angles)
+    ax.set_xticklabels(labels, size=9)
+    
+    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    plt.savefig(tmpfile.name, format='png', bbox_inches='tight')
+    plt.close(fig)
+    
+    return tmpfile.name
 
-import io
-from docxtpl import DocxTemplate
 
 def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template.docx")
     doc = DocxTemplate(template_path)
     
-    # --- 1. Generate the Radar Chart Image ---
-    # Convert Pydantic model to list for plotting
+    # --- 1. Generate the Radar Chart Image (unified function) ---
     data = report_data.radar_chart_data
     labels = list(data.model_dump().keys())
     values = list(data.model_dump().values())
     
-# Plotting logic
-    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-    values += values[:1]
-    angles += angles[:1]
+    chart_path = generate_radar_chart_from_values(labels, values, figsize=(4, 4))
     
-    fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
-    ax.fill(angles, values, color='#003366', alpha=0.25)
-    ax.plot(angles, values, color='#003366', linewidth=2)
+    with open(chart_path, "rb") as f:
+        chart_buffer = io.BytesIO(f.read())
+    os.unlink(chart_path)  # Clean up temp file
     
-    # --- NEW: HARD LOCK THE AXIS TO THE 3-PILLAR FRAMEWORK ---
-    ax.set_ylim(0, 3) # Force the chart to a max radius of 3
-    ax.set_yticks([1, 2, 3]) # Draw the three ring lines
-    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8) # Label the rings
-    
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, size=9)
-    
-    chart_buffer = io.BytesIO()
-    plt.savefig(chart_buffer, format='png', bbox_inches='tight')
-    chart_buffer.seek(0)
-    plt.close()
-    
-    # Create the InlineImage object
     chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
 
     # Pre-process list fields that the template renders as raw strings (not via {% for %} loops)
@@ -349,22 +341,6 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     # Return the raw bytes to app.py for the st.download_button
     return buffer.getvalue()
 
-# --- Keep your existing create_pdf, create_pptx, and create_vciso_pptx functions below this ---
-def create_vciso_pptx(inputs, vciso_obj):
-    prs = Presentation()
-    slide = prs.slides.add_slide(prs.slide_layouts[0])
-    slide.shapes.title.text = "vCISO Strategic Security Roadmap"
-    slide.placeholders[1].text = f"Prepared for: {inputs['customer_name']}\nAdvisor: {inputs.get('consultant_name', 'Advisor')}"
-    
-    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
-    slide2.shapes.title.text = "Executive Summary"
-    tf = slide2.shapes.placeholders[1].text_frame
-    tf.text = clean_text(vciso_obj.executive_summary, "pptx")
-
-    pptx_stream = io.BytesIO()
-    prs.save(pptx_stream)
-    return pptx_stream.getvalue()
-
 # ==========================================
 # THREAT SIMULATOR EXPORTS
 # ==========================================
@@ -411,26 +387,6 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
         
     # If it's a modern fpdf2 bytearray, safely cast it to bytes
     return bytes(raw_pdf)
-
-def create_pptx(inputs, scenario_obj, recs, mdr_case):
-    prs = Presentation()
-    slide = prs.slides.add_slide(prs.slide_layouts[0])
-    slide.shapes.title.text = "Breach Simulation"
-    slide.placeholders[1].text = f"Target: {inputs['customer_name']}"
-    
-    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
-    slide2.shapes.title.text = "Attack Narrative"
-    text_preview = scenario_obj.narrative[:500] + "..." if len(scenario_obj.narrative) > 500 else scenario_obj.narrative
-    slide2.placeholders[1].text = clean_text(text_preview, "pptx")
-    
-    slide3 = prs.slides.add_slide(prs.slide_layouts[1])
-    slide3.shapes.title.text = "MDR Investigation Log"
-    mdr_preview = mdr_case[:500] + "..." if len(mdr_case) > 500 else mdr_case
-    slide3.placeholders[1].text = clean_text(mdr_preview, "pptx")
-    
-    pptx_stream = io.BytesIO()
-    prs.save(pptx_stream)
-    return pptx_stream.getvalue()
 
 def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: str) -> bytes:
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""

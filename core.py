@@ -109,3 +109,40 @@ class LLMEngine:
         except Exception as e:
             st.error(f"LLM Text Generation Error: {e}")
             return None
+
+    @staticmethod
+    def generate_text_report_streaming(client, deployment, system_persona, user_prompt, temperature=0.7):
+        """
+        Generate a free-text response with streaming support.
+        Yields tokens as they arrive from the API.
+        """
+        if not client:
+            yield "Error: LLM client not initialised."
+            return
+
+        try:
+            extra_params = LLMEngine._build_extra_params(client)
+            extra_params["temperature"] = temperature
+            extra_params["stream"] = True
+
+            # Remove max_completion_tokens from extra_params for streaming if present
+            # (streaming handles this differently)
+            extra_params.pop("max_completion_tokens", None)
+
+            response = client.chat.completions.create(
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": system_persona},
+                    {"role": "user", "content": user_prompt}
+                ],
+                **extra_params
+            )
+
+            for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield delta.content
+
+        except Exception as e:
+            yield f"\n\n[Streaming Error: {e}]"
