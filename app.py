@@ -39,14 +39,18 @@ class CyberScenarioGenerator:
             """Check if a vendor name (or any part of it) is in the banned set."""
             return any(b.lower() in vendor_name.lower() for b in banned)
         
-        def safe_append(category_key, item_index, fallback_msg=None):
-            """Append a catalog recommendation, skipping if the vendor is banned."""
+        def safe_append(category_key, vendor_name, fallback_msg=None):
+            """Append a catalog recommendation by vendor name, skipping if banned.
+            
+            Looks up the product by vendor name rather than index position, making
+            the recommendation engine immune to catalogue reordering.
+            """
             items = PLANET_IT_PORTFOLIO.get(category_key, [])
-            if item_index < len(items) and not is_banned(items[item_index]['vendor']):
-                item = items[item_index]
-                recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
-                return True
-            elif fallback_msg:
+            for item in items:
+                if item['vendor'] == vendor_name and not is_banned(item['vendor']):
+                    recs.append(f"**{item['vendor']} ({item['category']}):** {item['planet_it_value_add']}")
+                    return True
+            if fallback_msg:
                 recs.append(fallback_msg)
             return False
         
@@ -78,10 +82,10 @@ class CyberScenarioGenerator:
                 if not is_banned("Microsoft") and not is_banned("Sophos"):
                     recs.append("**Microsoft / Sophos (MDR):** Optimisation of Microsoft Defender XDR with Sophos MDR overlay provides 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
                 else:
-                    safe_append("Managed_Detection_and_Response", 0,
+                    safe_append("Managed_Detection_and_Response", "Sophos MDR",
                         "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
             elif not strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
-                safe_append("Managed_Detection_and_Response", 0,
+                safe_append("Managed_Detection_and_Response", "Sophos MDR",
                     "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
 
         # 2. Foundational Hygiene (Patching & Backups)
@@ -93,34 +97,34 @@ class CyberScenarioGenerator:
         # 3. Network & Edge Security (Ignore Rip-and-Replace for Palo Alto/Check Point)
         if firewall not in ["Palo Alto", "Check Point", "Fortinet", "Sophos"]:
             if users < 1000:
-                safe_append("Network_and_Edge_Security", 0,
+                safe_append("Network_and_Edge_Security", "Sophos Firewall",
                     "**Network Security:** A next-generation firewall is recommended. Planet IT can advise on suitable options.")
             else:
-                safe_append("Network_and_Edge_Security", 1,
+                safe_append("Network_and_Edge_Security", "Fortinet FortiGate",
                     "**Network Security:** An enterprise-grade firewall with SD-WAN is recommended. Planet IT can advise on suitable options.")
 
         # 4. Email Security
         if industry in ["Finance", "Healthcare", "Legal"] and email != "Mimecast":
-            safe_append("Email_Security", 1,
+            safe_append("Email_Security", "Mimecast",
                 "**Email Security:** An advanced email security gateway with immutable archiving is recommended for regulated industries.")
         elif strong_ms_investment and email not in ["Microsoft Defender", "Mimecast"]:
             if not is_banned("Microsoft"):
                 recs.append("**Microsoft (Email Security):** Configure Defender for Office 365 natively for anti-phishing before procuring third-party gateways.")
             else:
-                safe_append("Email_Security", 0,
+                safe_append("Email_Security", "Sophos Email",
                     "**Email Security:** A third-party email security gateway is recommended. Planet IT can advise on suitable alternatives.")
         elif not strong_ms_investment and email != "Sophos":
-            safe_append("Email_Security", 0,
+            safe_append("Email_Security", "Sophos Email",
                 "**Email Security:** A cloud email security solution is recommended. Planet IT can advise on suitable options.")
 
         # 5. Attack Surface Management
         if vuln_scan != "Continuous":
-            safe_append("Vulnerability_and_Exposure_Management", 0,
+            safe_append("Vulnerability_and_Exposure_Management", "Sophos Managed Risk",
                 "**Attack Surface Management:** Continuous external attack surface monitoring is recommended. Planet IT can advise on suitable solutions.")
 
         # 6. Security Culture
         if "Pillar 1" in culture:
-            safe_append("Security_Awareness_and_Training", 0,
+            safe_append("Security_Awareness_and_Training", "Hoxhunt",
                 "**Security Awareness Training:** A phishing simulation and training programme is recommended. Planet IT can advise on suitable platforms.")
 
         if not recs:

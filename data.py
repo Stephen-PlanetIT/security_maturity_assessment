@@ -67,17 +67,22 @@ ASSESSMENT_DOMAINS = [
     "Supply Chain & Third-Party Risk"
 ]
 
-RECOMMENDED_SOLUTION_MAP = {
-    "Endpoint & Server Security": ["Sophos Intercept X Advanced with XDR"],
-    "Email & Data Protection": ["Mimecast Email Security", "N-able Cove Data Protection"],
-    "Identity & Access Management (IAM)": ["Sophos ITDR (Identity Threat Detection and Response)", "Sophos Phish Threat"],
-    "Network & Cloud Perimeter": ["Sophos Firewall", "Sophos ZTNA", "Sophos Cloud Optix (CSPM)"],
-    "Security Operations & Response (SecOps)": ["Sophos MDR Complete (24/7 Threat Hunting & RCA)", "Sophos Managed Risk"],
-    "Security Validation & Testing": ["Sophos Managed Risk", "Planet IT Penetration Testing", "Secureworks Tabletop Exercises"],
-    "Governance, Risk & Compliance (GRC)": ["Sophos Managed Risk", "Sophos Phish Threat (Awareness Programme)"],
-    "Operational Resilience & Backup": ["N-able Cove Data Protection", "Sophos Incident Response Retainer", "Secureworks Tabletop Exercises & IR Preparedness"],
-    "Supply Chain & Third-Party Risk": ["Sophos ZTNA", "Sophos Managed Risk"]
-}
+def _build_solution_map():
+    """Auto-generate RECOMMENDED_SOLUTION_MAP from PLANET_IT_PORTFOLIO.
+    
+    Each product's 'recommended_for_domains' field declares which assessment
+    domains it serves. This function scans all products and builds the map
+    automatically, so adding a product to catalog.py is the only step needed.
+    """
+    from catalog import PLANET_IT_PORTFOLIO
+    solution_map = {}
+    for products in PLANET_IT_PORTFOLIO.values():
+        for product in products:
+            for domain in product.get("recommended_for_domains", []):
+                solution_map.setdefault(domain, []).append(product["vendor"])
+    return solution_map
+
+RECOMMENDED_SOLUTION_MAP = _build_solution_map()
 
 # ==========================================
 # KNOWLEDGE BASE — LOADED FROM DISK
