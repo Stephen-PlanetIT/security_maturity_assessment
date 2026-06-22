@@ -7,3 +7,7 @@ env/
 venv/
 .env
 .streamlit/secrets.toml
+context.txt
+Scenario tags.txt
+README.md
+.gitignore

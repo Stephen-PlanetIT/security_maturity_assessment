@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # (This safely ingests app.py, core.py, data.py, export.py, prompts.py, and catalog.py)
 COPY *.py ./
 
+# Copy the VERSION tracker file
+COPY VERSION .
+
 # Copy the core Planet IT branding templates
 COPY planet_it_master_template.pptx .
 COPY planet_it_vciso_template.docx .
