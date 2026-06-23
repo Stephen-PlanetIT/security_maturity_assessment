@@ -3,7 +3,7 @@
 PLANET_IT_PORTFOLIO = {
     "Managed_Detection_and_Response": [
         {
-            "vendor": "Sophos MDR (Essentials) → Sophos MDR",
+            "vendor": "Sophos MDR",
             "category": "Managed Security Operations (SOC) — AI-Native Cyber Defense System",
             "tier": "SME to Enterprise (Standard Default)",
             "recommended_for_domains": ["Security Operations & Response (SecOps)"],
@@ -21,7 +21,7 @@ PLANET_IT_PORTFOLIO = {
             "planet_it_value_add": "24/7 human-led threat hunting powered by the Sophos AI-Native Cyber Defense System, where endpoint, network, email, cloud, identity, SIEM, threat intelligence, and MDR operate as one system within Sophos Central. Includes agentic AI-led continuous threat hunting, SOAR automation playbooks, vendor-agnostic email monitoring (EMS), and thousands of additional detectors from the Secureworks Counter Threat Unit. Triaged and escalated by Planet IT's security operations team. Recommended as the foundational security operations capability for organisations lacking an internal 24/7 SOC function."
         },
         {
-            "vendor": "Sophos MDR Complete → Sophos MDR Plus",
+            "vendor": "Sophos MDR Plus",
             "category": "Managed Security Operations (SOC) — Full IR Included",
             "tier": "SME to Enterprise (Full Incident Response)",
             "recommended_for_domains": ["Security Operations & Response (SecOps)"],

@@ -85,10 +85,10 @@ class CyberScenarioGenerator:
                 if not is_banned("Microsoft") and not is_banned("Sophos"):
                     recs.append("**Microsoft / Sophos (MDR):** Optimisation of Microsoft Defender XDR with Sophos MDR overlay provides 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
                 else:
-                    safe_append("Managed_Detection_and_Response", "Sophos MDR (Essentials) → Sophos MDR",
+                    safe_append("Managed_Detection_and_Response", "Sophos MDR",
                         "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
             elif not strong_ms_investment and mdr not in ["Sophos MDR", "Sophos MDR Plus", "Planet IT Managed SOC"]:
-                safe_append("Managed_Detection_and_Response", "Sophos MDR (Essentials) → Sophos MDR",
+                safe_append("Managed_Detection_and_Response", "Sophos MDR",
                     "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
 
         # 1b. IR Retainer Awareness

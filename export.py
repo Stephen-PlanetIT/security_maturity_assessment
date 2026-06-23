@@ -41,7 +41,7 @@ def chunk_long_words(text):
 # --- PDF ENGINE ---
 class ReportPDF(FPDF):
     def header(self):
-        self.set_fill_color(0, 32, 96) 
+        self.set_fill_color(35, 80, 106) 
         self.rect(0, 0, 210, 20, 'F')   
         self.set_y(6)
         self.set_font('helvetica', 'B', 12)
@@ -74,7 +74,7 @@ def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
             header_text = header_text.replace('**', '') 
             pdf.ln(4)
             pdf.set_font("helvetica", "B", 11)
-            pdf.set_text_color(0, 32, 96) 
+            pdf.set_text_color(35, 80, 106) 
             pdf.multi_cell(w=0, h=6, txt=header_text, align="L")
             pdf.set_font("helvetica", "", 10)
             pdf.set_text_color(0, 0, 0)
@@ -105,7 +105,7 @@ def robust_multi_cell(pdf, w, h, txt, align="L", fill=False):
 def draw_section_header(pdf, title):
     pdf.ln(5)
     pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(0, 32, 96) 
+    pdf.set_text_color(35, 80, 106) 
     robust_multi_cell(pdf, 0, 8, title)
     pdf.set_draw_color(200, 200, 200) 
     pdf.set_line_width(0.5)
@@ -121,7 +121,7 @@ def draw_estate_summary(pdf, inputs):
         return str(val) if val else default
 
     pdf.set_font("helvetica", "B", 13)
-    pdf.set_text_color(0, 32, 96) # Dark Blue branding
+    pdf.set_text_color(35, 80, 106) # Dark Blue branding
     pdf.cell(0, 8, "Customer Estate & Engagement Profile", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
@@ -208,8 +208,8 @@ def generate_radar_chart(domain_assessments):
     
     fig = plt.figure(figsize=(7, 6)) # Slightly larger canvas for full family labels
     ax = plt.subplot(polar=True)
-    ax.plot(label_loc, levels, color='#002060', linewidth=2)
-    ax.fill(label_loc, levels, color='#002060', alpha=0.25)
+    ax.plot(label_loc, levels, color='#23506A', linewidth=2)
+    ax.fill(label_loc, levels, color='#23506A', alpha=0.25)
     
     # Map to the new 1-3 Phase Resiliency Matrix
     ax.set_ylim(0, 3.2)
@@ -238,8 +238,8 @@ def generate_radar_chart_from_values(labels, values, figsize=(4, 4)):
     angles_closed = angles + angles[:1]
     
     fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(polar=True))
-    ax.fill(angles_closed, values_closed, color='#003366', alpha=0.25)
-    ax.plot(angles_closed, values_closed, color='#003366', linewidth=2)
+    ax.fill(angles_closed, values_closed, color='#23506A', alpha=0.25)
+    ax.plot(angles_closed, values_closed, color='#23506A', linewidth=2)
     
     # Hard lock to the 3-pillar framework
     ax.set_ylim(0, 3)
