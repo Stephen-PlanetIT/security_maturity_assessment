@@ -540,13 +540,13 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
 
 st.divider()
 st.markdown(
-    "<div style='text-align: center; color: #999; font-size: 0.8rem;'>"
+    "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
     f"Security Use Case & vCISO Generator — v{APP_VERSION}"
     "</div>",
     unsafe_allow_html=True
 )
 st.markdown(
-    "<div style='text-align: center; color: #888; font-size: 0.7rem; margin-top: 4px;'>"
+    "<div style='text-align: center; color: #23506A; font-size: 0.7rem; margin-top: 4px;'>"
     "&copy; 2026 Bradley Collis. All rights reserved."
     "</div>",
     unsafe_allow_html=True
