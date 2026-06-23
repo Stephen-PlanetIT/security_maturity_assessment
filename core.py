@@ -1,6 +1,7 @@
 import streamlit as st
 from openai import AzureOpenAI, OpenAI
 import time
+from config import get_config, ConfigKey
 
 class LLMEngine:
     @staticmethod
@@ -9,7 +10,7 @@ class LLMEngine:
         
         try:
             if "ollama" in provider or "local" in provider:
-                base_url = st.secrets.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+                base_url = get_config(ConfigKey.OLLAMA_BASE_URL, "http://host.docker.internal:11434/v1")
                 return OpenAI(
                     base_url=base_url,
                     api_key="ollama",
@@ -17,9 +18,9 @@ class LLMEngine:
                 )
             else:
                 return AzureOpenAI(
-                    api_key=st.secrets["AZURE_OPENAI_API_KEY"], 
-                    api_version=st.secrets.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"), 
-                    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
+                    api_key=get_config(ConfigKey.AZURE_API_KEY), 
+                    api_version=get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview"), 
+                    azure_endpoint=get_config(ConfigKey.AZURE_ENDPOINT),
                     timeout=180.0 
                 )
         except Exception as e:
@@ -31,7 +32,7 @@ class LLMEngine:
         """Build the extra_params dict based on provider type."""
         extra_params = {}
         if "ollama" in str(client.base_url).lower():
-            keep_alive = st.secrets.get("OLLAMA_KEEP_ALIVE_DURATION", "24h")
+            keep_alive = get_config(ConfigKey.OLLAMA_KEEP_ALIVE, "24h")
             extra_params["extra_body"] = {
                 "keep_alive": keep_alive,
                 "options": {

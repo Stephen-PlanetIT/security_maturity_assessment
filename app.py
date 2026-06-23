@@ -5,6 +5,7 @@ from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_pr
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_vciso_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
+from config import get_config, validate_config, ConfigKey
 
 # --- VERSION TRACKER ---
 with open("VERSION", "r") as f:
@@ -12,23 +13,18 @@ with open("VERSION", "r") as f:
 
 def validate_platform_config():
     """Validates that necessary secrets exist before runtime."""
-    if "Local" in st.session_state.get('ai_engine', ''):
-        required = ["OLLAMA_BASE_URL", "OLLAMA_MODEL"]
-        for secret in required:
-            if not st.secrets.get(secret):
-                st.warning(f"⚠️ Missing Ollama configuration in secrets.toml: {secret}")
-    else:
-        required = ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"]
-        for secret in required:
-            if not st.secrets.get(secret):
-                st.warning(f"⚠️ Missing Azure OpenAI configuration in secrets.toml: {secret}")
+    provider = "ollama" if "Local" in st.session_state.get('ai_engine', '') else "azure"
+    try:
+        validate_config(provider)
+    except ValueError as e:
+        st.warning(f"⚠️ {e}")
 
 def get_optimal_deployment_name(provider_flag):
     """Fetches the correct deployment string based on the active provider."""
     if provider_flag == "ollama":
-        return st.secrets.get("OLLAMA_MODEL", "deepseek-r1:14b")
+        return get_config(ConfigKey.OLLAMA_MODEL, "deepseek-r1:14b")
     else:
-        return st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        return get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
 
 class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):

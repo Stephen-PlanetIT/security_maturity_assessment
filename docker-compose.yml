@@ -23,6 +23,6 @@ services:
       - WATCHTOWER_POLL_INTERVAL=300
       - WATCHTOWER_CLEANUP=true
       - DOCKER_API_VERSION=1.41
-      - REPO_USER=collisbradley@gmail.com
-      - REPO_PASS=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
+      - REPO_USER=${REPO_USER}
+      - REPO_PASS=${REPO_PASS}
     restart: unless-stopped

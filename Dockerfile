@@ -19,7 +19,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy ALL application logic and static knowledge base
-# (This safely ingests app.py, core.py, data.py, export.py, prompts.py, and catalog.py)
+# (This safely ingests app.py, core.py, config.py, data.py, export.py, prompts.py, and catalog.py)
 COPY *.py ./
 
 # Copy the VERSION tracker file
