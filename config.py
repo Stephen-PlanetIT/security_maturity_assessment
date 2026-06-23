@@ -43,15 +43,22 @@ def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
 
     Returns None only if the key is absent in all sources and no default is given.
     """
-    # st.secrets.get() returns None if the key is missing (no KeyError thrown)
-    value = st.secrets.get(key)
-    if value is not None:
-        return value
+    # 1. Try st.secrets (local .streamlit/secrets.toml)
+    #    Note: st.secrets.get() raises StreamlitSecretNotFoundError if no TOML
+    #    file exists at all, so we must catch broadly here.
+    try:
+        value = st.secrets.get(key)
+        if value is not None:
+            return value
+    except Exception:
+        pass  # No secrets file — fall through to os.environ
 
+    # 2. Try os.environ (ACA / container runtime)
     value = os.environ.get(key)
     if value is not None:
         return value
 
+    # 3. Fallback default
     return default
 
 
