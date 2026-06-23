@@ -36,6 +36,9 @@ SIMULATED_OSINT = {
     "Sophos": ["Attacker scans revealed edge protection was active; actors shifted focus to identity-based attacks."],
     "CrowdStrike": ["Adversaries utilising custom bootloaders and kernel-level drivers (BYOVD) to blind Falcon sensors."],
     "Microsoft Defender": ["Reliance on 'Living off the Land' (LotL) techniques to evade standard Defender ASR rules."],
+    "Microsoft Defender Experts": [
+        "Attacker dwell time remains significant in Microsoft-only estates where cross-vendor telemetry (firewall, OT, non-Microsoft identity) is not integrated, creating visibility gaps exploited by LOTL techniques."
+    ],
     "SentinelOne": ["Threat actors utilising highly obfuscated, fragmented shellcode to evade behavioural AI engines."],
     "Okta": ["Surge in highly sophisticated AiTM phishing kits capturing session cookies (Reference: CISA Advisory AA23-320A)."],
     "Microsoft Entra ID (Azure AD)": ["Widespread MFA fatigue attacks combined with localised brute-forcing."],

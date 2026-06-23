@@ -67,22 +67,37 @@ class CyberScenarioGenerator:
         patching = inputs.get('patching', 'Unknown')
         backups = inputs.get('backups', 'Unknown')
         mfa_status = inputs.get('mfa_status', 'Unknown')
+        ir_retainer = inputs.get('ir_retainer', 'None')
 
         strong_ms_investment = m365_license in ["Microsoft 365 E5", "M365 Business Premium"]
 
         # 1. MDR & The Capability Mismatch (Endpoint)
-        if mdr in ["Sophos MDR", "Planet IT Managed SOC"] and patching == "Manual / Ad-hoc":
+        if mdr in ["Sophos MDR", "Sophos MDR Plus", "Planet IT Managed SOC"] and patching == "Manual / Ad-hoc":
             recs.append("**Capability Mismatch (MDR vs Hygiene):** Investment in advanced MDR (Pillar 2) without automated patch management (Pillar 1) generates excessive, preventable noise in the estate. A managed patching (RMM) deployment is recommended to secure the operational foundation before layering advanced detection.")
+        elif mdr == "Microsoft Defender Experts":
+            # Defender Experts provides Microsoft-native hunting but lacks cross-vendor visibility
+            if not is_banned("Sophos"):
+                recs.append("**Microsoft Defender Experts + Sophos MDR Overlay:** Microsoft Defender Experts delivers excellent Microsoft-native threat hunting. Planet IT recommends layering Sophos MDR (powered by the AI-Native Cyber Defense System) to add cross-vendor telemetry integration for firewalls, OT, and non-Microsoft identity—closing visibility gaps that Microsoft alone cannot address. This provides 24/7 human-led response across the entire estate, not just the Microsoft stack.")
+            else:
+                recs.append("**Microsoft Defender Experts (Cross-Vendor Gap):** Microsoft Defender Experts provides strong Microsoft-native hunting. However, cross-vendor telemetry (firewalls, OT, non-Microsoft identity) remains unmonitored. Planet IT can advise on suitable alternatives to close these visibility gaps.")
         elif in_house != "Yes (24/7)":
-            if strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
+            if strong_ms_investment and mdr not in ["Sophos MDR", "Sophos MDR Plus", "Planet IT Managed SOC"]:
                 if not is_banned("Microsoft") and not is_banned("Sophos"):
                     recs.append("**Microsoft / Sophos (MDR):** Optimisation of Microsoft Defender XDR with Sophos MDR overlay provides 24/7 human-led threat hunting without duplicating endpoint licensing costs.")
                 else:
-                    safe_append("Managed_Detection_and_Response", "Sophos MDR",
+                    safe_append("Managed_Detection_and_Response", "Sophos MDR (Essentials) → Sophos MDR",
                         "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
-            elif not strong_ms_investment and mdr not in ["Sophos MDR", "Planet IT Managed SOC"]:
-                safe_append("Managed_Detection_and_Response", "Sophos MDR",
+            elif not strong_ms_investment and mdr not in ["Sophos MDR", "Sophos MDR Plus", "Planet IT Managed SOC"]:
+                safe_append("Managed_Detection_and_Response", "Sophos MDR (Essentials) → Sophos MDR",
                     "**MDR Service:** A managed detection and response service is recommended. Planet IT can advise on suitable alternatives.")
+
+        # 1b. IR Retainer Awareness
+        if ir_retainer != "None" and mdr == "None":
+            recs.append(f"**IR Retainer vs Proactive MDR:** The client holds an active {ir_retainer} retainer, which provides reactive incident response capability (hours-to-days MTTR). This is a valuable Pillar 2 capability, but it does not replace 24/7 proactive threat detection and neutralisation. A managed detection and response service (e.g., Sophos MDR) is recommended to achieve sub-hour MTTR and prevent incidents before they escalate to IR activation.")
+        elif ir_retainer == "Sophos MDR Plus / Incident Response" and mdr == "Sophos MDR Plus":
+            recs.append("**IR Retainer Redundancy:** Sophos MDR Plus already includes full-scale incident response with a dedicated IR lead, root cause analysis, and direct call-in support. A separate IR retainer is redundant unless specifically required by cyber insurance policy mandates. Planet IT can advise on consolidation.")
+        elif ir_retainer == "Microsoft DART" and mdr == "Sophos MDR Plus":
+            recs.append("**DART vs MDR Plus IR:** Microsoft DART provides elite reactive IR capability, but Sophos MDR Plus already includes full-scale incident response as part of the service. Consider consolidating to eliminate retainer overlap while maintaining 24/7 proactive coverage via Sophos MDR.")
 
         # 2. Foundational Hygiene (Patching & Backups)
         if backups in ["No Formal Backups", "On-Premise Only"]:
@@ -219,7 +234,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         endpoints = st.number_input("Number of Endpoints", min_value=1, value=600)
         servers = st.number_input("Number of Servers", min_value=1, value=50)
         operating_systems = st.multiselect("Operating Systems in Use", ["Windows 10/11", "Windows Server", "macOS", "Linux", "ChromeOS"], default=["Windows 10/11", "Windows Server"])
-        mdr_provider = st.selectbox("Current MDR / SOC Provider", ["None", "Sophos MDR", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"])
+        mdr_provider = st.selectbox("Current MDR / SOC Provider", ["None", "Sophos MDR", "Sophos MDR Plus", "Microsoft Defender Experts", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"])
         
         endpoint = st.selectbox("Endpoint Security Vendor", ["Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Trend Micro", "Symantec", "N-able", "Other"])
         
@@ -306,6 +321,19 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
             "Documented IR Plan (Untested)", 
             "Tested IR Plan with Active Retainer"
         ], index=0)
+        
+        ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", [
+            "None",
+            "Sophos MDR Plus / Incident Response",
+            "Microsoft DART",
+            "CrowdStrike Falcon Complete IR",
+            "Mandiant / Google IR",
+            "Unit 42 (Palo Alto)",
+            "Kroll Cyber Risk",
+            "Secureworks IR",
+            "Rapid7 IR",
+            "Other"
+        ], index=0)
 
     st.divider()
     
@@ -382,6 +410,7 @@ client_inputs = {
     "insurance": insurance,
     "rto": rto,
     "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None",
+    "ir_retainer": ir_retainer,
     "banned_vendors": banned_vendors
 }
 

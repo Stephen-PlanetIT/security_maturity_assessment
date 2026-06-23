@@ -3,24 +3,67 @@
 PLANET_IT_PORTFOLIO = {
     "Managed_Detection_and_Response": [
         {
-            "vendor": "Sophos MDR",
-            "category": "Managed Security Operations (SOC)",
+            "vendor": "Sophos MDR (Essentials) → Sophos MDR",
+            "category": "Managed Security Operations (SOC) — AI-Native Cyber Defense System",
             "tier": "SME to Enterprise (Standard Default)",
             "recommended_for_domains": ["Security Operations & Response (SecOps)"],
             "trigger_conditions": ["No 24/7 internal SOC", "Lack of dedicated threat hunters", "Small IT team"],
-            "core_features": ["24/7/365 Human-led Threat Hunting", "Automated Remediation", "Third-party Telemetry Integration"],
-            "planet_it_value_add": "24/7 human-led threat hunting with automated remediation, triaged and escalated by Planet IT's security operations team. Recommended as the foundational security operations capability for organisations lacking an internal 24/7 SOC function."
+            "core_features": [
+                "24/7/365 Human-led Threat Hunting",
+                "Agentic AI-led Continuous Threat Hunting",
+                "Automated Remediation & SOAR Playbooks",
+                "Third-party Telemetry Integration",
+                "Secureworks Counter Threat Unit Intelligence",
+                "Vendor-Agnostic Email Monitoring (EMS)",
+                "Expanded Two-Way Third-Party Response Actions",
+                "Next-Gen SIEM Add-On (Compliance Retention 1–10 Years)"
+            ],
+            "planet_it_value_add": "24/7 human-led threat hunting powered by the Sophos AI-Native Cyber Defense System, where endpoint, network, email, cloud, identity, SIEM, threat intelligence, and MDR operate as one system within Sophos Central. Includes agentic AI-led continuous threat hunting, SOAR automation playbooks, vendor-agnostic email monitoring (EMS), and thousands of additional detectors from the Secureworks Counter Threat Unit. Triaged and escalated by Planet IT's security operations team. Recommended as the foundational security operations capability for organisations lacking an internal 24/7 SOC function."
+        },
+        {
+            "vendor": "Sophos MDR Complete → Sophos MDR Plus",
+            "category": "Managed Security Operations (SOC) — Full IR Included",
+            "tier": "SME to Enterprise (Full Incident Response)",
+            "recommended_for_domains": ["Security Operations & Response (SecOps)"],
+            "trigger_conditions": ["No 24/7 internal SOC", "Need full-scale incident response included", "Require dedicated IR lead"],
+            "core_features": [
+                "Everything in Sophos MDR",
+                "Full-Scale Incident Response Included",
+                "Dedicated Incident Response Lead",
+                "Root Cause Analysis (RCA)",
+                "Direct Call-In Support During Active Incidents",
+                "Sophos Breach Protection Warranty (up to $1M)"
+            ],
+            "planet_it_value_add": "All the capabilities of Sophos MDR plus full-scale incident response with a dedicated IR lead, root cause analysis, and direct call-in support—all included as part of the service. Powered by the Sophos AI-Native Cyber Defense System. Planet IT manages deployment, tuning, and ongoing operational oversight, ensuring the client benefits from both proactive threat hunting and comprehensive reactive IR without separate retainer costs."
+        },
+        {
+            "vendor": "Microsoft Defender Experts for XDR",
+            "category": "Managed Threat Hunting (Microsoft Ecosystem)",
+            "tier": "Enterprise (Microsoft E5 Required)",
+            "recommended_for_domains": ["Security Operations & Response (SecOps)"],
+            "trigger_conditions": ["Existing Microsoft E5 estate", "Heavily invested in Azure Sentinel / Microsoft XDR", "Need Microsoft-native threat hunting"],
+            "core_features": ["Managed Threat Hunting on Microsoft XDR Telemetry", "Azure Sentinel SIEM Integration", "Microsoft DART Escalation Pathway"],
+            "planet_it_value_add": "Planet IT enhances Microsoft Defender Experts coverage with cross-vendor telemetry integration (firewalls, network, non-Microsoft identity) and foundational operational hygiene management—capabilities the Microsoft-native service does not address. Recommended for organisations with deep Microsoft E5 investment requiring a managed bridge between Microsoft and non-Microsoft security layers."
         }
     ],
     "Endpoint_and_Server_Security": [
         {
-            "vendor": "Sophos Intercept X Advanced with XDR",
-            "category": "Next-Gen Endpoint Protection",
+            "vendor": "Sophos Intercept X Advanced with XDR (→ XDR powered by Secureworks)",
+            "category": "Next-Gen Endpoint Protection — AI-Native Cyber Defense System",
             "tier": "Enterprise ONLY (with in-house 24/7 SOC)",
             "recommended_for_domains": ["Endpoint & Server Security"],
             "trigger_conditions": ["Client has their own 24/7 SOC team", "Client requires raw data lake access"],
-            "core_features": ["Cross-Product XDR", "Data Lake Queries", "Live Response"],
-            "planet_it_value_add": "Agent deployment and tuning are managed by Planet IT, with the client assuming 24/7 operational responsibility. Recommended only where an established internal SOC function exists to manage the data lake."
+            "core_features": [
+                "Cross-Product XDR",
+                "Data Lake Queries",
+                "Live Response",
+                "AI Detection Analysis",
+                "SOAR Automation Playbooks",
+                "Custom Rule Builder",
+                "Vendor-Agnostic Email Monitoring (EMS) Included",
+                "Secureworks Counter Threat Unit Detectors"
+            ],
+            "planet_it_value_add": "Agent deployment and tuning are managed by Planet IT, with the client assuming 24/7 operational responsibility. Powered by the Sophos AI-Native Cyber Defense System, the enhanced XDR solution provides a superior analyst experience via the new Security Operations interface in Sophos Central, thousands of additional detectors from Secureworks, SOAR automation playbooks, and vendor-agnostic email monitoring. Recommended only where an established internal SOC function exists to manage the data lake."
         }
     ],
     "Network_and_Edge_Security": [
