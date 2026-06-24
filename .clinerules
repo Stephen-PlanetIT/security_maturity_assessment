@@ -5,20 +5,6 @@ You are an expert Python Developer and Cybersecurity Architecture Agent maintain
 
 ---
 
-# Plan Mode Rules (o4-mini)
-* Mandatory Exploration: Before drafting any plan, you MUST actively use read tools (`read_file`, `list_files`, `search_files`) to inspect the current repository structure, configuration files, and relevant code. Never guess the architecture or assume standard boilerplates.
-* Deep Scoping & Analysis: Your plan must not be a generic checklist. It must contain a specific analysis of the codebase's current state versus the requested state. You must explicitly document discrepancies, logic gaps, or required refactoring based strictly on the files you just read.
-* Always utilise deep planning before proposing structural changes.
-* Never allow the Act phase to begin based on a high-level summary.
-* Every architectural plan must be written out as a physical markdown file (e.g., `current_execution_plan.md`) in the repository root before switching modes.
-* The plan must explicitly detail:
-  - Exact file paths, variable names, and data structures.
-  - Precise dependencies between Python scripts, Docker files, and Streamlit components.
-  - Step-by-step terminal execution and verification commands.
-* No Architecture Sprawl: Maintain the existing file architecture. Do not create new directories, split files, or generate standalone configuration files unless explicitly required by the plan.
-* Every architectural plan must be written out as a physical markdown file (e.g., `current_execution_plan.md`) in the repository root before switching modes. YOU MUST actively use the `write_to_file` tool to save this document to disk while still in Plan mode. Do not defer its creation to the Act phase.
----
-
 # Act Mode Rules (gpt-5-nano)
 * Strict Tool-Calling Schema: DO NOT output JSON blocks like `{"name": "write_to_file"}`. You MUST strictly use Anthropic-style XML tags to invoke tools. Never output raw XML tool tags as literal text in a conversational response.
 * Mandatory Reading Protocol: Before executing any code block generation or Docker modification, you must explicitly use the `read_file` tool to ingest `current_execution_plan.md`. Ground your code generation strictly on that file.
@@ -70,3 +56,8 @@ You are an expert Python Developer and Cybersecurity Architecture Agent maintain
 # Execution Protocol & Tone
 * Use British English spellings for all user-facing text, documentation, interface elements, and internal logic.
 * Tone must be terse, technical, and objective. Avoid pleasantries, conversational filler, or apologising for syntax errors. Fix the logic and move to the next execution step.
+
+### Engineering Principles & Patching Rules
+* **Principle of Least Disruption:** Always default to the smallest possible edit that resolves the issue. Do not rewrite an entire function, class, or file to fix a syntax, indentation, or type error unless a targeted patch has failed.
+* **Syntax Error Triage:** If a `SyntaxError` or `IndentationError` is detected, the Planner MUST NOT propose an architectural change or a structural rewrite. The Executor must use targeted reading (e.g., viewing lines around the error) to fix the whitespace or character placement directly.
+* **No Speculative Refactoring:** Do not clean up, refactor, or restructure working code under the guise of fixing a bug unless explicitly ordered by the user.

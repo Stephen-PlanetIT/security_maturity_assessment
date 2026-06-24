@@ -1,0 +1,313 @@
+{
+  "tags": [
+    {
+      "name": "timestamp",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.timestamp",
+      "description": "The timestamp of the event, e.g., '02:00 UTC'"
+    },
+    {
+      "name": "event_description",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.event_description",
+      "description": "A detailed description of the attack progression or MDR intervention."
+    },
+    {
+      "name": "domain_name",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.domain_name",
+      "description": "The exact name of the security domain."
+    },
+    {
+      "name": "current_maturity_level",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.current_maturity_level",
+      "description": "Must be exactly one of: 'Pillar 1: Reactive Cybersecurity', 'Pillar 2: Proactive Cybersecurity', or 'Pillar 3: Adaptive Cybersecurity'."
+    },
+    {
+      "name": "critical_gaps",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.critical_gaps",
+      "description": "2-3 specific architectural or operational gaps identified."
+    },
+    {
+      "name": "vendor_agnostic_quick_wins",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.vendor_agnostic_quick_wins",
+      "description": "2-3 zero-cost, native configuration changes."
+    },
+    {
+      "name": "recommended_solutions",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.recommended_solutions",
+      "description": "Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP."
+    },
+    {
+      "name": "shared_responsibility",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.shared_responsibility",
+      "description": "The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence)."
+    },
+    {
+      "name": "phase_title",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.phase_title",
+      "description": "Must be strictly named: 'Phase 1: Foundational Hygiene', 'Phase 2: Active Managed Defence', or 'Phase 3: Adaptive Governance & Resilience'."
+    },
+    {
+      "name": "timeline",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.timeline",
+      "description": "e.g., '0-3 Months', '3-9 Months', '10-18+ Months'."
+    },
+    {
+      "name": "primary_objective",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.primary_objective",
+      "description": "The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening')."
+    },
+    {
+      "name": "key_deliverables",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.key_deliverables",
+      "description": "3-4 specific tactical deliverables for this phase."
+    },
+    {
+      "name": "estimated_effort",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.estimated_effort",
+      "description": "Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational')."
+    },
+    {
+      "name": "milestones",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.milestones",
+      "description": "Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone."
+    },
+    {
+      "name": "resource_requirements",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.resource_requirements",
+      "description": "Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers')."
+    },
+    {
+      "name": "business_value_delivered",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.business_value_delivered",
+      "description": "A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase."
+    },
+    {
+      "name": "iam",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.iam",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if MFA Enforcement is 'None' or 'Privileged Accounts Only'."
+    },
+    {
+      "name": "endpoint",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.endpoint",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Patch Management is 'Manual / Ad-hoc' or Endpoint Capability is 'Legacy AV Only'."
+    },
+    {
+      "name": "network",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.network",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Remote Access is 'Legacy VPN' or 'None'."
+    },
+    {
+      "name": "email",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.email",
+      "description": "Score 1, 2, or 3."
+    },
+    {
+      "name": "cloud",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.cloud",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if SaaS Backup is 'None'."
+    },
+    {
+      "name": "secops",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.secops",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan'."
+    },
+    {
+      "name": "testing",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.testing",
+      "description": "Score 1, 2, or 3."
+    },
+    {
+      "name": "culture",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.culture",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Security Training is 'None'."
+    },
+    {
+      "name": "grc",
+      "data_type": "int",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.grc",
+      "description": "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'."
+    },
+    {
+      "name": "amount_gbp",
+      "data_type": "float",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.amount_gbp",
+      "description": "GBP amount, must be non-negative."
+    },
+    {
+      "name": "gap_description",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.gap_description",
+      "description": "Description of the identified remediation gap."
+    },
+    {
+      "name": "recommended_actions",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.recommended_actions",
+      "description": "Action steps to remediate the gap."
+    },
+    {
+      "name": "standard",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.standard",
+      "description": "Compliance standard or control set (e.g., ISO 27001, NIST CSF)."
+    },
+    {
+      "name": "executive_summary",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.executive_summary",
+      "description": "A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs."
+    },
+    {
+      "name": "radar_chart_data",
+      "data_type": "RadarChartData",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.radar_chart_data",
+      "description": "Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars."
+    },
+    {
+      "name": "resiliency_matrix_mapping",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.resiliency_matrix_mapping",
+      "description": "Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3."
+    },
+    {
+      "name": "cost_of_inaction",
+      "data_type": "str",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.cost_of_inaction",
+      "description": "A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited."
+    },
+    {
+      "name": "monetary_cost_of_inaction",
+      "data_type": "Optional[MonetaryCostGBP]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.monetary_cost_of_inaction",
+      "description": "Monetary cost estimate for inaction (GBP). Grounded in credible baselines; see MonetaryCostGBP for details."
+    },
+    {
+      "name": "compliance_alignment",
+      "data_type": "Optional[List[ComplianceSection]]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.compliance_alignment",
+      "description": "Structured alignment of compliance standards and identified gaps with remediation plans."
+    },
+    {
+      "name": "partnership_outline",
+      "data_type": "Optional[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.partnership_outline",
+      "description": "Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client."
+    },
+    {
+      "name": "partnership_details",
+      "data_type": "Optional[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.partnership_details",
+      "description": "Optional governance narrative or details for partnership engagement."
+    },
+    {
+      "name": "microsoft_healthchecks_recommendations",
+      "data_type": "Optional[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.microsoft_healthchecks_recommendations",
+      "description": "Recommendations for Microsoft healthchecks and hardening when Microsoft tools are used."
+    },
+    {
+      "name": "success_metrics",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.success_metrics",
+      "description": "3-4 measurable KPIs."
+    },
+    {
+      "name": "engagement_cadence",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.engagement_cadence",
+      "description": "Schedule of advisory meetings."
+    },
+    {
+      "name": "consultant_discovery_guide",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.consultant_discovery_guide",
+      "description": "Provocative questions for the discovery phase."
+    },
+    {
+      "name": "fully_managed_url",
+      "data_type": "str",
+      "source": "data.py",
+      "schema_path": "GOVERNANCE.FULLY_MANAGED_URL",
+      "description": "URL for FULLY MANAGED URL governance model.",
+      "example_value": "https://planet-it.example.com/partnerships/fully-managed"
+    },
+    {
+      "name": "co_managed_url",
+      "data_type": "str",
+      "source": "data.py",
+      "schema_path": "GOVERNANCE.CO_MANAGED_URL",
+      "description": "URL for CO MANAGED URL governance model.",
+      "example_value": "https://planet-it.example.com/partnerships/co-managed"
+    }
+  ],
+  "source": {
+    "prompts.py": "/Users/Bradley.Collis/Library/CloudStorage/GoogleDrive-collisbradley@gmail.com/My Drive/My AI Applications/SecUseCase/prompts.py",
+    "data.py": "/Users/Bradley.Collis/Library/CloudStorage/GoogleDrive-collisbradley@gmail.com/My Drive/My AI Applications/SecUseCase/data.py",
+    "export.py": "/Users/Bradley.Collis/Library/CloudStorage/GoogleDrive-collisbradley@gmail.com/My Drive/My AI Applications/SecUseCase/export.py",
+    "app.py": "/Users/Bradley.Collis/Library/CloudStorage/GoogleDrive-collisbradley@gmail.com/My Drive/My AI Applications/SecUseCase/app.py"
+  }
+}

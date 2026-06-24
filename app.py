@@ -2,6 +2,7 @@ import streamlit as st
 import random
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
+from data import FULLY_MANAGED_URL, CO_MANAGED_URL
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_vciso_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
@@ -323,6 +324,15 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
 
     st.divider()
 
+    # --- PARTNERSHIP GOVERNANCE ---
+    st.markdown("### 🔗 Partnership Governance")
+    partnership_type = st.radio("Partnership Governance Model", ["Fully Managed", "Co-Managed"])
+    st.session_state['partnership_type'] = partnership_type
+    if partnership_type == "Fully Managed":
+        st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
+    else:
+        st.markdown(f"Official URL: {CO_MANAGED_URL}")
+
     ## --- OPERATIONAL & RISK TELEMETRY ---
     st.markdown("### ⚙️ Operational & Risk Telemetry")
     
@@ -431,7 +441,8 @@ client_inputs = {
     "rto": rto,
     "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None",
     "ir_retainer": ir_retainer,
-    "banned_vendors": banned_vendors
+    "banned_vendors": banned_vendors,
+    "partnership_type": partnership_type
 }
 
 st.session_state['client_inputs'] = client_inputs

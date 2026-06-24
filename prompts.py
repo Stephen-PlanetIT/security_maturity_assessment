@@ -4,7 +4,7 @@ import datetime
 import random
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_VCISO_CONTEXT
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_VCISO_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, format_governance_narrative
 
 # ==========================================
 # PYDANTIC MODELS: THREAT SIMULATOR
@@ -116,8 +116,12 @@ class MaturityReport(BaseModel):
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
     cost_of_inaction: str = Field(description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
     monetary_cost_of_inaction: Optional[MonetaryCostGBP] = Field(description="Monetary cost estimate for inaction (GBP). Grounded in credible baselines; see MonetaryCostGBP for details.")
+    # Governance fields (deduplicated and aligned with PLAN requirements)
+    partnership_details: Optional[str] = Field(description="Optional governance narrative or details for partnership engagement.")
+    partnership_links: Optional[List[str]] = Field(default=None, description="Optional list of governance resource URLs or documents.")
+    threat_intelligence_context: Optional[str] = Field(default=None, description="Threat intelligence context relevant to the governance narrative.")
+    cost_of_inaction_summary: Optional[str] = Field(default=None, description="Short GBP cost-of-inaction narrative derived from MonetaryCostGBP or explicit input.")
     compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.")
-    partnership_outline: Optional[str] = Field(description="Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client.")
     microsoft_healthchecks_recommendations: Optional[str] = Field(description="Recommendations for Microsoft healthchecks and hardening when Microsoft tools are used.")
     
     # --- LOCKED DOMAIN LENGTH ---
@@ -334,6 +338,12 @@ Planet IT believes in shared accountability. In your 'shared_responsibility' fie
 * **The Client is responsible for:** Data ownership, internal staff adherence to policies, and signing Risk Waivers if they refuse critical roadmap items.
 
 CRITICAL REQUIREMENT: You MUST explicitly assess ALL {len(ASSESSMENT_DOMAINS)} domains (families) listed above. Do not omit, group, or skip any of them.
+
+### PARTNERSHIP GOVERNANCE & THREAT INTELLIGENCE CONTEXT
+You MUST populate the following optional fields with substantive, consultative content:
+- **partnership_details:** A dedicated section describing co-managed or fully managed partnership arrangements. Reference the official partnership URLs: Fully Managed ({FULLY_MANAGED_URL}) and Co-Managed ({CO_MANAGED_URL}). Explain what Planet IT delivers under each model, the shared responsibility matrix, and SLAs. Minimum 2 paragraphs. Bullet points are strictly prohibited.
+- **partnership_links:** A list of 2-3 official Planet IT governance or partnership resource URLs. Use the two official URLs above plus one additional Planet IT resource URL.
+- **threat_intelligence_context:** A threat intelligence contextualisation specific to the client's industry and Crown Jewels. Summarise the current threat actor landscape, relevant APT groups, and how the client's assets are targeted. Minimum 1 paragraph. Bullet points are strictly prohibited.
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     

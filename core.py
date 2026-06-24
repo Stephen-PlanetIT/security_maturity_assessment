@@ -21,7 +21,7 @@ class LLMEngine:
                     api_key=get_config(ConfigKey.AZURE_API_KEY), 
                     api_version=get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview"), 
                     azure_endpoint=get_config(ConfigKey.AZURE_ENDPOINT),
-                    timeout=180.0 
+                    timeout=60.0 
                 )
         except Exception as e:
             st.error(f"🚨 Client Initialization Error: {e}")
@@ -116,34 +116,43 @@ class LLMEngine:
         """
         Generate a free-text response with streaming support.
         Yields tokens as they arrive from the API.
+        Implements retry logic with exponential backoff for transient failures.
         """
         if not client:
             yield "Error: LLM client not initialised."
             return
 
-        try:
-            extra_params = LLMEngine._build_extra_params(client)
-            extra_params["temperature"] = temperature
-            extra_params["stream"] = True
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                extra_params = LLMEngine._build_extra_params(client)
+                extra_params["temperature"] = temperature
+                extra_params["stream"] = True
 
-            # Remove max_completion_tokens from extra_params for streaming if present
-            # (streaming handles this differently)
-            extra_params.pop("max_completion_tokens", None)
+                # Remove max_completion_tokens from extra_params for streaming if present
+                # (streaming handles this differently)
+                extra_params.pop("max_completion_tokens", None)
 
-            response = client.chat.completions.create(
-                model=deployment,
-                messages=[
-                    {"role": "system", "content": system_persona},
-                    {"role": "user", "content": user_prompt}
-                ],
-                **extra_params
-            )
+                response = client.chat.completions.create(
+                    model=deployment,
+                    messages=[
+                        {"role": "system", "content": system_persona},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    **extra_params
+                )
 
-            for chunk in response:
-                if chunk.choices and len(chunk.choices) > 0:
-                    delta = chunk.choices[0].delta
-                    if delta and delta.content:
-                        yield delta.content
+                for chunk in response:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and delta.content:
+                            yield delta.content
+                return  # Success — exit generator
 
-        except Exception as e:
-            yield f"\n\n[Streaming Error: {e}]"
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    yield f"\n\n[Streaming error after {max_retries} attempts: {e}]"
+                    return
+                import time
+                time.sleep(2 ** attempt)
+                continue

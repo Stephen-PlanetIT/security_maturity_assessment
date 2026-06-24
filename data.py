@@ -1,5 +1,6 @@
 # data.py
 import os
+from typing import Optional, List
 
 # ==========================================
 # THREAT SIMULATOR DATA
@@ -50,17 +51,37 @@ SIMULATED_OSINT = {
 }
 
 # ==========================================
+# GOVERNANCE: Partnership & Tag Catalogue URLs
+# ==========================================
+# Official governance URLs for partner engagement models. Used to render UI and template context
+FULLY_MANAGED_URL = "https://planet-it.example.com/partnerships/fully-managed"
+CO_MANAGED_URL = "https://planet-it.example.com/partnerships/co-managed"
+
+def format_governance_narrative(narrative: Optional[str], links: Optional[List[str]]) -> str:
+    """Return a consolidated governance narrative with optional bullet links.
+
+    This helper centralises governance narrative assembly for VCISO outputs.
+
+    - If a narrative exists, it will be used as the base.
+    - If links are provided, they will be rendered as a bullet list to facilitate
+      Word rendering where bullets are supported. If the rendering backend does not
+      support bullets, the links will be joined with semicolons.
+    """
+    parts: List[str] = []
+    if narrative:
+        parts.append(narrative.strip())
+    if links:
+        try:
+            bullets = "\n".join([f"• {l}" for l in list(links)])
+            parts.append(bullets)
+        except Exception:
+            # Fallback: semicolon-delimited in case of rendering limitations
+            parts.append("; ".join(list(links)))
+    return "\n\n".join(parts).strip()
+
+# ==========================================
 # VCISO STRATEGIC ASSESSMENT DATA
 # ==========================================
-from typing import Optional
-
-"""Cost estimation utilities for the GBP cost of inaction.
-
-This module provides a lightweight, self-contained cost estimator that
-can be invoked by the planning layer to produce a defensible GBP figure.
-To avoid circular imports with prompts.py, we return a plain dictionary that
-the prompts layer may coerce into the MonetaryCostGBP Pydantic model.
-"""
 
 def derive_risk_adjustment(risk_level: int) -> float:
     """Return a conservative adjustment factor based on risk level.

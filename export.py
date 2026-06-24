@@ -1,10 +1,12 @@
 # export.py
 import io
+import ast
 import re
 import textwrap
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
 from fpdf import FPDF
+from data import format_governance_narrative
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -193,47 +195,6 @@ def draw_estate_summary(pdf, inputs):
 # ==========================================
 # VCISO ASSESSMENT EXPORTS
 # ==========================================
-def _generate_radar_chart_v1(domain_assessments):
-    # Extract categories (do NOT duplicate the first one for the labels)
-    categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
-    
-    levels = []
-    for d in domain_assessments:
-        match = re.search(r'\d+', str(d.current_maturity_level))
-        levels.append(int(match.group()) if match else 1)
-        
-    # Append the first value ONLY to the data array to close the circular line plot
-    levels = [*levels, levels[0]]
-    label_loc = np.linspace(start=0, stop=2 * np.pi, num=len(levels))
-    
-    fig = plt.figure(figsize=(7, 6)) # Slightly larger canvas for full family labels
-    ax = plt.subplot(polar=True)
-    ax.plot(label_loc, levels, color='#23506A', linewidth=2)
-    ax.fill(label_loc, levels, color='#23506A', alpha=0.25)
-    
-    # Hard cap to max radius 3 (Three-Pillar Cyber Resiliency Matrix)
-    levels = [min(3, max(1, int(v))) for v in levels[:-1]]  # drop the duplicated last value for plotting
-    levels.append(levels[0])  # re-close the loop with capped values
-    ax.plot(label_loc, levels, color='#23506A', linewidth=2)
-    ax.fill(label_loc, levels, color='#23506A', alpha=0.25)
-
-    # Map to the new 1-3 Phase Resiliency Matrix
-    ax.set_ylim(0, 3)
-    ax.set_yticks([1, 2, 3])
-    ax.set_yticklabels(['Phase 1', 'Phase 2', 'Phase 3'], color='grey', size=8)
-    plt.figtext(0.5, 0.92, 'Max radius 3 (Three-Pillar Cyber Resiliency Matrix)', ha='center', fontsize=6, color='grey')
-    
-    # thetagrids must only receive unique angles (drop the 360-degree overlapping point)
-    plt.thetagrids(np.degrees(label_loc[:-1]), labels=categories, fontsize=9)
-    plt.tight_layout()
-    
-    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-    plt.savefig(tmpfile.name, format='png', dpi=300, transparent=True)
-    plt.close(fig)
-    
-    return tmpfile.name
-
-
 def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4)):
     """
     Generate a radar chart from raw label/value pairs.
@@ -253,7 +214,7 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
     # Hard lock to the 3-pillar framework
     ax.set_ylim(0, max_radius)
     ax.set_yticks(list(range(1, max_radius+1)))
-    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8) if max_radius >= 3 else ax.set_yticklabels(["Reactive"], color="grey", size=8)
+    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8)
     
     ax.set_xticks(angles)
     ax.set_xticklabels(labels, size=9)
@@ -265,109 +226,26 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
     return tmpfile.name
 
 
-def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
-    template_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template.docx")
-    doc = DocxTemplate(template_path)
-    
-    # --- 1. Generate the Radar Chart Image (unified function) ---
-    data = report_data.radar_chart_data
-    labels = list(data.model_dump().keys())
-    values = list(data.model_dump().values())
-    
-    chart_path = generate_radar_chart_from_values(labels, values, figsize=(4, 4))
-    
-    with open(chart_path, "rb") as f:
-        chart_buffer = io.BytesIO(f.read())
-    os.unlink(chart_path)  # Clean up temp file
-    
-    chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
-
-    # Pre-process list fields that the template renders as raw strings (not via {% for %} loops)
-    # The template renders {{ r.key_deliverables }} directly, so convert List[str] to a bullet string
-    for phase in report_data.phased_roadmap:
-        if isinstance(phase.key_deliverables, list):
-            phase.key_deliverables = "\n".join(f"• {item}" for item in phase.key_deliverables)
-
-    # 2. Map the frontend inputs and backend LLM data to the template's Jinja2 tags
-    context = {
-        # --- Organisational Profile ---
-        "customer_name": client_inputs.get("customer_name", "Customer"),
-        "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
-        "industry": client_inputs.get("industry", "Unknown"),
-        "users": client_inputs.get("users", "0"),
-        "endpoints": client_inputs.get("endpoints", "0"),
-        "servers": client_inputs.get("servers", "0"),
-        "operating_systems": client_inputs.get("operating_systems", "Unknown"),
-        "cloud_env": client_inputs.get("cloud_env", "Unknown"),
-        "in_house_team": client_inputs.get("in_house_team", "Unknown"),
-        "compliance": client_inputs.get("compliance", "None"),
-        "critical_infra": client_inputs.get("critical_infra", "Unknown"),
-        
-        # --- Current Technology Stack Data ---
-        "mdr_provider": client_inputs.get("mdr_provider", "None"),
-        "endpoint": client_inputs.get("endpoint", "Unknown"),
-        "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"), # NEW
-        "firewall": client_inputs.get("firewall", "Unknown"),
-        "identity": client_inputs.get("identity", "Unknown"),
-        "email": client_inputs.get("email", "Unknown"),
-        "m365_license": client_inputs.get("m365_license", "Unknown"), # NEW
-        "savviness": client_inputs.get("savviness", "Unknown"),
-        
-        # --- Operational Telemetry & Validation ---
-        "pentest_status": client_inputs.get("pentest_status", "Unknown"),
-        "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
-        "remote_access": client_inputs.get("remote_access", "Unknown"), # NEW
-        "saas_backup": client_inputs.get("saas_backup", "Unknown"), # NEW
-        "ir_readiness": client_inputs.get("ir_readiness", "Unknown"), # NEW
-        "mfa_status": client_inputs.get("mfa_status", "Unknown"), # NEW
-        "patching": client_inputs.get("patching", "Unknown"), # NEW
-        "backups": client_inputs.get("backups", "Unknown"), # NEW
-        "insurance": client_inputs.get("insurance", "Unknown"), # NEW
-        "rto": client_inputs.get("rto", "Unknown"), # NEW
-        "advanced_controls": client_inputs.get("advanced_controls", "None"), # NEW
-        
-        # --- Strategic LLM Generated Data ---
-        "radar_chart": chart_image,
-        "exec_summary": report_data.executive_summary,
-        "matrix_mapping": report_data.resiliency_matrix_mapping,
-        "compliance_alignment": report_data.compliance_alignment,
-        "cost_of_inaction": report_data.cost_of_inaction,
-        "domains": report_data.domain_assessments,
-        "roadmap": report_data.phased_roadmap,
-        "success_metrics": report_data.success_metrics,
-        "engagement_cadence": report_data.engagement_cadence,
-        "consultant_discovery_guide": report_data.consultant_discovery_guide
-    }
-    # Inject optional monetary cost of inaction and partnership outline, if provided by the LLM
-    monetary_cost = getattr(report_data, "monetary_cost_of_inaction", None)
-    monetary_cost_text = ""
-    if monetary_cost:
-        amount = getattr(monetary_cost, "amount_gbp", None)
-        if amount is not None:
-            monetary_cost_text = f"£{float(amount):,.2f}"
-        src = getattr(monetary_cost, "source", None)
-        if src:
-            monetary_cost_text += f" | Source: {src}"
-        rationale = getattr(monetary_cost, "rationale", None)
-        if rationale:
-            monetary_cost_text += f" | Rationale: {rationale}"
-    context["monetary_cost_of_inaction"] = monetary_cost_text
-
-    partnership_outline = getattr(report_data, "partnership_outline", None)
-    if partnership_outline:
-        context["partnership_outline"] = partnership_outline
-    else:
-        context["partnership_outline"] = ""
-    # 3. Render the document, replacing all {{ tags }} and {% loops %}
-    doc.render(context)
-    
-    # 4. Save to a BytesIO buffer (Memory) instead of the local hard drive
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    
-    # Return the raw bytes to app.py for the st.download_button
-    return buffer.getvalue()
+def _normalize_kd(kd):
+    """Normalise key_deliverables to a bullet-text string.
+    - If kd is a list, render as bullet points joined by newlines.
+    - If kd is a string that resembles a Python list, attempt to ast.literal_eval and render if it yields a list.
+    - Otherwise, return the string value or an empty string.
+    """
+    if isinstance(kd, list):
+        return "\n".join(f"• {str(item)}" for item in kd)
+    if isinstance(kd, str):
+        s = kd.strip()
+        if not s:
+            return ""
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, list):
+                return "\n".join(f"• {str(item)}" for item in parsed)
+        except Exception:
+            pass
+        return s
+    return ""
 
 # ==========================================
 # THREAT SIMULATOR EXPORTS
@@ -476,4 +354,226 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     doc.save(buffer)
     buffer.seek(0)
     
+    return buffer.getvalue()
+
+def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
+    """
+    VCISO Word export: renders a Word document using planet_it_vciso_template.docx.
+    Derives domains_list and roadmap_list from report_data defensively.
+    Returns bytes of the generated document.
+    """
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template.docx")
+    doc = DocxTemplate(template_path)
+
+    # Fallback: If the active template does not declare the partnership placeholder,
+    # attempt to fall back to the versioned template with the dedicated placeholder.
+    try:
+        undeclared = doc.get_undeclared_template_variables()
+    except Exception:
+        undeclared = []
+    if isinstance(undeclared, (set, list, tuple)) and "partnership_details" not in undeclared:
+        alt_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template_v2.docx")
+        if os.path.exists(alt_path):
+            template_path = alt_path
+            doc = DocxTemplate(template_path)
+
+    # 1) Radar chart image
+    data = getattr(report_data, "radar_chart_data", None)
+    labels = []
+    values = []
+    if data is not None:
+        if hasattr(data, "model_dump"):
+            dd = data.model_dump()
+            labels = list(dd.keys())
+            values = list(dd.values())
+        elif isinstance(data, dict):
+            labels = list(data.keys())
+            values = list(data.values())
+    chart_path = generate_radar_chart_from_values(labels, values, figsize=(4, 4))
+    with open(chart_path, "rb") as f:
+        chart_buffer = io.BytesIO(f.read())
+    os.unlink(chart_path)
+    chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
+
+    # 2) Domains & Roadmap derivation with safe defaults
+    domains_list = []
+    domain_items = getattr(report_data, "domain_assessments", None) or getattr(report_data, "domains", None) or []
+    if not isinstance(domain_items, list):
+        domain_items = []
+    for item in domain_items:
+        if hasattr(item, "model_dump"):
+            domains_list.append(item.model_dump())
+        elif isinstance(item, dict):
+            domains_list.append(item)
+        else:
+            domains_list.append({"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))})
+
+    roadmap_list = []
+    phases = getattr(report_data, "phased_roadmap", None) or getattr(report_data, "roadmap", None) or []
+    if not isinstance(phases, list):
+        phases = []
+    for phase in phases:
+        if hasattr(phase, "model_dump"):
+            phase_dict = phase.model_dump()
+        elif isinstance(phase, dict):
+            phase_dict = phase
+        else:
+            phase_dict = {"phase": getattr(phase, "phase", "Phase")}
+
+        # Normalise key_deliverables in the roadmap to avoid bracketed list representations
+        if "key_deliverables" in phase_dict:
+            phase_dict["key_deliverables"] = _normalize_kd(phase_dict["key_deliverables"])
+
+        roadmap_list.append(phase_dict)
+
+    compliance_alignment_list = []
+    if getattr(report_data, "compliance_alignment", None):
+        compliance_alignment_list = [c.model_dump() for c in report_data.compliance_alignment]
+
+    compliance_alignment_structured = []
+    for item in compliance_alignment_list:
+        if isinstance(item, dict):
+            standard = item.get("standard", "")
+            gaps = item.get("critical_gaps", item.get("gaps", []))
+            fill_plan_raw = item.get("fill_plan", [])
+        else:
+            standard = getattr(item, "standard", "")
+            gaps = getattr(item, "critical_gaps", getattr(item, "gaps", []))
+            fill_plan_raw = getattr(item, "fill_plan", [])
+        if not isinstance(gaps, list):
+            gaps = [gaps] if gaps else []
+        fill_plan = []
+        for gp in fill_plan_raw:
+            if isinstance(gp, dict):
+                gap_description = gp.get("gap_description", "")
+                recommended_actions = gp.get("recommended_actions", [])
+                owner = gp.get("owner", "")
+                due_by = gp.get("due_by", "")
+            else:
+                gap_description = getattr(gp, "gap_description", "")
+                recommended_actions = getattr(gp, "recommended_actions", [])
+                owner = getattr(gp, "owner", "")
+                due_by = getattr(gp, "due_by", "")
+            fill_plan.append({
+                "gap_description": gap_description,
+                "recommended_actions": recommended_actions,
+                "owner": owner or "",
+                "due_by": due_by or "",
+            })
+        compliance_alignment_structured.append({
+            "standard": standard,
+            "gaps": gaps,
+            "fill_plan": fill_plan,
+        })
+
+    compliance_alignment_render = ""
+    if compliance_alignment_structured:
+        parts = []
+        for comp in compliance_alignment_structured:
+            gaps_text = "; ".join([str(g) for g in comp.get("gaps", [])])
+            actions_per_gap = []
+            for gp in comp.get("fill_plan", []):
+                acts_text = "; ".join([str(a) for a in gp.get("recommended_actions", [])])
+                extras = []
+                owner = gp.get("owner", "")
+                due_by = gp.get("due_by", "")
+                if owner:
+                    extras.append(f"Owner: {owner}")
+                if due_by:
+                    extras.append(f"Due: {due_by}")
+                if extras:
+                    acts_text = f"{acts_text} (" + ", ".join(extras) + ")"
+                actions_per_gap.append(f"{gp.get('gap_description','')}: {acts_text}")
+            plan_text = " | ".join(actions_per_gap)
+            parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
+        compliance_alignment_render = "\n\n".join(parts)
+
+    context = {
+        "customer_name": client_inputs.get("customer_name", "Customer"),
+        "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
+        "industry": client_inputs.get("industry", "Unknown"),
+        "users": client_inputs.get("users", "0"),
+        "endpoints": client_inputs.get("endpoints", "0"),
+        "servers": client_inputs.get("servers", "0"),
+        "operating_systems": client_inputs.get("operating_systems", "Unknown"),
+        "cloud_env": client_inputs.get("cloud_env", "Unknown"),
+        "in_house_team": client_inputs.get("in_house_team", "Unknown"),
+        "compliance": client_inputs.get("compliance", "None"),
+        "critical_infra": client_inputs.get("critical_infra", "Unknown"),
+        "mdr_provider": client_inputs.get("mdr_provider", "None"),
+        "endpoint": client_inputs.get("endpoint", "Unknown"),
+        "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"),
+        "firewall": client_inputs.get("firewall", "Unknown"),
+        "identity": client_inputs.get("identity", "Unknown"),
+        "email": client_inputs.get("email", "Unknown"),
+        "m365_license": client_inputs.get("m365_license", "Unknown"),
+        "savviness": client_inputs.get("savviness", "Unknown"),
+        # --- Radar Chart Image ---
+        "radar_chart": chart_image,
+        "pentest_status": client_inputs.get("pentest_status", "Unknown"),
+        "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
+        "remote_access": client_inputs.get("remote_access", "Unknown"),
+        "saas_backup": client_inputs.get("saas_backup", "Unknown"),
+        "ir_readiness": client_inputs.get("ir_readiness", "Unknown"),
+        "mfa_status": client_inputs.get("mfa_status", "Unknown"),
+        "patching": client_inputs.get("patching", "Unknown"),
+        "backups": client_inputs.get("backups", "Unknown"),
+        "insurance": client_inputs.get("insurance", "Unknown"),
+        "rto": client_inputs.get("rto", "Unknown"),
+        "advanced_controls": client_inputs.get("advanced_controls", "None"),
+        "exec_summary": report_data.executive_summary if hasattr(report_data, "executive_summary") else "",
+        "matrix_mapping": report_data.resiliency_matrix_mapping if hasattr(report_data, "resiliency_matrix_mapping") else "",
+        "cost_of_inaction": report_data.cost_of_inaction if hasattr(report_data, "cost_of_inaction") else "",
+        "domains": domains_list,
+        "roadmap": roadmap_list,
+        "compliance_alignment": compliance_alignment_list,
+        "success_metrics": getattr(report_data, "success_metrics", ""),
+        "engagement_cadence": getattr(report_data, "engagement_cadence", ""),
+        "consultant_discovery_guide": getattr(report_data, "consultant_discovery_guide", ""),
+        "compliance_alignment_render": compliance_alignment_render,
+        "partnership_outline": getattr(report_data, "partnership_outline", ""),
+    }
+    # Threat intelligence: populate from the LLM-generated report data
+    context["threat_intelligence_context"] = getattr(report_data, "threat_intelligence_context", "") or ""
+    # Partnership governance: ensure both raw and rendered forms are populated in the context
+    partnership_details = getattr(report_data, "partnership_details", "")
+    partnership_links = getattr(report_data, "partnership_links", [])
+    partnerships_render = format_governance_narrative(
+        narrative=partnership_details,
+        links=partnership_links if isinstance(partnership_links, list) else [str(partnership_links)]
+    ) if partnership_details or partnership_links else ""
+
+    # Always provide the raw detail string to the template so {{ partnership_details }} renders
+    context["partnership_details"] = partnership_details if partnership_details is not None else ""
+    # Provide a rendered narrative for any governance links, with a safe fallback
+    context["partnership_details_render"] = partnerships_render
+    context["partnership_links"] = partnerships_render if partnerships_render else ""
+    context["partnership_links_render"] = partnerships_render
+    monetary_cost = getattr(report_data, "monetary_cost_of_inaction", None)
+    monetary_cost_text = ""
+    if monetary_cost:
+        amount = getattr(monetary_cost, "amount_gbp", None)
+        if amount is None and isinstance(monetary_cost, (int, float)):
+            amount = monetary_cost
+        if amount is not None:
+            monetary_cost_text = f"£{float(amount):,.2f}"
+        src = getattr(monetary_cost, "source", None)
+        if src:
+            monetary_cost_text += f" | Source: {src}"
+        rationale = getattr(monetary_cost, "rationale", None)
+        if rationale:
+            monetary_cost_text += f" | Rationale: {rationale}"
+    context["monetary_cost_of_inaction"] = monetary_cost_text
+    # Derive a human-readable cost summary (prefer the LLM-generated one, fall back to monetary_cost_of_inaction)
+    context["cost_of_inaction_summary"] = getattr(report_data, "cost_of_inaction_summary", None) or monetary_cost_text
+
+    partnership_outline = getattr(report_data, "partnership_outline", None)
+    if partnership_outline:
+        context["partnership_outline"] = partnership_outline
+    else:
+        context["partnership_outline"] = ""
+    doc.render(context)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
     return buffer.getvalue()
