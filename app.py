@@ -118,15 +118,15 @@ class CyberScenarioGenerator:
         if industry in ["Finance", "Healthcare", "Legal"] and email != "Mimecast":
             safe_append("Email_Security", "Mimecast",
                 "**Email Security:** An advanced email security gateway with immutable archiving is recommended for regulated industries.")
-        elif strong_ms_investment and email not in ["Microsoft Defender", "Mimecast"]:
+        elif strong_ms_investment and email not in ["Microsoft Defender", "Mimecast", "Barracuda"]:
             if not is_banned("Microsoft"):
                 recs.append("**Microsoft (Email Security):** Configure Defender for Office 365 natively for anti-phishing before procuring third-party gateways.")
             else:
-                safe_append("Email_Security", "Sophos Email",
-                    "**Email Security:** A third-party email security gateway is recommended. Planet IT can advise on suitable alternatives.")
-        elif not strong_ms_investment and email != "Sophos":
-            safe_append("Email_Security", "Sophos Email",
-                "**Email Security:** A cloud email security solution is recommended. Planet IT can advise on suitable options.")
+                safe_append("Email_Security", "Barracuda",
+                    "**Email Security:** A cross-vendor email security gateway is recommended. Planet IT can advise on suitable alternatives.")
+        elif not strong_ms_investment and email not in ["Mimecast", "Barracuda"]:
+            safe_append("Email_Security", "Barracuda",
+                "**Email Security:** A cloud email security gateway (e.g., Barracuda) is recommended, with Mimecast as an alternative if required.")
 
         # 5. Attack Surface Management
         if vuln_scan != "Continuous":
@@ -186,6 +186,25 @@ def get_vciso_docx_bytes():
         except Exception as e:
             st.error(f"vCISO Word Export Failed: {e}")
     return st.session_state.get('vciso_docx_bytes')
+
+def _display_cost_of_inaction_section():
+    """Safely render the GBP cost of inaction if available in the current report."""
+    report = None
+    if 'vciso_report' in getattr(st, 'session_state', {}):
+        report = st.session_state.get('vciso_report')
+    elif 'maturity_report' in getattr(st, 'session_state', {}):
+        report = st.session_state.get('maturity_report')
+    if not report:
+        return
+    cost = getattr(report, 'monetary_cost_of_inaction', None)
+    amount = getattr(cost, 'amount_gbp', None) if cost else None
+    if amount is None:
+        return
+    st.subheader("Cost of Inaction (GBP)")
+    st.write(f"Estimated annual cost of inaction: £{amount:,.2f}")
+    rationale = getattr(cost, 'rationale', None)
+    if rationale:
+        st.write(rationale)
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Security Use Case Generator", layout="wide")
@@ -266,7 +285,8 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         st.subheader("Cloud & Identity")
         identity = st.selectbox("Identity Provider", ["Microsoft Entra ID (Azure AD)", "Okta", "On-Prem Active Directory", "None"])
         m365_license = st.selectbox("Microsoft 365 Licensing", ["None / On-Prem Only", "M365 Business Premium", "Microsoft 365 E5", "Office 365 E3 / M365 E3"])
-        email = st.selectbox("Email Security", ["Sophos", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Other"])
+        # Email security: prefer Mimecast or Barracuda; remove Sophos as a recommended option
+        email = st.selectbox("Email Security", ["Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Other"])
         cloud_env = st.multiselect("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"], default=["AWS"])
 
     st.divider()
@@ -539,6 +559,32 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
             with col_comp:
                 st.markdown("### Compliance Alignment")
                 st.success(vciso.compliance_alignment)
+            # Additional cost & partnership details (optional, enriched by LLM)
+            if getattr(vciso, 'monetary_cost_of_inaction', None):
+                mv = vciso.monetary_cost_of_inaction
+                if mv:
+                    amount = getattr(mv, 'amount_gbp', None)
+                    src = getattr(mv, 'source', None)
+                    rationale = getattr(mv, 'rationale', None)
+                    parts = []
+                    if amount is not None:
+                        parts.append(f"GBP {amount:,.2f}")
+                    if src:
+                        parts.append(f"Source: {src}")
+                    if rationale:
+                        parts.append(f"Rationale: {rationale}")
+                    st.markdown("### Monetary Cost of Inaction (GBP)")
+                    st.write(" | ".join(parts))
+            if getattr(vciso, 'partnership_outline', None):
+                outline = vciso.partnership_outline
+                if outline:
+                    st.markdown("### Partnership Outline (Co-/Fully Managed)")
+                    st.write(outline)
+            if getattr(vciso, 'microsoft_healthchecks_recommendations', None):
+                rec = vciso.microsoft_healthchecks_recommendations
+                if rec:
+                    st.markdown("### Microsoft Healthchecks & Hardening")
+                    st.write(rec)
                 
         with tab2:
             st.markdown("### Security Domain Analysis")
@@ -566,6 +612,8 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
                 st.markdown(f"**Resources:** {phase.resource_requirements}")
                 st.divider()
+        # Display Cost of Inaction (GBP) if available in VCISO maturity report
+        _display_cost_of_inaction_section()
 
 st.divider()
 st.markdown(

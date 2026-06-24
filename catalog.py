@@ -167,13 +167,13 @@ PLANET_IT_PORTFOLIO = {
     ],
     "Cloud_Security_and_Posture": [
         {
-            "vendor": "Sophos Cloud Optix",
-            "category": "Cloud Security Posture Management (CSPM)",
-            "tier": "Cloud-Native & Hybrid Environments",
-            "recommended_for_domains": ["Network & Cloud Perimeter"],
-            "trigger_conditions": ["AWS, Azure, or GCP footprint", "Complex cloud infrastructure (Kubernetes, Serverless)"],
-            "core_features": ["Automated compliance checks", "IAM privilege analysis"],
-            "planet_it_value_add": "Translation of Cloud Optix alerts into actionable remediation steps, with automated compliance checks and IAM privilege analysis for cloud-native environments."
+            "vendor": "Barracuda",
+            "category": "Cloud Email & Data Security",
+            "tier": "Enterprise",
+            "recommended_for_domains": ["Email & Data Protection"],
+            "trigger_conditions": ["Regulatory compliance needs", "High-volume email threat protection", "Data loss prevention requirements"],
+            "core_features": ["Email threat protection", "Data Loss Prevention (DLP)", "Archiving & eDiscovery"],
+            "planet_it_value_add": "Barracuda provides enhanced email security with DLP and compliant archiving, complementing Planet IT's cross-product telemetry and governance."
         }
     ],
     "IT_Operations_and_Resilience": [

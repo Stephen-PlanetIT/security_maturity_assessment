@@ -3,7 +3,7 @@ import os
 import datetime
 import random
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_VCISO_CONTEXT
 
 # ==========================================
@@ -59,6 +59,10 @@ class DomainAssessment(BaseModel):
         description="The strategic, architectural justification. Explain the behaviour of the attack path and why this specific tool severs it. Must be a detailed, multi-paragraph narrative."
     )
     shared_responsibility: str = Field(description="The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence).")
+    gap_remediation_steps: Optional[List[str]] = Field(
+        description="Remediation steps to fill the gaps in this domain. Typically 3–5 concrete actions.",
+        default=None
+    )
 
 class RoadmapPhase(BaseModel):
     phase_title: str = Field(description="Must be strictly named: 'Phase 1: Foundational Hygiene', 'Phase 2: Active Managed Defence', or 'Phase 3: Adaptive Governance & Resilience'.")    
@@ -82,12 +86,39 @@ class RadarChartData(BaseModel):
     culture: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Security Training is 'None'.")
     grc: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
 
+class MonetaryCostGBP(BaseModel):
+    amount_gbp: float = Field(description="GBP amount, must be non-negative.")
+    source: Optional[str] = Field(default=None, description="Source of the cost estimate (e.g., industry baselines).")
+    rationale: Optional[str] = Field(default=None, description="Rationale for the cost estimate and any key assumptions.")
+
+class GapRemediationPlan(BaseModel):
+    gap_description: str = Field(description="Description of the identified remediation gap.")
+    recommended_actions: List[str] = Field(description="Action steps to remediate the gap.")
+    owner: Optional[str] = Field(default=None, description="Owner responsible for remediation.")
+    due_by: Optional[str] = Field(default=None, description="Due date ISO format (YYYY-MM-DD).")
+
+class ComplianceSection(BaseModel):
+    standard: str = Field(description="Compliance standard or control set (e.g., ISO 27001, NIST CSF).")
+    critical_gaps: List[str] = Field(
+        description="List of critical gaps within this standard.",
+        min_items=2,
+        max_items=6,
+    )
+    fill_plan: List[GapRemediationPlan] = Field(
+        description="Remediation plan items for the gaps.",
+        min_items=2,
+        max_items=6,
+    )
+
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs.")
     radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
-    compliance_alignment: str = Field(description="A summary of framework alignment.")
     cost_of_inaction: str = Field(description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
+    monetary_cost_of_inaction: Optional[MonetaryCostGBP] = Field(description="Monetary cost estimate for inaction (GBP). Grounded in credible baselines; see MonetaryCostGBP for details.")
+    compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.")
+    partnership_outline: Optional[str] = Field(description="Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client.")
+    microsoft_healthchecks_recommendations: Optional[str] = Field(description="Recommendations for Microsoft healthchecks and hardening when Microsoft tools are used.")
     
     # --- LOCKED DOMAIN LENGTH ---
     domain_assessments: List[DomainAssessment] = Field(

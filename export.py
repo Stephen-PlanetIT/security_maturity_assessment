@@ -193,7 +193,7 @@ def draw_estate_summary(pdf, inputs):
 # ==========================================
 # VCISO ASSESSMENT EXPORTS
 # ==========================================
-def generate_radar_chart(domain_assessments):
+def _generate_radar_chart_v1(domain_assessments):
     # Extract categories (do NOT duplicate the first one for the labels)
     categories = [d.domain_name.replace(' & ', '\n& ') for d in domain_assessments]
     
@@ -211,10 +211,17 @@ def generate_radar_chart(domain_assessments):
     ax.plot(label_loc, levels, color='#23506A', linewidth=2)
     ax.fill(label_loc, levels, color='#23506A', alpha=0.25)
     
+    # Hard cap to max radius 3 (Three-Pillar Cyber Resiliency Matrix)
+    levels = [min(3, max(1, int(v))) for v in levels[:-1]]  # drop the duplicated last value for plotting
+    levels.append(levels[0])  # re-close the loop with capped values
+    ax.plot(label_loc, levels, color='#23506A', linewidth=2)
+    ax.fill(label_loc, levels, color='#23506A', alpha=0.25)
+
     # Map to the new 1-3 Phase Resiliency Matrix
-    ax.set_ylim(0, 3.2)
+    ax.set_ylim(0, 3)
     ax.set_yticks([1, 2, 3])
     ax.set_yticklabels(['Phase 1', 'Phase 2', 'Phase 3'], color='grey', size=8)
+    plt.figtext(0.5, 0.92, 'Max radius 3 (Three-Pillar Cyber Resiliency Matrix)', ha='center', fontsize=6, color='grey')
     
     # thetagrids must only receive unique angles (drop the 360-degree overlapping point)
     plt.thetagrids(np.degrees(label_loc[:-1]), labels=categories, fontsize=9)
@@ -227,14 +234,16 @@ def generate_radar_chart(domain_assessments):
     return tmpfile.name
 
 
-def generate_radar_chart_from_values(labels, values, figsize=(4, 4)):
+def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4)):
     """
     Generate a radar chart from raw label/value pairs.
     Hard-capped to max radius 3 (Three-Pillar Cyber Resiliency Matrix).
     Returns the path to a temporary PNG file.
     """
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-    values_closed = values + values[:1]
+    # Clamp values to [0, max_radius] to respect the hard cap of the Three-Pillar Matrix
+    values_clamped = [min(max_radius, max(0, v)) for v in values]
+    values_closed = values_clamped + values_clamped[:1]
     angles_closed = angles + angles[:1]
     
     fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(polar=True))
@@ -242,9 +251,9 @@ def generate_radar_chart_from_values(labels, values, figsize=(4, 4)):
     ax.plot(angles_closed, values_closed, color='#23506A', linewidth=2)
     
     # Hard lock to the 3-pillar framework
-    ax.set_ylim(0, 3)
-    ax.set_yticks([1, 2, 3])
-    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8)
+    ax.set_ylim(0, max_radius)
+    ax.set_yticks(list(range(1, max_radius+1)))
+    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8) if max_radius >= 3 else ax.set_yticklabels(["Reactive"], color="grey", size=8)
     
     ax.set_xticks(angles)
     ax.set_xticklabels(labels, size=9)
@@ -329,7 +338,26 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
         "engagement_cadence": report_data.engagement_cadence,
         "consultant_discovery_guide": report_data.consultant_discovery_guide
     }
+    # Inject optional monetary cost of inaction and partnership outline, if provided by the LLM
+    monetary_cost = getattr(report_data, "monetary_cost_of_inaction", None)
+    monetary_cost_text = ""
+    if monetary_cost:
+        amount = getattr(monetary_cost, "amount_gbp", None)
+        if amount is not None:
+            monetary_cost_text = f"£{float(amount):,.2f}"
+        src = getattr(monetary_cost, "source", None)
+        if src:
+            monetary_cost_text += f" | Source: {src}"
+        rationale = getattr(monetary_cost, "rationale", None)
+        if rationale:
+            monetary_cost_text += f" | Rationale: {rationale}"
+    context["monetary_cost_of_inaction"] = monetary_cost_text
 
+    partnership_outline = getattr(report_data, "partnership_outline", None)
+    if partnership_outline:
+        context["partnership_outline"] = partnership_outline
+    else:
+        context["partnership_outline"] = ""
     # 3. Render the document, replacing all {{ tags }} and {% loops %}
     doc.render(context)
     

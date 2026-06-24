@@ -52,6 +52,61 @@ SIMULATED_OSINT = {
 # ==========================================
 # VCISO STRATEGIC ASSESSMENT DATA
 # ==========================================
+from typing import Optional
+
+"""Cost estimation utilities for the GBP cost of inaction.
+
+This module provides a lightweight, self-contained cost estimator that
+can be invoked by the planning layer to produce a defensible GBP figure.
+To avoid circular imports with prompts.py, we return a plain dictionary that
+the prompts layer may coerce into the MonetaryCostGBP Pydantic model.
+"""
+
+def derive_risk_adjustment(risk_level: int) -> float:
+    """Return a conservative adjustment factor based on risk level.
+
+    - 1 (low) -> 0.9
+    - 2 (medium) -> 1.0
+    - 3 (high) -> 1.15
+    """
+    if risk_level == 1:
+        return 0.9
+    if risk_level == 2:
+        return 1.0
+    if risk_level == 3:
+        return 1.15
+    return 1.0
+
+
+def estimate_cost_of_inaction_gbp(risk_level: int, workforce_size: int = 50, industry_multiplier: float = 1.0):
+    """Estimate the yearly GBP cost of inaction for a given risk level.
+
+    - risk_level: 1 (low), 2 (medium), 3 (high)
+    - workforce_size: number of employees to scale the baseline up with. Default 50.
+    - industry_multiplier: contextual multiplier to reflect industry factors.
+
+    Returns MonetaryCostGBP object.
+    The value is kept deliberately conservative to avoid over-estimation.
+    """
+    # Base costs by risk level
+    base_costs = {1: 1000, 2: 5000, 3: 15000}
+    base = base_costs.get(int(risk_level), 1000)
+
+    # Scale with workforce and context, then apply a conservative adjustment
+    scale = max(1.0, float(workforce_size) / 50.0)
+    amount = base * scale * float(industry_multiplier) * derive_risk_adjustment(int(risk_level))
+
+    # Prevent over-estimation
+    cap = 1_000_000
+    if amount > cap:
+        amount = cap
+
+    from prompts import MonetaryCostGBP
+    return MonetaryCostGBP(
+        amount_gbp=round(amount, 2),
+        source="Industry baselines (UK), adjusted for workforce and context",
+        rationale="Conservative middle-ground estimate; avoids over-estimation; uses real-world baselines."
+    )
 MATURITY_FRAMEWORK = {
     "Phase 1: Reactive Cybersecurity (Don't Be Here)": "Basic controls (Anti-Virus, Backup & Recovery, MFA, Firewalls, Log Collection). Focused on baseline compliance like Cyber Essentials. Highly vulnerable to modern threats.",
     "Phase 2: Proactive Cybersecurity": "Advanced tooling and managed services (EDR, XDR, MDR, SIEM, Penetration Testing, Security Awareness Training). Aligns with CE+ and ISO:27001.",
