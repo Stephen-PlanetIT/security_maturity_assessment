@@ -19,14 +19,55 @@ Designed for security consultants, the platform leverages advanced Large Languag
 * **Compliance & GRC Mapping:** Aligns security gaps directly to target frameworks (e.g., ISO 27001, Cyber Essentials Plus, PCI DSS, NIST CSF) and dynamically calculates an overall Security Culture Tier.
 
 ### 2. Tactical Threat Simulator
-* **Single-Pass Scenario Generation:** Utilises highly optimised prompt framing to simultaneously generate a realistic strategic breach narrative and a detailed SOC Incident Case Log (with PIDs, cmdlines, and MITRE references).
-* **Stack-Specific Attacks:** Customises the attack vector and OSINT mapping to target weaknesses specifically present in the client's firewall, endpoint, email, and identity provider environments.
+- **Single-Pass Scenario Generation:** Utilises highly optimised prompt framing to simultaneously generate a realistic strategic breach narrative and a detailed SOC Incident Case Log (with PIDs, cmdlines, and MITRE references).
 
 ### 3. Enterprise Export Pipeline
-* **Dynamic Radar Charts:** Renders publication-quality polar area charts using `matplotlib` strictly hard-capped to a maximum radius of 3 (representing the Three-Pillar Cyber Resiliency Matrix).
-* **Structured Word Doc Rendering:** Uses `docxtpl` to inject AI-generated assessments and recommendations directly into pre-formatted, corporate-branded templates (`planet_it_vciso_template.docx`).
-* **PowerPoint Master Slide Injection:** Utilises `python-pptx` to programmatically inject strategic assessment roadmaps and executive briefs into high-quality client presentations.
+- **Dynamic Radar Charts:** Renders publication-quality polar area charts using `matplotlib` strictly hard-capped to a maximum radius of 3 (representing the Three-Pillar Cyber Resiliency Matrix).
+- **Structured Word Doc Rendering:** Uses `docxtpl` to inject AI-generated assessments and recommendations directly into pre-formatted, corporate-branded templates (`planet_it_vciso_template.docx`).
+- **PowerPoint Master Slide Injection:** Utilises `python-pptx` to programmatically inject strategic assessment roadmaps and executive briefs into high-quality client presentations.
+-
+---
 
+ ### Deliverables and assets
+ The core deliverables produced by the platform are:
+ - Word document: Strategic Assessment (planet_it_vciso_template.docx)
+ - PowerPoint deck: Client presentation (planet_it_master_template.pptx)
+ - Radar visuals: Matplotlib charts included in reports
+ 
+ Asset templates present in the repository:
+ - planet_it_master_template.pptx
+ - planet_it_threat_scenario_template.docx
+ - planet_it_vciso_template.docx
+ 
+ ### Domain coverage
+ The Planet IT Cyber Resiliency Matrix covers the following 9 domains:
+ - Endpoint & Server Security
+ - Email & Data Protection
+ - Identity & Access Management (IAM)
+ - Network & Cloud Perimeter
+ - Security Operations & Response (SecOps)
+ - Security Validation & Testing
+ - Governance, Risk & Compliance (GRC)
+ - Operational Resilience & Backup
+ - Supply Chain & Third-Party Risk
+ 
+ ### Environment variables (quick reference)
+ Cloud (Azure OpenAI) mode:
+ - AZURE_OPENAI_API_KEY
+ - AZURE_OPENAI_ENDPOINT
+ - AZURE_OPENAI_DEPLOYMENT
+ - AZURE_OPENAI_API_VERSION
+ Local (Ollama) mode:
+ - OLLAMA_BASE_URL
+ - OLLAMA_MODEL
+
+### Docker & Secrets notes
+- After code changes, rebuild Docker images to ensure changes are incorporated:
+  ```bash
+  docker-compose up --build
+  ```
+- Secrets management:
+  - Store sensitive credentials in environment-specific secret files (e.g., secrets.toml or .streamlit/secrets.toml) and avoid committing secrets to version control. For local development, you can copy an example like secrets.example.toml and rename it to secrets.toml, then populate values. In production, configure environment variables via your deployment platform.
 ### 4. Dual LLM Inference Engine (Cloud & Local)
 * **Sidebar Toggle:** Instantly routes generation traffic between:
   * **☁️ Cloud (Azure OpenAI):** Utilises high-performance Azure endpoints with strict API configurations (`max_completion_tokens`) and long-tail timeouts (`180s`) to safely construct massive, multi-page structured reports.

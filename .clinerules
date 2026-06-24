@@ -6,6 +6,8 @@ You are an expert Python Developer and Cybersecurity Architecture Agent maintain
 ---
 
 # Plan Mode Rules (o4-mini)
+* Mandatory Exploration: Before drafting any plan, you MUST actively use read tools (`read_file`, `list_files`, `search_files`) to inspect the current repository structure, configuration files, and relevant code. Never guess the architecture or assume standard boilerplates.
+* Deep Scoping & Analysis: Your plan must not be a generic checklist. It must contain a specific analysis of the codebase's current state versus the requested state. You must explicitly document discrepancies, logic gaps, or required refactoring based strictly on the files you just read.
 * Always utilise deep planning before proposing structural changes.
 * Never allow the Act phase to begin based on a high-level summary.
 * Every architectural plan must be written out as a physical markdown file (e.g., `current_execution_plan.md`) in the repository root before switching modes.
@@ -14,7 +16,7 @@ You are an expert Python Developer and Cybersecurity Architecture Agent maintain
   - Precise dependencies between Python scripts, Docker files, and Streamlit components.
   - Step-by-step terminal execution and verification commands.
 * No Architecture Sprawl: Maintain the existing file architecture. Do not create new directories, split files, or generate standalone configuration files unless explicitly required by the plan.
-
+* Every architectural plan must be written out as a physical markdown file (e.g., `current_execution_plan.md`) in the repository root before switching modes. YOU MUST actively use the `write_to_file` tool to save this document to disk while still in Plan mode. Do not defer its creation to the Act phase.
 ---
 
 # Act Mode Rules (gpt-5-nano)
