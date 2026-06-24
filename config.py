@@ -26,10 +26,7 @@ class ConfigKey:
     AZURE_DEPLOYMENT = "AZURE_OPENAI_DEPLOYMENT"
     AZURE_API_VERSION = "AZURE_OPENAI_API_VERSION"
 
-    # Ollama (local)
-    OLLAMA_BASE_URL = "OLLAMA_BASE_URL"
-    OLLAMA_MODEL = "OLLAMA_MODEL"
-    OLLAMA_KEEP_ALIVE = "OLLAMA_KEEP_ALIVE_DURATION"
+    # Ollama (local) removed
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -62,27 +59,18 @@ def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
     return default
 
 
-def validate_config(provider: str) -> None:
+def validate_config() -> None:
     """
-    Fail-fast validation that all required secrets are present.
-
-    Args:
-        provider: "azure" or "ollama"
-
+    Fail-fast validation that all required Azure secrets are present.
+    
     Raises:
         ValueError: with a descriptive message listing every missing key.
     """
-    if provider == "ollama":
-        required = [
-            ConfigKey.OLLAMA_BASE_URL,
-            ConfigKey.OLLAMA_MODEL,
-        ]
-    else:
-        required = [
-            ConfigKey.AZURE_API_KEY,
-            ConfigKey.AZURE_ENDPOINT,
-            ConfigKey.AZURE_DEPLOYMENT,
-        ]
+    required = [
+        ConfigKey.AZURE_API_KEY,
+        ConfigKey.AZURE_ENDPOINT,
+        ConfigKey.AZURE_DEPLOYMENT,
+    ]
 
     missing = [key for key in required if get_config(key) is None]
 
@@ -92,6 +80,5 @@ def validate_config(provider: str) -> None:
             "or as environment variables (Azure Container Apps)."
         )
         raise ValueError(
-            f"Missing required configuration keys for provider '{provider}': "
-            f"{', '.join(missing)}. {source_hint}"
+            f"Missing required configuration keys: {', '.join(missing)}. {source_hint}"
         )

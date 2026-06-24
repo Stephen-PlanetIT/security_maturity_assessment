@@ -48,18 +48,12 @@ Designed for security consultants, the platform leverages advanced Large Languag
  - Security Operations & Response (SecOps)
  - Security Validation & Testing
  - Governance, Risk & Compliance (GRC)
- - Operational Resilience & Backup
- - Supply Chain & Third-Party Risk
- 
- ### Environment variables (quick reference)
- Cloud (Azure OpenAI) mode:
- - AZURE_OPENAI_API_KEY
- - AZURE_OPENAI_ENDPOINT
- - AZURE_OPENAI_DEPLOYMENT
- - AZURE_OPENAI_API_VERSION
- Local (Ollama) mode:
- - OLLAMA_BASE_URL
- - OLLAMA_MODEL
+Environment variables (quick reference)
+Cloud (Azure OpenAI) mode:
+- AZURE_OPENAI_API_KEY
+- AZURE_OPENAI_ENDPOINT
+- AZURE_OPENAI_DEPLOYMENT
+- AZURE_OPENAI_API_VERSION
 
 ### Docker & Secrets notes
 - After code changes, rebuild Docker images to ensure changes are incorporated:
@@ -68,10 +62,8 @@ Designed for security consultants, the platform leverages advanced Large Languag
   ```
 - Secrets management:
   - Store sensitive credentials in environment-specific secret files (e.g., secrets.toml or .streamlit/secrets.toml) and avoid committing secrets to version control. For local development, you can copy an example like secrets.example.toml and rename it to secrets.toml, then populate values. In production, configure environment variables via your deployment platform.
-### 4. Dual LLM Inference Engine (Cloud & Local)
-* **Sidebar Toggle:** Instantly routes generation traffic between:
-  * **☁️ Cloud (Azure OpenAI):** Utilises high-performance Azure endpoints with strict API configurations (`max_completion_tokens`) and long-tail timeouts (`180s`) to safely construct massive, multi-page structured reports.
-  * **🖥️ Local (Ollama):** Targets local models (e.g., `deepseek-r1:14b`) with beta completion parsing and custom context limit payloads (`num_ctx: 16384`, `num_predict: 8192`) to bypass local token truncation.
+### 4. Azure OpenAI Only Inference Engine
+- The system now exclusively uses Azure OpenAI. The UI does not expose any local LLM option, and all prompts and exports are generated via Azure deployments with the configured max_completion_tokens and temperature settings.
 
 ---
 
@@ -92,17 +84,11 @@ The application maintains a strictly targeted, modular architecture:
 
 ### 1. Configure Streamlit Secrets
 Create a `.streamlit/secrets.toml` file in the project root containing your API credentials and environment options:
-
 ```toml
 # --- Azure OpenAI Configuration (For Cloud Mode) ---
 AZURE_OPENAI_API_KEY = "your_azure_api_key_here"
 AZURE_OPENAI_ENDPOINT = "https://your-endpoint.openai.azure.com/"
 AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
-AZURE_OPENAI_API_VERSION = "2024-02-15-preview"
-
-# --- Ollama Configuration (For Local Mode) ---
-OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
-OLLAMA_MODEL = "deepseek-r1:14b"
 ```
 
 ### 2. Local Python Environment
