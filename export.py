@@ -1,47 +1,3 @@
-def render_threat_scenarios_section(threat_scenarios):
-    """Render threat scenarios as a string suitable for DOCX/templating."""
-    if not threat_scenarios:
-        return ""
-    lines = []
-    lines.append("Threat Scenarios:")
-    for ts in threat_scenarios:
-        name = getattr(ts, "name", "Threat Scenario")
-        incident_type = getattr(ts, "incident_type", "")
-        lines.append(f"- {name} ({incident_type})")
-        narrative = getattr(ts, "narrative", "")
-        if narrative:
-            lines.append(f"  Narrative: {narrative}")
-        triggers = getattr(ts, "triggers", None)
-        if triggers:
-            if isinstance(triggers, (list, tuple)):
-                lines.append("  Triggers: " + ", ".join(map(str, triggers)))
-            else:
-                lines.append(f"  Triggers: {triggers}")
-        assets = getattr(ts, "assets_at_risk", None)
-        if assets:
-            if isinstance(assets, (list, tuple)):
-                lines.append("  Assets At Risk: " + ", ".join(map(str, assets)))
-            else:
-                lines.append(f"  Assets At Risk: {assets}")
-        impacts = getattr(ts, "potential_impacts", None)
-        if impacts:
-            if isinstance(impacts, (list, tuple)):
-                lines.append("  Potential Impacts: " + ", ".join(map(str, impacts)))
-            else:
-                lines.append(f"  Potential Impacts: {impacts}")
-        actions = getattr(ts, "recommended_actions", None)
-        if actions:
-            if isinstance(actions, (list, tuple)):
-                lines.append("  Recommended Actions: " + ", ".join(map(str, actions)))
-            else:
-                lines.append(f"  Recommended Actions: {actions}")
-        timelines = getattr(ts, "timelines", None)
-        if timelines:
-            lines.append("  Timelines: " + str(timelines))
-        mdr = getattr(ts, "mdr_case_log", None)
-        if mdr:
-            lines.append("  MDR Case Log: " + str(mdr))
-    return "\n".join(lines)
 # export.py
 import io
 import ast
@@ -442,6 +398,73 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     buffer.seek(0)
     
     return buffer.getvalue()
+
+def render_threat_scenarios_section(threat_scenarios):
+    """
+    Render the auto-generated threat scenarios list into a formatted plain-text
+    string suitable for Jinja2 template injection into the vCISO Word document.
+
+    The threat_scenarios list is attached to the MaturityReport by app.py
+    (see lines 563-577) after LLM generation via generate_threat_scenario_for_vciso().
+
+    Each scenario dict contains:
+      - name: str
+      - incident_type: str (Pillar 1/2/3)
+      - narrative: str (executive summary)
+      - triggers: List[str] (timeline trigger points)
+      - assets_at_risk: List[str]
+      - potential_impacts: List[str]
+      - recommended_actions: List[str]
+      - timelines: List[dict]
+      - mdr_case_log: str
+    """
+    if not threat_scenarios or not isinstance(threat_scenarios, list) or len(threat_scenarios) == 0:
+        return ""
+
+    parts = []
+    for scenario in threat_scenarios:
+        name = scenario.get("name", "Threat Scenario") if isinstance(scenario, dict) else getattr(scenario, "name", "Threat Scenario")
+        incident_type = scenario.get("incident_type", "") if isinstance(scenario, dict) else getattr(scenario, "incident_type", "")
+        narrative = scenario.get("narrative", "") if isinstance(scenario, dict) else getattr(scenario, "narrative", "")
+        triggers = scenario.get("triggers", []) if isinstance(scenario, dict) else getattr(scenario, "triggers", [])
+        assets = scenario.get("assets_at_risk", []) if isinstance(scenario, dict) else getattr(scenario, "assets_at_risk", [])
+        impacts = scenario.get("potential_impacts", []) if isinstance(scenario, dict) else getattr(scenario, "potential_impacts", [])
+        actions = scenario.get("recommended_actions", []) if isinstance(scenario, dict) else getattr(scenario, "recommended_actions", [])
+        mdr_log = scenario.get("mdr_case_log", "") if isinstance(scenario, dict) else getattr(scenario, "mdr_case_log", "")
+
+        header = f"**{name}**"
+        if incident_type:
+            header += f" ({incident_type})"
+        parts.append(header)
+
+        if narrative:
+            parts.append(narrative)
+
+        if triggers and isinstance(triggers, list) and len(triggers) > 0:
+            parts.append("Triggers:")
+            for t in triggers:
+                parts.append(f"  - {t}")
+
+        if assets and isinstance(assets, list) and len(assets) > 0:
+            parts.append(f"Assets at Risk: {', '.join(str(a) for a in assets)}")
+
+        if impacts and isinstance(impacts, list) and len(impacts) > 0:
+            parts.append("Potential Impacts:")
+            for imp in impacts:
+                parts.append(f"  - {imp}")
+
+        if actions and isinstance(actions, list) and len(actions) > 0:
+            parts.append("Recommended Actions:")
+            for act in actions:
+                parts.append(f"  - {act}")
+
+        if mdr_log and str(mdr_log).strip():
+            parts.append("MDR Case Log:")
+            parts.append(str(mdr_log).strip())
+
+        parts.append("")  # blank line between scenarios
+
+    return "\n".join(parts).strip()
 
 def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     """

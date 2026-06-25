@@ -26,5 +26,4 @@ venv.bak/
 .DS_Store
 
 # Generated client outputs (not templates)
-Acme_Corp*.docx
 ~$*.docx
