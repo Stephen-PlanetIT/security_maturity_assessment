@@ -60,7 +60,7 @@ CO_MANAGED_URL = "https://planet-it.example.com/partnerships/co-managed"
 def format_governance_narrative(narrative: Optional[str], links: Optional[List[str]]) -> str:
     """Return a consolidated governance narrative with optional bullet links.
 
-    This helper centralises governance narrative assembly for VCISO outputs.
+    This helper centralises governance narrative assembly for Cybersecurity Maturity Assessment outputs.
 
     - If a narrative exists, it will be used as the base.
     - If links are provided, they will be rendered as a bullet list to facilitate
@@ -80,7 +80,7 @@ def format_governance_narrative(narrative: Optional[str], links: Optional[List[s
     return "\n\n".join(parts).strip()
 
 # ==========================================
-# VCISO STRATEGIC ASSESSMENT DATA
+# CYBERSECURITY MATURITY ASSESSMENT DATA
 # ==========================================
 
 def derive_risk_adjustment(risk_level: int) -> float:
@@ -221,9 +221,9 @@ LOADED_MDR_CONTEXT = _load_mdr_context()
 PORTFOLIO_KNOWLEDGE = _serialise_portfolio()
 
 # ==========================================
-# MASTER VCISO CONTEXT (Knowledge-Injected)
-# ==========================================
-DEFAULT_VCISO_CONTEXT = f"""
+# MASTER MATURITY ASSESSMENT CONTEXT (Knowledge-Injected)
+# ==========================================================
+DEFAULT_MATURITY_CONTEXT = f"""
 You are acting as an Enterprise Virtual CISO and Principal Threat Analyst representing a top-tier advisory firm.
 Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps. 
 You strongly advocate for security consolidation, specifically leveraging the Sophos ecosystem (Sophos MDR, Intercept X, Sophos Firewall, etc.) and Microsoft 365 native security controls.

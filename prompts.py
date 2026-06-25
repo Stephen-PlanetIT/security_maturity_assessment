@@ -4,7 +4,7 @@ import datetime
 import random
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_VCISO_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, format_governance_narrative
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, format_governance_narrative
 
 # ==========================================
 # PYDANTIC MODELS: THREAT SIMULATOR
@@ -67,9 +67,9 @@ class ScenarioReport(BaseModel):
         description="Dual timelines: one showing the unmitigated attack path (without_sophos) and one showing the MDR-protected path (with_sophos)."
     )
 
-# ==========================================
-# PYDANTIC MODELS: VCISO ASSESSMENT
-# ==========================================
+# =============================================================
+# PYDANTIC MODELS: CYBERSECURITY MATURITY ASSESSMENT
+# =============================================================
 class DomainAssessment(BaseModel):
     domain_name: str = Field(description="The exact name of the security domain.")
     current_maturity_level: str = Field(description="Must be exactly one of: 'Pillar 1: Reactive Cybersecurity', 'Pillar 2: Proactive Cybersecurity', or 'Pillar 3: Adaptive Cybersecurity'.")
@@ -176,7 +176,7 @@ class MaturityReport(BaseModel):
 # ==========================================
 # CONTEXT INJECTION & MASTER PERSONA
 # ==========================================
-context_injection = DEFAULT_VCISO_CONTEXT
+context_injection = DEFAULT_MATURITY_CONTEXT
 
 SYSTEM_PERSONA = f"""
 You are a Dual-Role Cybersecurity Expert: A Principal Threat Intelligence Analyst (tactical) and an Enterprise Virtual CISO (strategic).
@@ -302,7 +302,7 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 """
 
 
-def build_vciso_prompt(client_inputs):
+def build_maturity_prompt(client_inputs):
     banned = client_inputs.get('banned_vendors', [])
     ban_clause = ""
     if banned:
@@ -376,7 +376,7 @@ You MUST populate the following optional fields with substantive, consultative c
 - **partnership_links:** A list of 2-3 official Planet IT governance or partnership resource URLs. Use the two official URLs above plus one additional Planet IT resource URL.
 - **threat_intelligence_context:** A threat intelligence contextualisation specific to the client's industry and Crown Jewels. Summarise the current threat actor landscape, relevant APT groups, and how the client's assets are targeted. Minimum 1 paragraph. Bullet points are strictly prohibited.
 
-Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
+Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
     return base_prompt + "\n\n" + ban_clause + "\n\n" + rules
 
@@ -426,6 +426,6 @@ THREAT SCENARIO REQUIREMENTS:
 - The timeline must span from initial access through to objective completion.
 - Include 3-5 specific mitigations tied directly to the recommended solutions from the assessment.
 
-Act as ROLE 1 (Tactical Threat Analyst) but write for a vCISO advisory context. Use British English."""
+Act as ROLE 1 (Tactical Threat Analyst) but write for a cybersecurity maturity advisory context. Use British English."""
 
     return prompt

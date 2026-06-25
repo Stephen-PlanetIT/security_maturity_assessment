@@ -5,6 +5,7 @@ import re
 import textwrap
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from fpdf import FPDF
 from data import format_governance_narrative
 import matplotlib.pyplot as plt
@@ -192,9 +193,9 @@ def draw_estate_summary(pdf, inputs):
     pdf.set_draw_color(0, 0, 0)
     pdf.ln(6)
 
-# ==========================================
-# VCISO ASSESSMENT EXPORTS
-# ==========================================
+# ==========================================================
+# CYBERSECURITY MATURITY ASSESSMENT EXPORTS
+# ==========================================================
 def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4)):
     """
     Generate a radar chart from raw label/value pairs.
@@ -399,80 +400,111 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     
     return buffer.getvalue()
 
-def render_threat_scenarios_section(threat_scenarios):
-    """
-    Render the auto-generated threat scenarios list into a formatted plain-text
-    string suitable for Jinja2 template injection into the vCISO Word document.
 
-    The threat_scenarios list is attached to the MaturityReport by app.py
-    (see lines 563-577) after LLM generation via generate_threat_scenario_for_vciso().
-
-    Each scenario dict contains:
-      - name: str
-      - incident_type: str (Pillar 1/2/3)
-      - narrative: str (executive summary)
-      - triggers: List[str] (timeline trigger points)
-      - assets_at_risk: List[str]
-      - potential_impacts: List[str]
-      - recommended_actions: List[str]
-      - timelines: List[dict]
-      - mdr_case_log: str
+def _inject_threat_scenarios_after_render(doc, threat_scenarios):
     """
+    Inject formatted threat scenario content into the Word document.
+    Parses the raw threat_scenarios list and creates proper Word formatting:
+    bold headers, italic types, section headings, bullets, and paragraphs.
+    """
+    import re as _re
+    from docx.shared import Pt
+
     if not threat_scenarios or not isinstance(threat_scenarios, list) or len(threat_scenarios) == 0:
-        return ""
+        return
 
-    parts = []
+    # First, try to find and remove the {{ threat_scenarios }} literal tag
+    for paragraph in doc.paragraphs:
+        if '{{ threat_scenarios }}' in paragraph.text:
+            for run in list(paragraph.runs):
+                run._element.getparent().remove(run._element)
+            break
+
+    # Helper: parse Markdown-text and add formatted runs to a paragraph
+    def _add_formatted_text(para, text):
+        """Parse **bold**, *italic*, and `inline code` in a line and add as runs."""
+        pattern = _re.compile(r'(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)')
+        last_end = 0
+        for match in pattern.finditer(text):
+            # Text before the match
+            if match.start() > last_end:
+                para.add_run(text[last_end:match.start()])
+            if match.group(2):  # **bold**
+                run = para.add_run(match.group(2))
+                run.bold = True
+            elif match.group(3):  # *italic*
+                run = para.add_run(match.group(3))
+                run.italic = True
+            elif match.group(4):  # `code`
+                run = para.add_run(match.group(4))
+                run.font.name = 'Courier New'
+            last_end = match.end()
+        # Remaining text
+        if last_end < len(text):
+            para.add_run(text[last_end:])
+
+    # Helper: add a blank paragraph spacer
+    def _add_spacer(doc):
+        spacer = doc.add_paragraph()
+        spacer.paragraph_format.space_after = Pt(6)
+
+    # Build content for each scenario
     for scenario in threat_scenarios:
         name = scenario.get("name", "Threat Scenario") if isinstance(scenario, dict) else getattr(scenario, "name", "Threat Scenario")
         incident_type = scenario.get("incident_type", "") if isinstance(scenario, dict) else getattr(scenario, "incident_type", "")
         narrative = scenario.get("narrative", "") if isinstance(scenario, dict) else getattr(scenario, "narrative", "")
-        triggers = scenario.get("triggers", []) if isinstance(scenario, dict) else getattr(scenario, "triggers", [])
-        assets = scenario.get("assets_at_risk", []) if isinstance(scenario, dict) else getattr(scenario, "assets_at_risk", [])
-        impacts = scenario.get("potential_impacts", []) if isinstance(scenario, dict) else getattr(scenario, "potential_impacts", [])
-        actions = scenario.get("recommended_actions", []) if isinstance(scenario, dict) else getattr(scenario, "recommended_actions", [])
-        mdr_log = scenario.get("mdr_case_log", "") if isinstance(scenario, dict) else getattr(scenario, "mdr_case_log", "")
 
-        header = f"**{name}**"
+        # Scenario title: bold name + italic type
+        title_para = doc.add_paragraph()
+        title_run = title_para.add_run(name)
+        title_run.bold = True
+        title_run.font.size = Pt(13)
         if incident_type:
-            header += f" ({incident_type})"
-        parts.append(header)
+            type_run = title_para.add_run(f" ({incident_type})")
+            type_run.italic = True
+        title_para.paragraph_format.space_before = Pt(12)
+        title_para.paragraph_format.space_after = Pt(6)
 
+        # Narrative: split into paragraphs, parse each for Markdown formatting
         if narrative:
-            parts.append(narrative)
+            paragraphs = narrative.split('\n\n')
+            for block in paragraphs:
+                block = block.strip()
+                if not block:
+                    continue
+                lines = block.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Section headers: ### Section ...
+                    if _re.match(r'^#{1,4}\s+', line):
+                        header_text = _re.sub(r'^#{1,4}\s+', '', line)
+                        h_para = doc.add_paragraph()
+                        h_run = h_para.add_run(header_text)
+                        h_run.bold = True
+                        h_run.font.size = Pt(11)
+                        h_para.paragraph_format.space_before = Pt(8)
+                        continue
+                    # Bullet points: - item or * item
+                    if _re.match(r'^[-*]\s+', line):
+                        bullet_text = _re.sub(r'^[-*]\s+', '', line)
+                        b_para = doc.add_paragraph(style='List Bullet')
+                        _add_formatted_text(b_para, bullet_text)
+                        continue
+                    # Normal paragraph
+                    p_para = doc.add_paragraph()
+                    _add_formatted_text(p_para, line)
+                _add_spacer(doc)
 
-        if triggers and isinstance(triggers, list) and len(triggers) > 0:
-            parts.append("Triggers:")
-            for t in triggers:
-                parts.append(f"  - {t}")
 
-        if assets and isinstance(assets, list) and len(assets) > 0:
-            parts.append(f"Assets at Risk: {', '.join(str(a) for a in assets)}")
-
-        if impacts and isinstance(impacts, list) and len(impacts) > 0:
-            parts.append("Potential Impacts:")
-            for imp in impacts:
-                parts.append(f"  - {imp}")
-
-        if actions and isinstance(actions, list) and len(actions) > 0:
-            parts.append("Recommended Actions:")
-            for act in actions:
-                parts.append(f"  - {act}")
-
-        if mdr_log and str(mdr_log).strip():
-            parts.append("MDR Case Log:")
-            parts.append(str(mdr_log).strip())
-
-        parts.append("")  # blank line between scenarios
-
-    return "\n".join(parts).strip()
-
-def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
+def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
     """
-    VCISO Word export: renders a Word document using planet_it_vciso_template.docx.
+    Cybersecurity Maturity Assessment Word export: renders a Word document using planet_it_maturity_assessment_template.docx.
     Derives domains_list and roadmap_list from report_data defensively.
     Returns bytes of the generated document.
     """
-    template_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template.docx")
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template.docx")
     doc = DocxTemplate(template_path)
 
     # Fallback: If the active template does not declare the partnership placeholder,
@@ -482,7 +514,7 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     except Exception:
         undeclared = []
     if isinstance(undeclared, (set, list, tuple)) and "partnership_details" not in undeclared:
-        alt_path = os.path.join(os.path.dirname(__file__), "planet_it_vciso_template_v2.docx")
+        alt_path = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template_v2.docx")
         if os.path.exists(alt_path):
             template_path = alt_path
             doc = DocxTemplate(template_path)
@@ -598,11 +630,8 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
 
-    # Build threat scenario section string if available to support template rendering
-    try:
-        threat_section_str = render_threat_scenarios_section(getattr(report_data, "threat_scenarios", None))
-    except Exception:
-        threat_section_str = ""
+    # Extract threat scenarios for later injection (Word-formatted, not Markdown)
+    threat_scenarios_data = getattr(report_data, "threat_scenarios", None)
 
     context = {
         "customer_name": client_inputs.get("customer_name", "Customer"),
@@ -648,9 +677,6 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
         "consultant_discovery_guide": getattr(report_data, "consultant_discovery_guide", ""),
         "compliance_alignment_render": compliance_alignment_render,
         "partnership_outline": getattr(report_data, "partnership_outline", ""),
-        # Optional threat scenarios string for template rendering
-        "threat_scenarios": threat_section_str,
-        "threat_scenarios_section": threat_section_str,
     }
     # Threat intelligence: populate from the LLM-generated report data
     context["threat_intelligence_context"] = getattr(report_data, "threat_intelligence_context", "") or ""
@@ -692,6 +718,7 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
     else:
         context["partnership_outline"] = ""
     doc.render(context)
+    _inject_threat_scenarios_after_render(doc, threat_scenarios_data)
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)

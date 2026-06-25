@@ -102,9 +102,9 @@ class LLMEngine:
             return None
 
     @staticmethod
-    def generate_threat_scenario_for_vciso(client, deployment, client_inputs, maturity_report):
+    def generate_threat_scenario_for_maturity(client, deployment, client_inputs, maturity_report):
         """
-        Generate a maturity-aligned threat scenario as a follow-on to vCISO assessment.
+        Generate a maturity-aligned threat scenario as a follow-on to Cybersecurity Maturity Assessment.
         Returns a ThreatScenarioEnvelope Pydantic object or None on failure.
         """
         from prompts import build_threat_from_maturity_prompt, ThreatScenarioEnvelope, SYSTEM_PERSONA

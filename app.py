@@ -1,10 +1,10 @@
 import streamlit as st
 import random
 from core import LLMEngine
-from prompts import build_scenario_prompt, build_mdr_case_prompt, build_vciso_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
+from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import FULLY_MANAGED_URL, CO_MANAGED_URL
 from data import ATTACK_VECTORS, SIMULATED_OSINT
-from export import create_pdf, create_vciso_docx, create_threat_docx
+from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
 
@@ -168,24 +168,26 @@ def get_threat_docx_bytes():
             st.error(f"Word Export Failed: {e}")
     return st.session_state.get('threat_docx_bytes')
 
-def get_vciso_docx_bytes():
-    """Lazy-generate and cache vCISO Word Doc bytes."""
-    if st.session_state.get('vciso_docx_bytes') is None and st.session_state.get('vciso_obj'):
+def get_maturity_docx_bytes():
+    """Lazy-generate and cache Cybersecurity Maturity Assessment Word Doc bytes."""
+    if st.session_state.get('maturity_docx_bytes') is None and st.session_state.get('maturity_obj'):
+        # Re-attach threat scenarios from session state (survives pickle round-trip)
+        ts_data = st.session_state.get('maturity_threat_scenarios')
+        if ts_data is not None:
+            object.__setattr__(st.session_state['maturity_obj'], "threat_scenarios", ts_data)
         try:
-            st.session_state['vciso_docx_bytes'] = create_vciso_docx(
+            st.session_state['maturity_docx_bytes'] = create_maturity_docx(
                 st.session_state['client_inputs'], 
-                st.session_state['vciso_obj']
+                st.session_state['maturity_obj']
             )
         except Exception as e:
-            st.error(f"vCISO Word Export Failed: {e}")
-    return st.session_state.get('vciso_docx_bytes')
+            st.error(f"Cybersecurity Maturity Assessment Word Export Failed: {e}")
+    return st.session_state.get('maturity_docx_bytes')
 
 def _display_cost_of_inaction_section():
     """Safely render the GBP cost of inaction if available in the current report."""
     report = None
-    if 'vciso_report' in getattr(st, 'session_state', {}):
-        report = st.session_state.get('vciso_report')
-    elif 'maturity_report' in getattr(st, 'session_state', {}):
+    if 'maturity_report' in getattr(st, 'session_state', {}):
         report = st.session_state.get('maturity_report')
     if not report:
         return
@@ -224,7 +226,6 @@ except Exception:
 # --- SIDEBAR & ENGINE CONFIGURATION ---
 with st.sidebar:
     st.markdown("## 🛡️ Advisory Engine")
-    st.markdown("### ⚙️ Engine Configuration")
     
     # Engine is strictly Azure (Ollama support removed per July 2026 hardening)
     st.session_state['ai_engine'] = "azure"
@@ -233,20 +234,20 @@ with st.sidebar:
     
     workflow = st.radio(
         "Select Workflow:", 
-        options=["📈 vCISO Assessment", "🔥 Tactical Threat Simulator"], 
+        options=["📈 Cybersecurity Maturity Assessment", "🔥 Tactical Threat Simulator"], 
         index=0
     )
     st.session_state['workflow'] = workflow
     
     st.divider()
 
-    # Threat Scenarios in VCISO toggle (non-disruptive) for ACT MODE wiring
-    if workflow == "📈 vCISO Assessment":
-        enable_threats = st.checkbox("Enable Threat Scenarios in VCISO", value=True)
-        st.session_state['enable_threat_scenarios_in_vciso'] = enable_threats
+    # Threat Scenarios in Maturity Assessment toggle (non-disruptive) for ACT MODE wiring
+    if workflow == "📈 Cybersecurity Maturity Assessment":
+        enable_threats = st.checkbox("Enable Threat Scenarios in Maturity Assessment", value=True)
+        st.session_state['enable_threat_scenarios_in_maturity'] = enable_threats
 
 # --- MAIN PAGE HEADER ---
-st.title("Security Use Case & vCISO Generator")
+st.title("Security Use Case & Cybersecurity Maturity Assessment Generator")
 
 # --- UI INPUTS ---
 with st.expander("Customer Estate & Engagement Profile", expanded=True):
@@ -526,88 +527,196 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
 
-elif st.session_state['workflow'] == "📈 vCISO Assessment":
-    st.header("vCISO Assessment")
+elif st.session_state['workflow'] == "📈 Cybersecurity Maturity Assessment":
+    st.header("Cybersecurity Maturity Assessment")
     
-    if st.button("Generate vCISO Roadmap", type="primary"):
-        with st.spinner("Compiling vCISO Assessment..."):
+    if st.button("Generate Maturity Roadmap", type="primary"):
+        with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
             client = LLMEngine.get_client()
             deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
             
-            vciso_prompt = build_vciso_prompt(st.session_state['client_inputs'])
-            vciso_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, vciso_prompt, MaturityReport)
+            maturity_prompt = build_maturity_prompt(st.session_state['client_inputs'])
+            maturity_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, maturity_prompt, MaturityReport)
             
-            if vciso_obj:
-                st.session_state['vciso_obj'] = vciso_obj
-                # Generate maturity-aligned threat scenario via LLM
+            if maturity_obj:
+                st.session_state['maturity_obj'] = maturity_obj
+                # Generate maturity-aligned threat scenario via streaming LLM (mirrors Threat Simulator)
                 try:
-                    threat_envelope = LLMEngine.generate_threat_scenario_for_vciso(
-                        client, deployment, st.session_state['client_inputs'], vciso_obj
-                    )
-                    if threat_envelope:
-                        outline = threat_envelope.outline
+                    # Build gap summary from domain assessments for the threat prompt
+                    gaps_summary = []
+                    for domain in getattr(maturity_obj, 'domain_assessments', []):
+                        name = getattr(domain, 'domain_name', 'Unknown')
+                        critical = getattr(domain, 'critical_gaps', [])
+                        if critical:
+                            gaps_summary.append(f"  - {name}: {', '.join(critical)}")
+                    gap_text = '\n'.join(gaps_summary) if gaps_summary else 'No critical gaps identified.'
+                    
+                    # Derive attack vector from operational telemetry gaps (prioritised)
+                    mfa_status = client_inputs.get('mfa_status', 'Unknown')
+                    patching = client_inputs.get('patching', 'Unknown')
+                    backups = client_inputs.get('backups', 'Unknown')
+                    ir_readiness = client_inputs.get('ir_readiness', 'Unknown')
+                    remote_access = client_inputs.get('remote_access', 'Unknown')
+                    saas_backup = client_inputs.get('saas_backup', 'Unknown')
+                    endpoint_posture = client_inputs.get('endpoint_posture', 'Unknown')
+                    savviness = client_inputs.get('savviness', '')
+                    endpoint_capability = client_inputs.get('endpoint_posture', 'Unknown')
+                    
+                    # Compound gap scenario: no MFA + manual patching + no backups = worst case
+                    if mfa_status in ['None', 'Privileged Accounts Only'] and patching == 'Manual / Ad-hoc' and backups in ['No Formal Backups', 'On-Premise Only']:
+                        attack_vector = "Compound Breach via Phishing + Unpatched VPN + Ransomware — Multi-stage attack exploiting credential theft (no universal MFA), privilege escalation through an unpatched CVE on VPN infrastructure (ad-hoc patch management), culminating in enterprise-wide ransomware deployment against non-immutable backups"
+                    # MFA gaps
+                    elif mfa_status in ['None']:
+                        attack_vector = "Credential Stuffing / Brute-Force Attack — Initial access through automated credential attacks against internet-facing authentication portals without any MFA enforcement. Threat actor exploits known breached credentials from dark-web dumps to authenticate directly"
+                    elif mfa_status in ['Privileged Accounts Only']:
+                        attack_vector = "Spear-Phishing + Session Hijacking — Initial access via targeted phishing campaign against standard users. Once foothold established, lateral movement to privileged accounts leverages absence of universal MFA to escalate without additional authentication challenges"
+                    # Patching gaps
+                    elif patching == 'Manual / Ad-hoc':
+                        attack_vector = "Exploitation of Known Unpatched CVE — Initial access via publicly disclosed vulnerability (CVE with known PoC exploit) on externally exposed infrastructure. Ad-hoc patch management leaves a 30+ day window between disclosure and remediation, enabling opportunistic exploitation"
+                    # Backup gaps
+                    elif backups in ['No Formal Backups']:
+                        attack_vector = "Ransomware via Supply Chain / Island Hopping — Initial access through compromised software update or third-party managed service provider. Absence of any formal backup strategy leaves the organisation with zero recovery capability, maximising extortion leverage"
+                    elif backups in ['On-Premise Only']:
+                        attack_vector = "Ransomware with Targeted Backup Destruction — Initial access through RDP brute-force on exposed management interfaces. Threat actor enumerates and encrypts on-premise backup repositories before deploying ransomware, eliminating local recovery options"
+                    # IR Readiness gaps
+                    elif ir_readiness in ['No Formal Plan']:
+                        attack_vector = "Extended Dwell-Time Data Exfiltration — Initial access via a zero-day vulnerability in an externally facing web application. With no formal incident response plan, the threat actor maintains undetected persistence for 90+ days, exfiltrating sensitive data in small, scheduled batches to avoid anomaly detection thresholds"
+                    elif ir_readiness in ['Documented IR Plan (Untested)']:
+                        attack_vector = "Ransomware or Data Destruction via Insider Threat — Initial access through a compromised privileged account. The untested IR plan fails during execution due to undocumented dependencies and stale contact lists, extending containment time from hours to days"
+                    # Remote Access gaps
+                    elif remote_access in ['Legacy VPN (Client-based)', 'None / Cloud Only']:
+                        attack_vector = "VPN Exploitation + Lateral Movement — Initial access through exploitation of a legacy VPN appliance with known vulnerabilities. Once inside the network perimeter, the flat internal network architecture enables unrestricted lateral movement toward critical assets"
+                    # SaaS Backup gaps
+                    elif saas_backup == 'None (Relying on Microsoft/Google)':
+                        attack_vector = "Microsoft 365 Tenant Compromise — Initial access through OAuth consent phishing or token replay. Absence of third-party SaaS backup means threat actor can permanently delete or encrypt Exchange Online, SharePoint, and Teams data beyond Microsoft's native retention windows"
+                    # Endpoint Capability gaps
+                    elif endpoint_capability in ['Legacy AV Only (Signatures/Heuristics)']:
+                        attack_vector = "Living-Off-the-Land (LOLBin) Attack — Initial access via a malicious Office macro or ISO payload. Legacy signature-based AV fails to detect fileless techniques leveraging PowerShell, WMI, and mshta, enabling persistent access without triggering traditional antivirus alerts"
+                    # Security Culture gaps
+                    elif 'Pillar 1' in savviness:
+                        attack_vector = "Social Engineering + Physical Access — Initial access through a targeted vishing (voice phishing) campaign impersonating IT support, requesting remote access credentials. Low security culture awareness and absence of continuous training enable the attacker to bypass technical controls through human manipulation"
+                    # Well-defended but still attackable
+                    else:
+                        attack_vector = "Multi-Stage Intrusion via Business Email Compromise — Initial access through a compromised executive email account (despite MFA) via adversary-in-the-middle (AiTM) proxy. Sophisticated threat actor leverages internal trust relationships to authorise fraudulent wire transfers or data exfiltration, evading standard detection through legitimate tooling"
+                    
+                    pillar = getattr(maturity_obj, 'resiliency_matrix_mapping', 'Pillar 1')
+                    crown_jewels = client_inputs.get('critical_infra', 'Unknown')
+                    rto = client_inputs.get('rto', 'Unknown')
+                    insurance = client_inputs.get('insurance', 'Unknown')
+                    
+                    threat_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')}
+CLIENT ENVIRONMENT: Critical Asset: {crown_jewels} | MDR: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')}
+MATURITY CONTEXT: {pillar}
+IDENTIFIED SECURITY GAPS:
+{gap_text}
+
+OPERATIONAL TELEMETRY:
+- MFA Enforcement: {mfa_status}
+- Patch Management: {patching}
+- Backup Strategy: {backups}
+- Downtime Tolerance (RTO): {rto}
+- Cyber Insurance: {insurance}
+
+SCENARIO REQUIREMENTS:
+- Section 1 (Threat Actor & Initial Access): Adapt to the identified gaps. Initial Access: "{attack_vector}". Include hyperlinked MITRE T-codes and CVEs relevant to the vector.
+- Section 2 (Attacker Progression): Detail the attempted movement toward {crown_jewels}. Show how the specific gaps (MFA, patching, backups) enable lateral movement. The attacker must make initial headway due to environmental vulnerabilities.
+- Section 3 (Sophos MDR Interception): CRITICAL RULE - The attack MUST NOT succeed against the final objective. Sophos MDR must identify behavioural anomalies mid-chain and actively neutralise the threat before exfiltration, encryption, or final objective completion. Detail the specific detection, isolation, and neutralisation actions taken.
+- Section 4 (Recommended Solutions): Summarise the defence strategy in a consultative, third-person tone tied directly to the identified gaps. Do NOT use first-person ('we', 'our') or second-person ('you', 'your').
+
+Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-driven breach scenario in British English. Use Markdown for hyperlinks. Do not use bullet points in narrative sections — write flowing paragraphs."""
+
+                    # Stream the threat narrative
+                    accumulated = ""
+                    for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
+                        accumulated += token
+                    
+                    if accumulated.strip():
                         threat_scenarios = [{
                             "id": "ts-maturity-1",
-                            "name": getattr(outline, 'title', 'Maturity-Aligned Threat Scenario'),
-                            "incident_type": threat_envelope.maturity_level or "Pillar 1",
-                            "narrative": getattr(outline, 'executive_summary', ''),
-                            "triggers": getattr(outline, 'timeline', []) or [],
-                            "assets_at_risk": [client_inputs.get('critical_infra', 'Unknown')],
-                            "potential_impacts": [getattr(outline, 'impact', '')] if getattr(outline, 'impact', None) else [],
-                            "containment_steps": [],
-                            "recommended_actions": getattr(outline, 'mitigations', []) or [],
-                            "timelines": [{"outline": outline.model_dump() if hasattr(outline, 'model_dump') else {}}],
+                            "name": f"{pillar} Maturity-Aligned Threat Scenario",
+                            "incident_type": pillar,
+                            "narrative": accumulated.strip(),
+                            "triggers": [],
+                            "assets_at_risk": [crown_jewels],
+                            "potential_impacts": [],
+                            "recommended_actions": [],
+                            "mdr_case_log": "",
+                            "timelines": [],
                             "severity_by_maturity": {},
                             "likelihood_by_maturity": {},
-                            "mdr_case_log": ""
+                            "containment_steps": [],
                         }]
-                        setattr(vciso_obj, "threat_scenarios", threat_scenarios)
-                        st.session_state['vciso_obj'] = vciso_obj
-                except Exception:
-                    pass  # Non-blocking: vCISO still works without threat scenarios
+                        object.__setattr__(maturity_obj, "threat_scenarios", threat_scenarios)
+                        st.session_state['maturity_threat_scenarios'] = threat_scenarios
+                        st.session_state['maturity_obj'] = maturity_obj
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"Threat scenario LLM generation failed; building fallback from maturity data. Error: {e}"
+                    )
+                    # Fallback: build a lightweight threat scenario from the maturity report itself
+                    if maturity_obj:
+                        threat_scenarios = [{
+                            "id": "ts-maturity-1",
+                            "name": f"{maturity_obj.resiliency_matrix_mapping} Threat Scenario",
+                            "incident_type": maturity_obj.resiliency_matrix_mapping,
+                            "narrative": maturity_obj.cost_of_inaction,
+                            "triggers": maturity_obj.success_metrics or [],
+                            "assets_at_risk": [client_inputs.get('critical_infra', 'Unknown')],
+                            "potential_impacts": [],
+                            "recommended_actions": maturity_obj.consultant_discovery_guide or [],
+                            "mdr_case_log": "",
+                            "timelines": [],
+                            "severity_by_maturity": {},
+                            "likelihood_by_maturity": {},
+                            "containment_steps": [],
+                        }]
+                        object.__setattr__(maturity_obj, "threat_scenarios", threat_scenarios)
+                        st.session_state['maturity_threat_scenarios'] = threat_scenarios
+                        st.session_state['maturity_obj'] = maturity_obj
                 # Clear any cached export bytes from previous runs
-                for key in ['vciso_docx_bytes']:
+                for key in ['maturity_docx_bytes']:
                     st.session_state.pop(key, None)
-                st.success("vCISO Roadmap Generated Successfully.")
+                st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
             else:
                 st.error("Engine failed to generate the roadmap.")
         
-    if st.session_state.get('vciso_obj'):
+    if st.session_state.get('maturity_obj'):
         st.subheader("📥 Export Deliverables")
-        docx_data = get_vciso_docx_bytes()
+        docx_data = get_maturity_docx_bytes()
         if docx_data:
             st.download_button(
-                "📄 Download vCISO Report (Word)", 
+                "📄 Download Cybersecurity Maturity Report (Word)", 
                 data=docx_data, 
-                file_name=f"{cached_customer_name.replace(' ', '_')}_vCISO_Report.docx", 
+                file_name=f"{cached_customer_name.replace(' ', '_')}_Cybersecurity_Maturity_Report.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
-    if st.session_state.get('vciso_obj'):
+    if st.session_state.get('maturity_obj'):
         st.divider()
         st.subheader("📊 Strategic Assessment Preview")
         
-        vciso = st.session_state['vciso_obj']
+        maturity = st.session_state['maturity_obj']
         
         tab1, tab2, tab3 = st.tabs(["Executive Brief", "Domain Assessments", "Strategic Roadmap"])
         
         with tab1:
             st.markdown("### Executive Summary")
-            st.markdown(vciso.executive_summary)
+            st.markdown(maturity.executive_summary)
             
             st.markdown("### Resiliency Matrix Mapping")
-            st.info(vciso.resiliency_matrix_mapping)
+            st.info(maturity.resiliency_matrix_mapping)
             
             col_impact, col_comp = st.columns(2)
             with col_impact:
                 st.markdown("### The Cost of Inaction")
-                st.error(vciso.cost_of_inaction)
+                st.error(maturity.cost_of_inaction)
             with col_comp:
                 st.markdown("### Compliance Alignment")
-                st.success(vciso.compliance_alignment)
+                st.success(maturity.compliance_alignment)
             # Additional cost & partnership details (optional, enriched by LLM)
-            if getattr(vciso, 'monetary_cost_of_inaction', None):
-                mv = vciso.monetary_cost_of_inaction
+            if getattr(maturity, 'monetary_cost_of_inaction', None):
+                mv = maturity.monetary_cost_of_inaction
                 if mv:
                     amount = getattr(mv, 'amount_gbp', None)
                     src = getattr(mv, 'source', None)
@@ -621,20 +730,20 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                         parts.append(f"Rationale: {rationale}")
                     st.markdown("### Monetary Cost of Inaction (GBP)")
                     st.write(" | ".join(parts))
-            if getattr(vciso, 'partnership_outline', None):
-                outline = vciso.partnership_outline
+            if getattr(maturity, 'partnership_outline', None):
+                outline = maturity.partnership_outline
                 if outline:
                     st.markdown("### Partnership Outline (Co-/Fully Managed)")
                     st.write(outline)
-            if getattr(vciso, 'microsoft_healthchecks_recommendations', None):
-                rec = vciso.microsoft_healthchecks_recommendations
+            if getattr(maturity, 'microsoft_healthchecks_recommendations', None):
+                rec = maturity.microsoft_healthchecks_recommendations
                 if rec:
                     st.markdown("### Microsoft Healthchecks & Hardening")
                     st.write(rec)
                 
         with tab2:
             st.markdown("### Security Domain Analysis")
-            for domain in vciso.domain_assessments:
+            for domain in maturity.domain_assessments:
                 with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}"):
                     st.markdown("**Technical Analysis:**")
                     st.markdown(domain.current_state_analysis)
@@ -651,35 +760,41 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                     
         with tab3:
             st.markdown("### Phased Implementation")
-            for phase in vciso.phased_roadmap:
+            for phase in maturity.phased_roadmap:
                 st.markdown(f"#### {phase.phase_title}: {phase.primary_objective}")
                 for milestone in phase.milestones:
                     st.markdown(f"- {milestone}")
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
                 st.markdown(f"**Resources:** {phase.resource_requirements}")
                 st.divider()
+        def _safe_get(item, key, default=None):
+            """Access a key from a dict or attribute from an object safely."""
+            if isinstance(item, dict):
+                return item.get(key, default)
+            return getattr(item, key, default)
+
         # Threat Scenarios (auto-generated) rendering
-        if getattr(vciso, 'threat_scenarios', None):
+        if getattr(maturity, 'threat_scenarios', None):
             try:
-                threats = vciso.threat_scenarios
+                threats = maturity.threat_scenarios
             except Exception:
                 threats = None
             if threats:
                 st.divider()
                 st.subheader("Threat Scenarios (Auto-generated)")
                 for ts in threats:
-                    ts_name = getattr(ts, 'name', 'Threat Scenario')
-                    ts_type = getattr(ts, 'incident_type', '')
+                    ts_name = _safe_get(ts, 'name', 'Threat Scenario')
+                    ts_type = _safe_get(ts, 'incident_type', '')
                     st.markdown(f"**{ts_name}** ({ts_type})")
-                    narrative = getattr(ts, 'narrative', '')
+                    narrative = _safe_get(ts, 'narrative', '')
                     if narrative:
                         st.write(narrative)
                     # Triggers
-                    triggers = getattr(ts, 'triggers', []) or []
+                    triggers = _safe_get(ts, 'triggers', []) or []
                     if triggers:
                         st.markdown("- Triggers: " + ", ".join(triggers))
                     # Timelines
-                    timelines = getattr(ts, 'timelines', None)
+                    timelines = _safe_get(ts, 'timelines', None)
                     if timelines:
                         st.markdown("**Timelines:**")
                         if isinstance(timelines, list):
@@ -688,32 +803,32 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                         else:
                             st.write(str(timelines))
                     # Assets & Impacts
-                    assets = getattr(ts, 'assets_at_risk', []) or []
+                    assets = _safe_get(ts, 'assets_at_risk', []) or []
                     if assets:
                         st.markdown("**Assets At Risk:** " + ", ".join(assets))
-                    impacts = getattr(ts, 'potential_impacts', []) or []
+                    impacts = _safe_get(ts, 'potential_impacts', []) or []
                     if impacts:
                         st.markdown("**Potential Impacts:**" )
                         for imp in impacts:
                             st.write(f"- {imp}")
                     # MDR Case Log
-                    mdr_log = getattr(ts, 'mdr_case_log', None)
+                    mdr_log = _safe_get(ts, 'mdr_case_log', None)
                     if mdr_log:
                         st.markdown("**MDR Case Log:**")
                         st.write(mdr_log)
                     # Recommendations
-                    recs = getattr(ts, 'recommended_actions', []) or []
+                    recs = _safe_get(ts, 'recommended_actions', []) or []
                     if recs:
                         st.markdown("**Recommended Actions:**")
                         for r in recs:
                             st.write(f"- {r}")
-        # Display Cost of Inaction (GBP) if available in VCISO maturity report
+        # Display Cost of Inaction (GBP) if available in the maturity report
         _display_cost_of_inaction_section()
 
 st.divider()
 st.markdown(
     "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-    f"Security Use Case & vCISO Generator — v{APP_VERSION}"
+    f"Security Use Case & Cybersecurity Maturity Assessment Generator — v{APP_VERSION}"
     "</div>",
     unsafe_allow_html=True
 )
