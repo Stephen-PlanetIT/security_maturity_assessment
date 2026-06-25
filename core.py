@@ -8,7 +8,7 @@ from config import get_config, ConfigKey
 
 class LLMEngine:
     @staticmethod
-    def get_client(provider_choice="azure"):
+    def get_client():
         try:
             # Pre-flight credential validation to surface misconfig quickly
             endpoint = get_config(ConfigKey.AZURE_ENDPOINT)

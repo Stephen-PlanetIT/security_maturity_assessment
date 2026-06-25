@@ -26,11 +26,6 @@ class ConfigKey:
     AZURE_DEPLOYMENT = "AZURE_OPENAI_DEPLOYMENT"
     AZURE_API_VERSION = "AZURE_OPENAI_API_VERSION"
 
-    # Ollama (local)
-    OLLAMA_BASE_URL = "OLLAMA_BASE_URL"
-    OLLAMA_MODEL = "OLLAMA_MODEL"
-    OLLAMA_KEEP_ALIVE = "OLLAMA_KEEP_ALIVE_DURATION"
-
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
     """
@@ -69,17 +64,11 @@ def validate_config(provider: str) -> None:
     Raises:
         ValueError: with a descriptive message listing every missing or malformed key.
     """
-    if provider == "ollama":
-        required = [
-            ConfigKey.OLLAMA_BASE_URL,
-            ConfigKey.OLLAMA_MODEL,
-        ]
-    else:
-        required = [
-            ConfigKey.AZURE_API_KEY,
-            ConfigKey.AZURE_ENDPOINT,
-            ConfigKey.AZURE_DEPLOYMENT,
-        ]
+    required = [
+        ConfigKey.AZURE_API_KEY,
+        ConfigKey.AZURE_ENDPOINT,
+        ConfigKey.AZURE_DEPLOYMENT,
+    ]
 
     missing = [key for key in required if get_config(key) is None]
 
