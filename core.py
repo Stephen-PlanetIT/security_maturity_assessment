@@ -1,30 +1,51 @@
 import streamlit as st
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 import time
 from config import get_config, ConfigKey
 
 class LLMEngine:
     @staticmethod
-    def get_client():
-        # Azure OpenAI is the sole supported provider going forward
+    def get_client(provider_choice="azure"):
+        provider = provider_choice.lower()
+        
         try:
-            return AzureOpenAI(
-                api_key=get_config(ConfigKey.AZURE_API_KEY), 
-                api_version=get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview"), 
-                azure_endpoint=get_config(ConfigKey.AZURE_ENDPOINT),
-                timeout=60.0 
-            )
+            if "ollama" in provider or "local" in provider:
+                base_url = get_config(ConfigKey.OLLAMA_BASE_URL, "http://host.docker.internal:11434/v1")
+                return OpenAI(
+                    base_url=base_url,
+                    api_key="ollama",
+                    timeout=360.0  # Slightly longer timeout for heavy local generation
+                )
+            else:
+                return AzureOpenAI(
+                    api_key=get_config(ConfigKey.AZURE_API_KEY), 
+                    api_version=get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview"), 
+                    azure_endpoint=get_config(ConfigKey.AZURE_ENDPOINT),
+                    timeout=60.0 
+                )
         except Exception as e:
             st.error(f"🚨 Client Initialization Error: {e}")
             return None
 
     @staticmethod
     def _build_extra_params(client):
-        """Return fixed extra_params for Azure-only OpenAI calls"""
-        return {
-            "max_completion_tokens": 8192,
-            "temperature": 0.6
-        }
+        """Build the extra_params dict based on provider type."""
+        extra_params = {}
+        if "ollama" in str(client.base_url).lower():
+            keep_alive = get_config(ConfigKey.OLLAMA_KEEP_ALIVE, "24h")
+            extra_params["extra_body"] = {
+                "keep_alive": keep_alive,
+                "options": {
+                    "num_ctx": 16384,    
+                    "num_predict": 8192,   
+                    "temperature": 0.6,
+                    "top_p": 0.9           
+                }
+            }
+        else:
+            extra_params["max_completion_tokens"] = 8192
+            extra_params["temperature"] = 0.6
+        return extra_params
 
     @staticmethod
     def generate_structured_report(client, deployment, system_persona, user_prompt, response_model):

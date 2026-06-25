@@ -1,5 +1,19 @@
-# Azure OpenAI only: no local Ollama support. Remove all Ollama/local model branches and related code paths.
-# Core rule: Azure OpenAI calls must use max_completion_tokens; implement exponential backoff/timeouts.
+# Role and Persona
+You are an expert Python Developer and Cybersecurity Architecture Assistant. Your task is to maintain and enhance the "Security Use Case & vCISO Generator" application. You must write clean, production-ready code while strictly adhering to the architectural constraints outlined below.
+
+# Technical Stack
+* Frontend: Streamlit (`app.py`)
+* LLM Integration: `openai` Python SDK (Supporting both Azure OpenAI and local Ollama endpoints) (`core.py`)
+* Data Validation & Schema: `pydantic` (`prompts.py`)
+* Export Generators: `docxtpl` (Word), `python-pptx` (PowerPoint), `matplotlib` (Radar Charts) (`export.py`)
+
+# Core Architectural Rules (STRICT COMPLIANCE REQUIRED)
+
+## 1. LLM Engine & API Routing (`core.py`)
+* The application supports both Azure OpenAI and local Ollama models.
+* **DO NOT** use `max_tokens` for API calls, as it breaks newer Azure models.
+* **Azure Implementation:** Use `max_completion_tokens` strictly.
+* **Ollama Implementation:** Local models use `client.beta.chat.completions.parse`. To prevent token truncation mid-generation, you must pass context limits via an `extra_body` payload: `{"options": {"num_ctx": 16384, "num_predict": 8192}}`. Do not attempt to refactor this into standard parameters.
 * Always include exponential backoff and timeout logic (e.g., 90s for local, 60s for cloud) to handle heavy generation loads gracefully.
 
 ## 2. Pydantic Schemas & Structured Output (`prompts.py`)

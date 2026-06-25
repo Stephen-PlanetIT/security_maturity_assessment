@@ -13,15 +13,19 @@ with open("VERSION", "r") as f:
     APP_VERSION = f.read().strip()
 
 def validate_platform_config():
-    """Validates that necessary Azure secrets exist before runtime."""
+    """Validates that necessary secrets exist before runtime."""
+    provider = "ollama" if "Local" in st.session_state.get('ai_engine', '') else "azure"
     try:
-        validate_config()
+        validate_config(provider)
     except ValueError as e:
         st.warning(f"⚠️ {e}")
 
-def get_optimal_deployment_name():
-    """Fetches the Azure deployment name for the active provider (Azure only)."""
-    return get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+def get_optimal_deployment_name(provider_flag):
+    """Fetches the correct deployment string based on the active provider."""
+    if provider_flag == "ollama":
+        return get_config(ConfigKey.OLLAMA_MODEL, "deepseek-r1:14b")
+    else:
+        return get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
 
 class CyberScenarioGenerator:
     def generate_recommendations(self, inputs):
@@ -210,9 +214,14 @@ validate_platform_config() # Fails fast if keys are missing
 # --- SIDEBAR & ENGINE CONFIGURATION ---
 with st.sidebar:
     st.markdown("## 🛡️ Advisory Engine")
-
+    st.markdown("### ⚙️ Engine Configuration")
     
-    # Azure OpenAI is the only supported provider going forward
+    ai_engine = st.radio(
+        "AI Engine Provider:", 
+        options=["☁️ Cloud (Azure OpenAI)", "🖥️ Local (Ollama)"], 
+        index=0
+    )
+    st.session_state['ai_engine'] = ai_engine
     
     st.divider()
     
@@ -451,9 +460,9 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
             st.session_state.pop(key, None)
         
         with st.spinner("Simulating Attack & MDR Response..."):
-            # Azure OpenAI is the sole supported provider going forward
-            client = LLMEngine.get_client()
-            deployment = get_optimal_deployment_name()
+            provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
+            client = LLMEngine.get_client(provider_flag)
+            deployment = get_optimal_deployment_name(provider_flag)
             
             selected_vector = random.choice(ATTACK_VECTORS)
             osint_list = []
@@ -512,9 +521,9 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
     
     if st.button("Generate vCISO Roadmap", type="primary"):
         with st.spinner("Compiling vCISO Assessment..."):
-            # Azure OpenAI is the sole supported provider going forward
-            client = LLMEngine.get_client()
-            deployment = get_optimal_deployment_name()
+            provider_flag = "ollama" if "Local" in st.session_state['ai_engine'] else "azure"
+            client = LLMEngine.get_client(provider_flag)
+            deployment = get_optimal_deployment_name(provider_flag)
             
             vciso_prompt = build_vciso_prompt(st.session_state['client_inputs'])
             vciso_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, vciso_prompt, MaturityReport)
