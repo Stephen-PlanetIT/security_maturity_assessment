@@ -64,13 +64,10 @@ def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
 
 def validate_config(provider: str) -> None:
     """
-    Fail-fast validation that all required secrets are present.
-
-    Args:
-        provider: "azure" or "ollama"
-
+    Fail-fast validation that all required Azure secrets are present.
+    
     Raises:
-        ValueError: with a descriptive message listing every missing key.
+        ValueError: with a descriptive message listing every missing or malformed key.
     """
     if provider == "ollama":
         required = [
@@ -92,6 +89,48 @@ def validate_config(provider: str) -> None:
             "or as environment variables (Azure Container Apps)."
         )
         raise ValueError(
-            f"Missing required configuration keys for provider '{provider}': "
-            f"{', '.join(missing)}. {source_hint}"
+            f"Missing required configuration keys: {', '.join(missing)}. {source_hint}"
         )
+
+    # Validate endpoint URL format
+    endpoint = get_config(ConfigKey.AZURE_ENDPOINT)
+    if endpoint:
+        if not endpoint.startswith("https://"):
+            raise ValueError(
+                f"AZURE_OPENAI_ENDPOINT must start with 'https://'. Got: {endpoint}"
+            )
+        if "/openai/deployments/" in endpoint or "?api-version=" in endpoint:
+            raise ValueError(
+                f"AZURE_OPENAI_ENDPOINT must be the base resource URL only (e.g. 'https://my-resource.cognitiveservices.azure.com/'), "
+                f"not the full API path. Got: {endpoint}"
+            )
+
+def get_planet_branding_palette():
+    """
+    Load Planet branding colour palette from configuration sources.
+    Resolution order:
+      1) PLANET_BRAND_COLORS JSON via get_config (env or secrets)
+      2) None if not provided
+    Returns a dict with keys: primaryColor, backgroundColor, secondaryBackgroundColor, textColor
+    If any key is missing, returns None.
+    """
+    import json
+    raw = get_config("PLANET_BRAND_COLORS")
+    if not raw:
+        return None
+    try:
+        palette = json.loads(raw) if isinstance(raw, str) else raw
+        primary = palette.get("primaryColor") or palette.get("primary_color") or palette.get("primary")
+        background = palette.get("backgroundColor") or palette.get("background_color") or palette.get("background")
+        secondary = palette.get("secondaryBackgroundColor") or palette.get("secondary_background_color") or palette.get("secondary_background")
+        text = palette.get("textColor") or palette.get("text_color") or palette.get("text")
+        if primary and background and secondary and text:
+            return {
+                "primaryColor": primary,
+                "backgroundColor": background,
+                "secondaryBackgroundColor": secondary,
+                "textColor": text
+            }
+    except Exception:
+        pass
+    return None

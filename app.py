@@ -210,6 +210,24 @@ def _display_cost_of_inaction_section():
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Security Use Case Generator", layout="wide")
 validate_platform_config() # Fails fast if keys are missing
+# [PLANET BRANDING LOAD] Inject branding palette if provided (Azure/Env based)
+try:
+    from config import get_planet_branding_palette
+    _palette = get_planet_branding_palette()
+    if _palette:
+        brand_css = (
+            "<style>"
+            ":root {"
+            f"  --primary-color: {_palette['primaryColor']};"
+            f"  --background-color: {_palette['backgroundColor']};"
+            f"  --secondary-background-color: {_palette['secondaryBackgroundColor']};"
+            f"  --text-color: {_palette['textColor']};"
+            "}"
+            "</style>"
+        )
+        st.markdown(brand_css, unsafe_allow_html=True)
+except Exception:
+    pass
 
 # --- SIDEBAR & ENGINE CONFIGURATION ---
 with st.sidebar:
@@ -233,6 +251,11 @@ with st.sidebar:
     st.session_state['workflow'] = workflow
     
     st.divider()
+
+    # Threat Scenarios in VCISO toggle (non-disruptive) for ACT MODE wiring
+    if workflow == "📈 vCISO Assessment":
+        enable_threats = st.checkbox("Enable Threat Scenarios in VCISO", value=True)
+        st.session_state['enable_threat_scenarios_in_vciso'] = enable_threats
 
 # --- MAIN PAGE HEADER ---
 st.title("Security Use Case & vCISO Generator")
@@ -324,86 +347,86 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
 
     st.divider()
 
-    # --- PARTNERSHIP GOVERNANCE ---
-    st.markdown("### 🔗 Partnership Governance")
-    partnership_type = st.radio("Partnership Governance Model", ["Fully Managed", "Co-Managed"])
-    st.session_state['partnership_type'] = partnership_type
-    if partnership_type == "Fully Managed":
-        st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
-    else:
-        st.markdown(f"Official URL: {CO_MANAGED_URL}")
+## --- PARTNERSHIP GOVERNANCE ---
+st.markdown("### 🔗 Partnership Governance")
+partnership_type = st.radio("Partnership Governance Model", ["Fully Managed", "Co-Managed"])
+st.session_state['partnership_type'] = partnership_type
+if partnership_type == "Fully Managed":
+    st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
+else:
+    st.markdown(f"Official URL: {CO_MANAGED_URL}")
 
-    ## --- OPERATIONAL & RISK TELEMETRY ---
-    st.markdown("### ⚙️ Operational & Risk Telemetry")
+## --- OPERATIONAL & RISK TELEMETRY ---
+st.markdown("### ⚙️ Operational & Risk Telemetry")
     
-    op_col1, op_col2 = st.columns(2)
+op_col1, op_col2 = st.columns(2)
     
-    with op_col1:
-        mfa_status = st.selectbox("MFA Enforcement", ["None", "Privileged Accounts Only", "Universal / Conditional Access"], index=1)
-        patching = st.selectbox("Patch Management", ["Manual / Ad-hoc", "Automated (OS Only)", "Automated (OS & Third-Party)"], index=0)
-        backups = st.selectbox("Backup Strategy", ["No Formal Backups", "On-Premise Only", "Cloud/Offsite (Standard)", "Immutable / Air-Gapped"], index=1)
-        
-    with op_col2:
-        insurance = st.selectbox("Cyber Insurance Status", ["None", "Exploring Requirements", "Active Policy"], index=0)
-        rto = st.selectbox("Downtime Tolerance", ["< 4 Hours (Critical)", "12-24 Hours", "48+ Hours"], index=1)
-        ir_readiness = st.selectbox("Incident Response (IR) Readiness", [
-            "No Formal Plan", 
-            "Documented IR Plan (Untested)", 
-            "Tested IR Plan with Active Retainer"
-        ], index=0)
-        
-        ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", [
-            "None",
-            "Sophos MDR Plus / Incident Response",
-            "Microsoft DART",
-            "CrowdStrike Falcon Complete IR",
-            "Mandiant / Google IR",
-            "Unit 42 (Palo Alto)",
-            "Kroll Cyber Risk",
-            "Secureworks IR",
-            "Rapid7 IR",
-            "Other"
-        ], index=0)
+with op_col1:
+    mfa_status = st.selectbox("MFA Enforcement", ["None", "Privileged Accounts Only", "Universal / Conditional Access"], index=1)
+    patching = st.selectbox("Patch Management", ["Manual / Ad-hoc", "Automated (OS Only)", "Automated (OS & Third-Party)"], index=0)
+    backups = st.selectbox("Backup Strategy", ["No Formal Backups", "On-Premise Only", "Cloud/Offsite (Standard)", "Immutable / Air-Gapped"], index=1)
+    
+with op_col2:
+    insurance = st.selectbox("Cyber Insurance Status", ["None", "Exploring Requirements", "Active Policy"], index=0)
+    rto = st.selectbox("Downtime Tolerance", ["< 4 Hours (Critical)", "12-24 Hours", "48+ Hours"], index=1)
+    ir_readiness = st.selectbox("Incident Response (IR) Readiness", [
+        "No Formal Plan", 
+        "Documented IR Plan (Untested)", 
+        "Tested IR Plan with Active Retainer"
+    ], index=0)
+    
+    ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", [
+        "None",
+        "Sophos MDR Plus / Incident Response",
+        "Microsoft DART",
+        "CrowdStrike Falcon Complete IR",
+        "Mandiant / Google IR",
+        "Unit 42 (Palo Alto)",
+        "Kroll Cyber Risk",
+        "Secureworks IR",
+        "Rapid7 IR",
+        "Other"
+    ], index=0)
 
-    st.divider()
-    
-    ## --- SECURITY CULTURE CALCULATOR ---
-    st.markdown("### 🧮 Security Culture Calculator")
-    
-    calc_col1, calc_col2, calc_col3 = st.columns(3)
-    
-    with calc_col1:
-        q1 = st.radio("1. Phishing Simulations", ["Never", "Annually", "Monthly / Quarterly"])
-    with calc_col2:
-        q2 = st.radio("2. Security Training", ["None", "Annual Compliance Video", "Continuous with active coaching"])
-    with calc_col3:
-        q3 = st.radio("3. Endpoint Privileges", ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
-    
-    # Derive MFA score from the Operational Telemetry mfa_status field (avoids duplicate question)
-    mfa_score_map = {"None": 0, "Privileged Accounts Only": 1, "Universal / Conditional Access": 3}
-    mfa_score = mfa_score_map.get(mfa_status, 0)
-    
-    culture_score = 0
-    culture_score += mfa_score
-    culture_score += {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q1]
-    culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q2]
-    culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q3]
+st.divider()
 
-    if culture_score <= 4:
-        savviness_label = "Pillar 1: Reactive Culture"
-    elif culture_score <= 7:
-        savviness_label = "Pillar 2: Proactive Culture"
-    else:
-        savviness_label = "Pillar 3: Adaptive Culture"
+## --- SECURITY CULTURE CALCULATOR ---
+st.markdown("### 🧮 Security Culture Calculator")
 
-    savviness_profiles = {
-        "Pillar 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
-        "Pillar 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
-        "Pillar 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
-    }
-    
-    st.info(f"**Calculated Score: {culture_score}/8** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
-    savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
+calc_col1, calc_col2, calc_col3 = st.columns(3)
+
+with calc_col1:
+    q1 = st.radio("1. Phishing Simulations", ["Never", "Annually", "Monthly / Quarterly"])
+with calc_col2:
+    q2 = st.radio("2. Security Training", ["None", "Annual Compliance Video", "Continuous with active coaching"])
+with calc_col3:
+    q3 = st.radio("3. Endpoint Privileges", ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
+
+# Derive MFA score from the Operational Telemetry mfa_status field (avoids duplicate question)
+mfa_score_map = {"None": 0, "Privileged Accounts Only": 1, "Universal / Conditional Access": 3}
+mfa_score = mfa_score_map.get(mfa_status, 0)
+
+culture_score = 0
+culture_score += mfa_score
+culture_score += {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q1]
+culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q2]
+culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q3]
+
+if culture_score <= 4:
+    savviness_label = "Pillar 1: Reactive Culture"
+elif culture_score <= 7:
+    savviness_label = "Pillar 2: Proactive Culture"
+else:
+    savviness_label = "Pillar 3: Adaptive Culture"
+
+savviness_profiles = {
+    "Pillar 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
+    "Pillar 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
+    "Pillar 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
+}
+
+st.info(f"**Calculated Score: {culture_score}/8** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
+savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
 
 # --- GLOBAL INPUTS DICTIONARY ---
 client_inputs = {
@@ -530,6 +553,32 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
             
             if vciso_obj:
                 st.session_state['vciso_obj'] = vciso_obj
+                # Generate maturity-aligned threat scenario via LLM
+                try:
+                    threat_envelope = LLMEngine.generate_threat_scenario_for_vciso(
+                        client, deployment, st.session_state['client_inputs'], vciso_obj
+                    )
+                    if threat_envelope:
+                        outline = threat_envelope.outline
+                        threat_scenarios = [{
+                            "id": "ts-maturity-1",
+                            "name": getattr(outline, 'title', 'Maturity-Aligned Threat Scenario'),
+                            "incident_type": threat_envelope.maturity_level or "Pillar 1",
+                            "narrative": getattr(outline, 'executive_summary', ''),
+                            "triggers": getattr(outline, 'timeline', []) or [],
+                            "assets_at_risk": [client_inputs.get('critical_infra', 'Unknown')],
+                            "potential_impacts": [getattr(outline, 'impact', '')] if getattr(outline, 'impact', None) else [],
+                            "containment_steps": [],
+                            "recommended_actions": getattr(outline, 'mitigations', []) or [],
+                            "timelines": [{"outline": outline.model_dump() if hasattr(outline, 'model_dump') else {}}],
+                            "severity_by_maturity": {},
+                            "likelihood_by_maturity": {},
+                            "mdr_case_log": ""
+                        }]
+                        setattr(vciso_obj, "threat_scenarios", threat_scenarios)
+                        st.session_state['vciso_obj'] = vciso_obj
+                except Exception:
+                    pass  # Non-blocking: vCISO still works without threat scenarios
                 # Clear any cached export bytes from previous runs
                 for key in ['vciso_docx_bytes']:
                     st.session_state.pop(key, None)
@@ -623,6 +672,55 @@ elif st.session_state['workflow'] == "📈 vCISO Assessment":
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
                 st.markdown(f"**Resources:** {phase.resource_requirements}")
                 st.divider()
+        # Threat Scenarios (auto-generated) rendering
+        if getattr(vciso, 'threat_scenarios', None):
+            try:
+                threats = vciso.threat_scenarios
+            except Exception:
+                threats = None
+            if threats:
+                st.divider()
+                st.subheader("Threat Scenarios (Auto-generated)")
+                for ts in threats:
+                    ts_name = getattr(ts, 'name', 'Threat Scenario')
+                    ts_type = getattr(ts, 'incident_type', '')
+                    st.markdown(f"**{ts_name}** ({ts_type})")
+                    narrative = getattr(ts, 'narrative', '')
+                    if narrative:
+                        st.write(narrative)
+                    # Triggers
+                    triggers = getattr(ts, 'triggers', []) or []
+                    if triggers:
+                        st.markdown("- Triggers: " + ", ".join(triggers))
+                    # Timelines
+                    timelines = getattr(ts, 'timelines', None)
+                    if timelines:
+                        st.markdown("**Timelines:**")
+                        if isinstance(timelines, list):
+                            for t in timelines:
+                                st.write(str(t))
+                        else:
+                            st.write(str(timelines))
+                    # Assets & Impacts
+                    assets = getattr(ts, 'assets_at_risk', []) or []
+                    if assets:
+                        st.markdown("**Assets At Risk:** " + ", ".join(assets))
+                    impacts = getattr(ts, 'potential_impacts', []) or []
+                    if impacts:
+                        st.markdown("**Potential Impacts:**" )
+                        for imp in impacts:
+                            st.write(f"- {imp}")
+                    # MDR Case Log
+                    mdr_log = getattr(ts, 'mdr_case_log', None)
+                    if mdr_log:
+                        st.markdown("**MDR Case Log:**")
+                        st.write(mdr_log)
+                    # Recommendations
+                    recs = getattr(ts, 'recommended_actions', []) or []
+                    if recs:
+                        st.markdown("**Recommended Actions:**")
+                        for r in recs:
+                            st.write(f"- {r}")
         # Display Cost of Inaction (GBP) if available in VCISO maturity report
         _display_cost_of_inaction_section()
 

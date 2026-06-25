@@ -1,3 +1,47 @@
+def render_threat_scenarios_section(threat_scenarios):
+    """Render threat scenarios as a string suitable for DOCX/templating."""
+    if not threat_scenarios:
+        return ""
+    lines = []
+    lines.append("Threat Scenarios:")
+    for ts in threat_scenarios:
+        name = getattr(ts, "name", "Threat Scenario")
+        incident_type = getattr(ts, "incident_type", "")
+        lines.append(f"- {name} ({incident_type})")
+        narrative = getattr(ts, "narrative", "")
+        if narrative:
+            lines.append(f"  Narrative: {narrative}")
+        triggers = getattr(ts, "triggers", None)
+        if triggers:
+            if isinstance(triggers, (list, tuple)):
+                lines.append("  Triggers: " + ", ".join(map(str, triggers)))
+            else:
+                lines.append(f"  Triggers: {triggers}")
+        assets = getattr(ts, "assets_at_risk", None)
+        if assets:
+            if isinstance(assets, (list, tuple)):
+                lines.append("  Assets At Risk: " + ", ".join(map(str, assets)))
+            else:
+                lines.append(f"  Assets At Risk: {assets}")
+        impacts = getattr(ts, "potential_impacts", None)
+        if impacts:
+            if isinstance(impacts, (list, tuple)):
+                lines.append("  Potential Impacts: " + ", ".join(map(str, impacts)))
+            else:
+                lines.append(f"  Potential Impacts: {impacts}")
+        actions = getattr(ts, "recommended_actions", None)
+        if actions:
+            if isinstance(actions, (list, tuple)):
+                lines.append("  Recommended Actions: " + ", ".join(map(str, actions)))
+            else:
+                lines.append(f"  Recommended Actions: {actions}")
+        timelines = getattr(ts, "timelines", None)
+        if timelines:
+            lines.append("  Timelines: " + str(timelines))
+        mdr = getattr(ts, "mdr_case_log", None)
+        if mdr:
+            lines.append("  MDR Case Log: " + str(mdr))
+    return "\n".join(lines)
 # export.py
 import io
 import ast
@@ -204,6 +248,12 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
     # Clamp values to [0, max_radius] to respect the hard cap of the Three-Pillar Matrix
     values_clamped = [min(max_radius, max(0, v)) for v in values]
+    for label, original, clamped in zip(labels, values, values_clamped):
+        if original != clamped:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Radar chart value for '{label}' clamped from {original} to {clamped}"
+            )
     values_closed = values_clamped + values_clamped[:1]
     angles_closed = angles + angles[:1]
     
@@ -300,6 +350,7 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     doc = DocxTemplate(template_path)
     
     # Structure the context variables mirroring the template structure
+    # Initialize with existing fields for backwards compatibility
     context = {
         # --- Organisational Profile ---
         "customer_name": client_inputs.get("customer_name", "Customer"),
@@ -338,13 +389,49 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
         "advanced_controls": client_inputs.get("advanced_controls", "None"),
         
         # --- Dual Timeline Context ---
-        "threat_narrative": scenario_obj.narrative,
-        "threat_timeline": scenario_obj.timeline,
-        "threat_timeline_without_sophos": scenario_obj.timelines.without_sophos if hasattr(scenario_obj, 'timelines') else [],
-        "threat_timeline_with_sophos": scenario_obj.timelines.with_sophos if hasattr(scenario_obj, 'timelines') else scenario_obj.timeline,
+        "threat_narrative": getattr(scenario_obj, "narrative", ""),
+        "threat_timeline": getattr(scenario_obj, "timeline", []),
+        "threat_timeline_without_sophos": getattr(scenario_obj, "timelines", None).without_sophos if hasattr(scenario_obj, 'timelines') else [],
+        "threat_timeline_with_sophos": getattr(scenario_obj, "timelines", None).with_sophos if hasattr(scenario_obj, 'timelines') else getattr(scenario_obj, "timeline", []),
         "mdr_case_log": mdr_case,
         "recommendations": recs,
     }
+
+    # NEW: If envelope-based threat scenario is provided, render the outline parts into separate placeholders
+    outline_text = ""
+    exec_summary_text = ""
+    timeline_text = ""
+    impact_text = ""
+    mitigations_text = ""
+    try:
+        outline = getattr(scenario_obj, "outline", None)
+        if isinstance(outline, dict):
+            exec_summary_text = outline.get("executive_summary", "")
+            timeline_list = outline.get("timeline", []) or []
+            timeline_text = "\n".join([f"- {t}" for t in timeline_list]) if isinstance(timeline_list, list) else str(timeline_list)
+            title_out = outline.get("title", "Threat Scenario Outline")
+            outline_text = title_out if title_out else "Threat Scenario Outline"
+            impact_text = outline.get("impact", "")
+            mitigations_list = outline.get("mitigations", []) or []
+            if isinstance(mitigations_list, list):
+                mitigations_text = "\n".join([f"- {m}" for m in mitigations_list])
+            else:
+                mitigations_text = str(mitigations_list)
+        # If an envelope is used, try to render the outline block into a single string as well
+        envelope_outline = getattr(outline, "outline", None) if not isinstance(outline, dict) else None
+    except Exception:
+        envelope_outline = None
+
+    if outline is not None and isinstance(outline, dict):
+        # Map into the new placeholders used by the template if present
+        context.update({
+            "ThreatScenarioOutline": outline_text,
+            "ThreatScenarioExecutiveSummary": exec_summary_text,
+            "ThreatScenarioTimeline": timeline_text,
+            "ThreatScenarioImpact": impact_text,
+            "ThreatScenarioMitigations": mitigations_text,
+        })
+    
     
     # Render the docx template with our context mapping
     doc.render(context)
@@ -488,6 +575,12 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
 
+    # Build threat scenario section string if available to support template rendering
+    try:
+        threat_section_str = render_threat_scenarios_section(getattr(report_data, "threat_scenarios", None))
+    except Exception:
+        threat_section_str = ""
+
     context = {
         "customer_name": client_inputs.get("customer_name", "Customer"),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
@@ -532,6 +625,9 @@ def create_vciso_docx(client_inputs: dict, report_data) -> bytes:
         "consultant_discovery_guide": getattr(report_data, "consultant_discovery_guide", ""),
         "compliance_alignment_render": compliance_alignment_render,
         "partnership_outline": getattr(report_data, "partnership_outline", ""),
+        # Optional threat scenarios string for template rendering
+        "threat_scenarios": threat_section_str,
+        "threat_scenarios_section": threat_section_str,
     }
     # Threat intelligence: populate from the LLM-generated report data
     context["threat_intelligence_context"] = getattr(report_data, "threat_intelligence_context", "") or ""

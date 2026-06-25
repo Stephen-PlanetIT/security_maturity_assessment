@@ -13,6 +13,33 @@ class TimelineEvent(BaseModel):
     timestamp: str = Field(description="The timestamp of the event, e.g., '02:00 UTC'")
     event_description: str = Field(description="A detailed description of the attack progression or MDR intervention.")
 
+class ThreatEvent(BaseModel):
+    event_id: str = Field(description="Unique identifier for the threat event.")
+    name: str = Field(description="Name of the threat event.")
+    description: str = Field(description="Description of the event.")
+    severity: int = Field(ge=1, le=3, description="Severity rating mapped to Pillar scoring: 1-3.")
+
+class ThreatScenarioOutline(BaseModel):
+    title: str = Field(description="Title of the threat scenario outline.")
+    executive_summary: str = Field(description="Executive summary describing the scenario at a high level.")
+    timeline: List[str] = Field(description="Structured timeline steps for the threat scenario.")
+    threat_events: List[ThreatEvent] = Field(description="Threat events composing the outline.", min_items=1)
+    impact: Optional[str] = Field(default=None, description="Concise narrative of impact aligned to pillar scoring.")
+    mitigations: Optional[List[str]] = Field(default=None, description="Mitigations for the threat scenario outline.")
+
+class PillarScore(BaseModel):
+    pillar_1: int = Field(ge=1, le=3, description="Pillar 1 score (Reactive).")
+    pillar_2: int = Field(ge=1, le=3, description="Pillar 2 score (Proactive).")
+    pillar_3: int = Field(ge=1, le=3, description="Pillar 3 score (Adaptive).")
+
+class ThreatScenarioEnvelope(BaseModel):
+    customer_id: str = Field(description="Client identifier for the engagement.")
+    maturity_level: str = Field(description="Current maturity level, e.g., Pillar 1/2/3.")
+    outline: ThreatScenarioOutline = Field(description="Threat scenario outline payload to be rendered into templates.")
+    threat_payload: Optional[ThreatScenarioOutline] = Field(
+        default=None,
+        description="Extended threat scenario payload for internal rendering and potential future extension."
+    )
 class ThreatTimelines(BaseModel):
     without_sophos: List[TimelineEvent] = Field(
         description="The FULL unmitigated attack timeline showing what would occur WITHOUT Sophos MDR. Must span from initial access through to objective completion (exfiltration, encryption, or final objective). Do NOT include any MDR detection or intervention events.",
@@ -122,6 +149,10 @@ class MaturityReport(BaseModel):
     threat_intelligence_context: Optional[str] = Field(default=None, description="Threat intelligence context relevant to the governance narrative.")
     cost_of_inaction_summary: Optional[str] = Field(default=None, description="Short GBP cost-of-inaction narrative derived from MonetaryCostGBP or explicit input.")
     compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.")
+    partnership_outline: Optional[str] = Field(
+        default=None,
+        description="Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client."
+    )
     microsoft_healthchecks_recommendations: Optional[str] = Field(description="Recommendations for Microsoft healthchecks and hardening when Microsoft tools are used.")
     
     # --- LOCKED DOMAIN LENGTH ---
@@ -348,3 +379,53 @@ You MUST populate the following optional fields with substantive, consultative c
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive vCISO Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
     return base_prompt + "\n\n" + ban_clause + "\n\n" + rules
+
+
+def build_threat_from_maturity_prompt(client_inputs, maturity_report):
+    """
+    Construct a prompt that takes the completed MaturityReport context
+    (pillar scores, critical gaps, crown jewels, RTO, insurance status)
+    and asks the LLM to generate a maturity-aligned ThreatScenarioEnvelope.
+    The scenario must illustrate how an attacker would exploit the specific
+    gaps identified in the assessment.
+    """
+    pillar = getattr(maturity_report, 'resiliency_matrix_mapping', 'Pillar 1')
+    
+    # Build gap summary from domain assessments
+    gaps_summary = []
+    for domain in getattr(maturity_report, 'domain_assessments', []):
+        name = getattr(domain, 'domain_name', 'Unknown')
+        maturity = getattr(domain, 'current_maturity_level', 'Unknown')
+        critical = getattr(domain, 'critical_gaps', [])
+        if critical:
+            gaps_summary.append(f"  - {name} ({maturity}): {', '.join(critical)}")
+    
+    gap_text = '\n'.join(gaps_summary) if gaps_summary else 'No critical gaps identified.'
+    
+    prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Industry: {client_inputs['industry']}
+CLIENT ENVIRONMENT: Users: {client_inputs.get('users', '500')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')}
+MATURITY CONTEXT: {pillar}
+IDENTIFIED GAPS:
+{gap_text}
+
+OPERATIONAL TELEMETRY:
+- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
+- Cyber Insurance: {client_inputs.get('insurance', 'Unknown')}
+- IR Readiness: {client_inputs.get('ir_readiness', 'Unknown')}
+- MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
+- Patch Management: {client_inputs.get('patching', 'Unknown')}
+- Backup Strategy: {client_inputs.get('backups', 'Unknown')}
+
+THREAT SCENARIO REQUIREMENTS:
+- Generate a maturity-aligned ThreatScenarioEnvelope.
+- The scenario MUST exploit the specific gaps identified above.
+- If MFA is not universally enforced, the attack vector MUST exploit credential-based access.
+- If patching is manual/ad-hoc, the attack MUST leverage an unpatched vulnerability.
+- If backups are absent or on-premise only, the impact MUST include unrecoverable data loss.
+- The executive_summary must be board-ready: explain the attack path, the business impact tied to their RTO and Crown Jewels, and why their current maturity level leaves them exposed.
+- The timeline must span from initial access through to objective completion.
+- Include 3-5 specific mitigations tied directly to the recommended solutions from the assessment.
+
+Act as ROLE 1 (Tactical Threat Analyst) but write for a vCISO advisory context. Use British English."""
+
+    return prompt
