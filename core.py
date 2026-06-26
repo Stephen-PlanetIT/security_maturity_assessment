@@ -3,7 +3,10 @@ import streamlit as st
 from openai import AzureOpenAI
 import time
 import random
+import logging
 from config import get_config, ConfigKey
+
+_logger = logging.getLogger(__name__)
 
 
 class LLMEngine:
@@ -25,7 +28,8 @@ class LLMEngine:
                 timeout=300.0 
             )
         except Exception as e:
-            st.error(f"🚨 Client Initialization Error: {e}")
+            _logger.error("Client initialisation failed: %s", e, exc_info=True)
+            st.error("🚨 Unable to initialise the advisory engine. Please check the configuration and try again.")
             return None
 
     @staticmethod
@@ -61,12 +65,14 @@ class LLMEngine:
                     return response.choices[0].message.parsed
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        st.error(f"Generation failed after {max_retries} attempts: {e}")
+                        _logger.error("Structured generation exhausted retries (%d attempts): %s", max_retries, e, exc_info=True)
+                        st.error("Report generation failed after multiple attempts. Please try again.")
                         return None
                     time.sleep((2 ** attempt) + random.random())
                     
         except Exception as e:
-            st.error(f"LLM Generation Error: {e}")
+            _logger.error("LLM structured generation error: %s", e, exc_info=True)
+            st.error("An error occurred during report generation. Please try again.")
             return None
 
     @staticmethod
@@ -93,12 +99,14 @@ class LLMEngine:
                     return response.choices[0].message.content
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        st.error(f"Text generation failed after {max_retries} attempts: {e}")
+                        _logger.error("Text generation exhausted retries (%d attempts): %s", max_retries, e, exc_info=True)
+                        st.error("Text generation failed after multiple attempts. Please try again.")
                         return None
                     time.sleep(2 ** attempt)
 
         except Exception as e:
-            st.error(f"LLM Text Generation Error: {e}")
+            _logger.error("LLM text generation error: %s", e, exc_info=True)
+            st.error("An error occurred during text generation. Please try again.")
             return None
 
     @staticmethod
@@ -154,7 +162,8 @@ class LLMEngine:
 
             except Exception as e:
                 if attempt == max_retries - 1:
-                    yield f"\n\n[Streaming error after {max_retries} attempts: {e}]"
+                    _logger.error("Streaming generation exhausted retries (%d attempts): %s", max_retries, e, exc_info=True)
+                    yield "\n\n[An error occurred during streaming. Please try again.]"
                     return
                 import time
                 time.sleep((2 ** attempt) + random.random())

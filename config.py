@@ -45,7 +45,7 @@ def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
         value = st.secrets.get(key)
         if value is not None:
             return value
-    except Exception:
+    except (AttributeError, FileNotFoundError, ModuleNotFoundError):
         pass  # No secrets file — fall through to os.environ
 
     # 2. Try os.environ (ACA / container runtime)
@@ -108,12 +108,20 @@ def get_planet_branding_palette():
     if not raw:
         return None
     try:
+        import re
+        _COLOUR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
         palette = json.loads(raw) if isinstance(raw, str) else raw
         primary = palette.get("primaryColor") or palette.get("primary_color") or palette.get("primary")
         background = palette.get("backgroundColor") or palette.get("background_color") or palette.get("background")
         secondary = palette.get("secondaryBackgroundColor") or palette.get("secondary_background_color") or palette.get("secondary_background")
         text = palette.get("textColor") or palette.get("text_color") or palette.get("text")
         if primary and background and secondary and text:
+            if not all(_COLOUR_RE.match(str(c)) for c in [primary, background, secondary, text]):
+                import logging
+                logging.getLogger(__name__).warning(
+                    "PLANET_BRAND_COLORS contains non-hex values; rejecting palette for safety."
+                )
+                return None
             return {
                 "primaryColor": primary,
                 "backgroundColor": background,

@@ -1,43 +1,53 @@
-# Use a slim, secure Python runtime as the base image
-FROM python:3.10-slim
+# ================================================================
+# STAGE 1: Build stage — installs dependencies into a virtual env
+# ================================================================
+FROM python:3.10-slim AS builder
 
-# Set the working directory in the container
-WORKDIR /app
+WORKDIR /build
 
-# Install system dependencies required for matplotlib, fpdf2, and healthchecks
 RUN apt-get update && apt-get install -y \
     build-essential \
     libfreetype6-dev \
     libpng-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
 COPY requirements.txt .
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Install the Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# ================================================================
+# STAGE 2: Production stage — minimal, non-root, read-only capable
+# ================================================================
+FROM python:3.10-slim AS production
 
-# Copy ALL application logic and static knowledge base
-# (This safely ingests app.py, core.py, config.py, data.py, export.py, prompts.py, and catalog.py)
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r appuser && useradd -r -g appuser -d /app appuser
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application code and assets
 COPY *.py ./
-
-# Copy the VERSION tracker file
 COPY VERSION .
-
-# Copy Streamlit theme configuration for brand-consistent Azure deployment
 COPY .streamlit/config.toml .streamlit/config.toml
-
-# Copy the core Planet IT branding templates
 COPY planet_it_master_template.pptx .
 COPY planet_it_maturity_assessment_template.docx .
 COPY planet_it_threat_scenario_template.docx .
 
-# Expose the standard Streamlit port
+# Ensure appuser owns the working directory
+RUN chown -R appuser:appuser /app
+
+# Drop to non-root user
+USER appuser
+
 EXPOSE 8501
 
-# Healthcheck to ensure the container is routing correctly
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
+    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
-# Instruct the container to run Streamlit on boot
 ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

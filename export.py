@@ -1,6 +1,6 @@
 # export.py
 import io
-import ast
+import json
 import re
 import textwrap
 from docxtpl import DocxTemplate, InlineImage
@@ -227,8 +227,10 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
     ax.set_xticklabels(labels, size=9)
     
     tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-    plt.savefig(tmpfile.name, format='png', bbox_inches='tight')
-    plt.close(fig)
+    try:
+        plt.savefig(tmpfile.name, format='png', bbox_inches='tight')
+    finally:
+        plt.close(fig)
     
     return tmpfile.name
 
@@ -236,7 +238,7 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
 def _normalize_kd(kd):
     """Normalise key_deliverables to a bullet-text string.
     - If kd is a list, render as bullet points joined by newlines.
-    - If kd is a string that resembles a Python list, attempt to ast.literal_eval and render if it yields a list.
+    - If kd is a string that resembles a JSON array, parse it and render if successful.
     - Otherwise, return the string value or an empty string.
     """
     if isinstance(kd, list):
@@ -246,10 +248,10 @@ def _normalize_kd(kd):
         if not s:
             return ""
         try:
-            parsed = ast.literal_eval(s)
+            parsed = json.loads(s)
             if isinstance(parsed, list):
                 return "\n".join(f"• {str(item)}" for item in parsed)
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
         return s
     return ""
@@ -532,9 +534,14 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
             labels = list(data.keys())
             values = list(data.values())
     chart_path = generate_radar_chart_from_values(labels, values, figsize=(4, 4))
-    with open(chart_path, "rb") as f:
-        chart_buffer = io.BytesIO(f.read())
-    os.unlink(chart_path)
+    try:
+        with open(chart_path, "rb") as f:
+            chart_buffer = io.BytesIO(f.read())
+    finally:
+        try:
+            os.unlink(chart_path)
+        except OSError:
+            pass
     chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
 
     # 2) Domains & Roadmap derivation with safe defaults

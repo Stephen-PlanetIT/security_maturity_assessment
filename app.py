@@ -1,5 +1,7 @@
 import streamlit as st
 import random
+import time
+import re as _re
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import FULLY_MANAGED_URL, CO_MANAGED_URL
@@ -7,6 +9,37 @@ from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
+
+_SANITISE_RE = _re.compile(r'["]{3,}|\'{3,}|`{3,}|(?:\r?\n){3,}')
+_SANITISE_REPLACEMENTS = [
+    (_re.compile(r'["]{3,}'), '"'),
+    (_re.compile(r"'{3,}"), "'"),
+    (_re.compile(r'`{3,}'), '`'),
+    (_re.compile(r'(?:\r?\n){3,}'), '\n\n'),
+]
+
+
+def _sanitise_input(value):
+    """Strip prompt injection vectors from a single input string.
+
+    Removes triple-quotes, triple-backticks, and excessive newlines that
+    could be used to break out of the LLM prompt context.  Returns the
+    sanitised string (or the original if it is not a string).
+    """
+    if not isinstance(value, str):
+        return value
+    sanitised = value
+    for pattern, replacement in _SANITISE_REPLACEMENTS:
+        sanitised = pattern.sub(replacement, sanitised)
+    return sanitised.strip()
+
+
+def _sanitise_client_inputs(inputs: dict) -> dict:
+    """Sanitise all string values in the client_inputs dictionary."""
+    return {
+        k: _sanitise_input(v) if isinstance(v, str) else v
+        for k, v in inputs.items()
+    }
 
 # --- VERSION TRACKER ---
 with open("VERSION", "r") as f:
@@ -151,7 +184,9 @@ def get_threat_pdf_bytes():
                 st.session_state['mdr_case']
             )
         except Exception as e:
-            st.error(f"PDF Export Failed: {e}")
+            import logging
+            logging.getLogger(__name__).error("PDF export failed: %s", e, exc_info=True)
+            st.error("PDF export failed. Please try regenerating the report.")
     return st.session_state.get('pdf_bytes')
 
 def get_threat_docx_bytes():
@@ -165,7 +200,9 @@ def get_threat_docx_bytes():
                 st.session_state['mdr_case']
             )
         except Exception as e:
-            st.error(f"Word Export Failed: {e}")
+            import logging
+            logging.getLogger(__name__).error("Word export failed: %s", e, exc_info=True)
+            st.error("Word export failed. Please try regenerating the report.")
     return st.session_state.get('threat_docx_bytes')
 
 def get_maturity_docx_bytes():
@@ -181,7 +218,9 @@ def get_maturity_docx_bytes():
                 st.session_state['maturity_obj']
             )
         except Exception as e:
-            st.error(f"Cybersecurity Maturity Assessment Word Export Failed: {e}")
+            import logging
+            logging.getLogger(__name__).error("Maturity Word export failed: %s", e, exc_info=True)
+            st.error("Maturity report export failed. Please try regenerating the report.")
     return st.session_state.get('maturity_docx_bytes')
 
 def _display_cost_of_inaction_section():
@@ -203,6 +242,19 @@ def _display_cost_of_inaction_section():
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Security Use Case Generator", layout="wide")
+
+# Inject Content Security Policy header via meta tag (static string, no user input)
+_CSP_META = (
+    '<meta http-equiv="Content-Security-Policy" '
+    'content="default-src \'self\'; '
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self' https://*.azure.com https://*.openai.azure.com; "
+    'frame-ancestors \'none\';">'
+)
+st.markdown(_CSP_META, unsafe_allow_html=True)
 validate_platform_config() # Fails fast if keys are missing
 # [PLANET BRANDING LOAD] Inject branding palette if provided (Azure/Env based)
 try:
@@ -457,7 +509,7 @@ client_inputs = {
     "partnership_type": partnership_type
 }
 
-st.session_state['client_inputs'] = client_inputs
+st.session_state['client_inputs'] = _sanitise_client_inputs(client_inputs)
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
 st.divider()
@@ -466,10 +518,18 @@ st.divider()
 if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
     st.header("Tactical Threat Simulator")
     
-    if st.button("Generate Threat Scenario", type="primary"):
+    _now_ts = time.time()
+    _cooldown = 30
+    _last_gen = st.session_state.get('_last_generation_ts', 0)
+    _remaining = max(0, _cooldown - int(_now_ts - _last_gen))
+    if _remaining > 0:
+        st.info(f"⏳ Cooldown active — generation available in {_remaining} second{'s' if _remaining != 1 else ''}.")
+    
+    if st.button("Generate Threat Scenario", type="primary", disabled=(_remaining > 0)):
         # Clear any cached export bytes from previous runs
         for key in ['pdf_bytes', 'threat_docx_bytes', 'mdr_case']:
             st.session_state.pop(key, None)
+        st.session_state['_last_generation_ts'] = time.time()
         
         with st.spinner("Simulating Attack & MDR Response..."):
             client = LLMEngine.get_client()
@@ -530,7 +590,15 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
 elif st.session_state['workflow'] == "📈 Cybersecurity Maturity Assessment":
     st.header("Cybersecurity Maturity Assessment")
     
-    if st.button("Generate Maturity Roadmap", type="primary"):
+    _now_ts2 = time.time()
+    _cooldown2 = 30
+    _last_gen2 = st.session_state.get('_last_generation_ts', 0)
+    _remaining2 = max(0, _cooldown2 - int(_now_ts2 - _last_gen2))
+    if _remaining2 > 0:
+        st.info(f"⏳ Cooldown active — generation available in {_remaining2} second{'s' if _remaining2 != 1 else ''}.")
+    
+    if st.button("Generate Maturity Roadmap", type="primary", disabled=(_remaining2 > 0)):
+        st.session_state['_last_generation_ts'] = time.time()
         with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
             client = LLMEngine.get_client()
             deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
