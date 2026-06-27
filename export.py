@@ -13,6 +13,24 @@ import numpy as np
 import os
 import tempfile
 
+def _xml_escape_dict(d):
+    """Recursively escape &, <, > in all string values of a dict for safe DOCX XML embedding."""
+    escaped = {}
+    for key, value in d.items():
+        if isinstance(value, str):
+            escaped[key] = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        elif isinstance(value, list):
+            escaped[key] = [
+                v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if isinstance(v, str) else v
+                for v in value
+            ]
+        elif isinstance(value, dict):
+            escaped[key] = _xml_escape_dict(value)
+        else:
+            escaped[key] = value
+    return escaped
+
+
 # --- TEXT CLEANER (UNICODE SAFE) ---
 def clean_text(text, mode="pdf"):
     if not text: return ""
@@ -408,47 +426,115 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
     Inject formatted threat scenario content into the Word document.
     Parses the raw threat_scenarios list and creates proper Word formatting:
     bold headers, italic types, section headings, bullets, and paragraphs.
+    Inserts content at the {{ threat_scenarios }} placeholder position.
     """
     import re as _re
     from docx.shared import Pt
+    from docx.oxml import OxmlElement
+    from docx.text.paragraph import Paragraph
 
     if not threat_scenarios or not isinstance(threat_scenarios, list) or len(threat_scenarios) == 0:
         return
 
-    # First, try to find and remove the {{ threat_scenarios }} literal tag
+    # Find the {{ threat_scenarios }} placeholder paragraph
+    placeholder_element = None
     for paragraph in doc.paragraphs:
         if '{{ threat_scenarios }}' in paragraph.text:
-            for run in list(paragraph.runs):
-                run._element.getparent().remove(run._element)
+            placeholder_element = paragraph._element
             break
+
+    if placeholder_element is None:
+        return
+
+    # Helper: create a new paragraph inserted after the given element
+    def _new_para_after(prev_el, style=None):
+        new_p = OxmlElement('w:p')
+        prev_el.addnext(new_p)
+        para = Paragraph(new_p, prev_el.getparent())
+        if style:
+            para.style = style
+        return para, new_p
+
+    # Track the last inserted element; start inserting after the placeholder
+    last_el = [placeholder_element]  # Use list for mutability in nested helpers
 
     # Helper: parse Markdown-text and add formatted runs to a paragraph
     def _add_formatted_text(para, text):
-        """Parse **bold**, *italic*, and `inline code` in a line and add as runs."""
-        pattern = _re.compile(r'(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)')
+        """Parse **bold**, *italic*, `inline code`, and [text](url) links in a line and add as runs."""
+        # Pattern: Markdown link [text](url), double-star bold, single-star italic, inline code
+        pattern = _re.compile(r'\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|`(.+?)`')
         last_end = 0
         for match in pattern.finditer(text):
-            # Text before the match
             if match.start() > last_end:
                 para.add_run(text[last_end:match.start()])
-            if match.group(2):  # **bold**
-                run = para.add_run(match.group(2))
-                run.bold = True
-            elif match.group(3):  # *italic*
-                run = para.add_run(match.group(3))
+            if match.group(1) is not None and match.group(2) is not None:  # [text](url) Markdown link
+                run = para.add_run(f"{match.group(1)} ({match.group(2)})")
                 run.italic = True
-            elif match.group(4):  # `code`
+            elif match.group(3):  # **bold**
+                run = para.add_run(match.group(3))
+                run.bold = True
+            elif match.group(4):  # *italic* (single star, non-overlapping)
                 run = para.add_run(match.group(4))
+                run.italic = True
+            elif match.group(5):  # `code`
+                run = para.add_run(match.group(5))
                 run.font.name = 'Courier New'
             last_end = match.end()
-        # Remaining text
         if last_end < len(text):
             para.add_run(text[last_end:])
 
     # Helper: add a blank paragraph spacer
-    def _add_spacer(doc):
-        spacer = doc.add_paragraph()
+    def _add_spacer():
+        spacer, new_el = _new_para_after(last_el[0])
         spacer.paragraph_format.space_after = Pt(6)
+        last_el[0] = new_el
+
+    # Helper: render a single block of markdown lines into Word paragraphs
+    def _render_markdown_block(lines, last_el_ref):
+        """Process a block of markdown lines (split by \n) into Word paragraphs.
+        Handles: ### headers, -/* bullets, 1. ordered lists, plain paragraphs."""
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line:
+                i += 1
+                continue
+
+            # Section headers: ### Section ... or ## Section ...
+            if _re.match(r'^#{1,4}\s+', line):
+                header_text = _re.sub(r'^#{1,4}\s+', '', line)
+                h_para, new_el = _new_para_after(last_el_ref[0])
+                last_el_ref[0] = new_el
+                h_run = h_para.add_run(header_text)
+                h_run.bold = True
+                h_run.font.size = Pt(11)
+                h_para.paragraph_format.space_before = Pt(8)
+                i += 1
+                continue
+
+            # Ordered list items: 1. 2. 3. etc.
+            if _re.match(r'^\d+\.\s+', line):
+                item_text = _re.sub(r'^\d+\.\s+', '', line)
+                li_para, new_el = _new_para_after(last_el_ref[0], style='List Number')
+                last_el_ref[0] = new_el
+                _add_formatted_text(li_para, item_text)
+                i += 1
+                continue
+
+            # Unordered bullet points: - item or * item
+            if _re.match(r'^[-*]\s+', line):
+                bullet_text = _re.sub(r'^[-*]\s+', '', line)
+                b_para, new_el = _new_para_after(last_el_ref[0], style='List Bullet')
+                last_el_ref[0] = new_el
+                _add_formatted_text(b_para, bullet_text)
+                i += 1
+                continue
+
+            # Plain paragraph
+            p_para, new_el = _new_para_after(last_el_ref[0])
+            last_el_ref[0] = new_el
+            _add_formatted_text(p_para, line)
+            i += 1
 
     # Build content for each scenario
     for scenario in threat_scenarios:
@@ -457,7 +543,8 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
         narrative = scenario.get("narrative", "") if isinstance(scenario, dict) else getattr(scenario, "narrative", "")
 
         # Scenario title: bold name + italic type
-        title_para = doc.add_paragraph()
+        title_para, new_el = _new_para_after(last_el[0])
+        last_el[0] = new_el
         title_run = title_para.add_run(name)
         title_run.bold = True
         title_run.font.size = Pt(13)
@@ -467,37 +554,19 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
         title_para.paragraph_format.space_before = Pt(12)
         title_para.paragraph_format.space_after = Pt(6)
 
-        # Narrative: split into paragraphs, parse each for Markdown formatting
+        # Narrative: split into paragraph blocks by double-newline, then parse each block
         if narrative:
-            paragraphs = narrative.split('\n\n')
-            for block in paragraphs:
+            blocks = narrative.split('\n\n')
+            for block in blocks:
                 block = block.strip()
                 if not block:
                     continue
-                lines = block.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # Section headers: ### Section ...
-                    if _re.match(r'^#{1,4}\s+', line):
-                        header_text = _re.sub(r'^#{1,4}\s+', '', line)
-                        h_para = doc.add_paragraph()
-                        h_run = h_para.add_run(header_text)
-                        h_run.bold = True
-                        h_run.font.size = Pt(11)
-                        h_para.paragraph_format.space_before = Pt(8)
-                        continue
-                    # Bullet points: - item or * item
-                    if _re.match(r'^[-*]\s+', line):
-                        bullet_text = _re.sub(r'^[-*]\s+', '', line)
-                        b_para = doc.add_paragraph(style='List Bullet')
-                        _add_formatted_text(b_para, bullet_text)
-                        continue
-                    # Normal paragraph
-                    p_para = doc.add_paragraph()
-                    _add_formatted_text(p_para, line)
-                _add_spacer(doc)
+                block_lines = block.split('\n')
+                _render_markdown_block(block_lines, last_el)
+                _add_spacer()
+
+    # Remove the original placeholder paragraph
+    placeholder_element.getparent().remove(placeholder_element)
 
 
 def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
@@ -551,11 +620,11 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         domain_items = []
     for item in domain_items:
         if hasattr(item, "model_dump"):
-            domains_list.append(item.model_dump())
+            domains_list.append(_xml_escape_dict(item.model_dump()))
         elif isinstance(item, dict):
-            domains_list.append(item)
+            domains_list.append(_xml_escape_dict(item))
         else:
-            domains_list.append({"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))})
+            domains_list.append(_xml_escape_dict({"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))}))
 
     roadmap_list = []
     phases = getattr(report_data, "phased_roadmap", None) or getattr(report_data, "roadmap", None) or []
@@ -563,11 +632,11 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         phases = []
     for phase in phases:
         if hasattr(phase, "model_dump"):
-            phase_dict = phase.model_dump()
+            phase_dict = _xml_escape_dict(phase.model_dump())
         elif isinstance(phase, dict):
-            phase_dict = phase
+            phase_dict = _xml_escape_dict(phase)
         else:
-            phase_dict = {"phase": getattr(phase, "phase", "Phase")}
+            phase_dict = _xml_escape_dict({"phase": getattr(phase, "phase", "Phase")})
 
         # Normalise key_deliverables in the roadmap to avoid bracketed list representations
         if "key_deliverables" in phase_dict:
@@ -577,7 +646,7 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
 
     compliance_alignment_list = []
     if getattr(report_data, "compliance_alignment", None):
-        compliance_alignment_list = [c.model_dump() for c in report_data.compliance_alignment]
+        compliance_alignment_list = [_xml_escape_dict(c.model_dump()) for c in report_data.compliance_alignment]
 
     compliance_alignment_structured = []
     for item in compliance_alignment_list:
@@ -637,10 +706,9 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
 
-    # Extract threat scenarios for later injection (Word-formatted, not Markdown)
-    threat_scenarios_data = getattr(report_data, "threat_scenarios", None)
-
     context = {
+        # Keep {{ threat_scenarios }} as a literal placeholder for post-render injection
+        "threat_scenarios": "{{ threat_scenarios }}",
         "customer_name": client_inputs.get("customer_name", "Customer"),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
         "industry": client_inputs.get("industry", "Unknown"),
@@ -725,7 +793,12 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
     else:
         context["partnership_outline"] = ""
     doc.render(context)
-    _inject_threat_scenarios_after_render(doc, threat_scenarios_data)
+
+    # Post-render: inject formatted threat scenarios with proper Word styling
+    threat_scenarios_data_for_inject = getattr(report_data, "threat_scenarios", None)
+    if threat_scenarios_data_for_inject and isinstance(threat_scenarios_data_for_inject, list):
+        _inject_threat_scenarios_after_render(doc, threat_scenarios_data_for_inject)
+
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)

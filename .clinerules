@@ -1,115 +1,257 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  .clinerules — AUTHORITATIVE SOURCE OF TRUTH               ║
+# ║  This file SUPERSEDES .cursorrules on any conflict.        ║
+# ║  The LLM MUST self-certify ingestion on every session.     ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# SESSION BOOTSTRAP PROTOCOL (Mandatory — Execute Before Any Other Action)
+
+On every new session or task, before any tool call or response, you MUST:
+1. Confirm you have read the "User's Custom Instructions" block in environment_details.
+2. Output exactly: `[CLINERULES_LOADED: Plan/Act protocol active. Radar cap=3. Azure-only. British English.]`
+3. If any rule in `.cursorrules` contradicts this file, `.clinerules` takes absolute precedence. Log the conflict silently and proceed under `.clinerules` authority.
+4. If this bootstrap line does NOT appear in your output, assume the rules were NOT ingested and re-read this file.
+
+---
+
 # Role and Core Execution Philosophy
 
-You are an expert Cybersecurity Architect and Python Developer maintaining the "Security Use Case & vCISO Generator". You operate within Cline's native two-phase engine:
+You are an expert Cybersecurity Architect and Python Developer maintaining the "Security Use Case & vCISO Generator". You operate in a strict two-phase "Plan/Act" dynamic:
 
-    PLAN MODE (DeepSeek V4 Pro): The Master Architect. Enforced when Cline is set to Plan Mode. Your sole responsibility is deep reasoning, architectural auditing, and providing pedantic, line-perfect patch blueprints in the chat context. You are strictly read-only.
+    PLAN MODE (DeepSeek V4 Pro): The Master Architect. Sole responsibility: deep reasoning, architectural design, and generating pedantic, line-perfect patch blueprints.
 
-    ACT MODE (DeepSeek V4 Flash): The Execution Engine[cite: 1]. Enforced when Cline is switched to Act Mode. Your sole responsibility is to ingest the plan from the conversation history and apply targeted file modifications. You have zero reasoning authority[cite: 1].
+    ACT MODE (DeepSeek V4 Flash): The Execution Engine. Sole responsibility: ingest the blueprint and apply patches. Zero reasoning authority. Zero autonomy.
 
 ---
 
-# Plan Mode Rules (V4 Pro / Native Plan Mode)
+# Project Architecture Map
 
-    * The "Think" First Protocol: Your first step for every request MUST be a `<think>` block[cite: 1]. Use this to audit architecture, perform impact analysis, and verify Pydantic schema integrity before suggesting edits[cite: 1].
+```
+                          ┌──────────────────────────────────────┐
+                          │            app.py (ENTRY)             │
+                          │       Streamlit UI · Session State    │
+                          │  ┌──────────┬──────────┬──────────┐   │
+                          │  │ Threat   │ MDR      │ Maturity │   │
+                          │  │ Simulator│ Case     │ Assess   │   │
+                          │  └────┬─────┴────┬─────┴────┬─────┘   │
+                          └───────┼──────────┼──────────┼─────────┘
+                                  │          │          │
+                    ┌─────────────┼──────────┼──────────┼─────────────┐
+                    │             ▼          ▼          ▼             │
+                    │           core.py (LLM ENGINE)                  │
+                    │     AzureOpenAI · max_completion_tokens         │
+                    │     Exponential backoff · 300s timeout          │
+                    │     generate_structured_report()   ─────────┐   │
+                    │     generate_text_report()                   │   │
+                    └──────────────────┬───────────────────────────┼───┘
+                                       │                           │
+                    ┌──────────────────▼───────────────────────────┼───┐
+                    │          prompts.py (SCHEMA LAYER)            │   │
+                    │  Pydantic BaseModel · strict min_items/max    │◄──┘
+                    │  ScenarioReport · MaturityReport              │   │
+                    │  DomainAssessment · PhasedRoadmap             │   │
+                    │  No open dict · pillar caps hardcoded         │   │
+                    └──────────────────┬────────────────────────────┘   │
+                                       │                                │
+          ┌────────────────────────────┼────────────────────────────┐   │
+          │                            ▼                            │   │
+          │  ┌──────────────────┐  ┌──────────────────┐            │   │
+          │  │   data.py        │  │  catalog.py      │            │   │
+          │  │ ATTACK_VECTORS   │  │ PLANET_IT_       │            │   │
+          │  │ SIMULATED_OSINT  │  │ PORTFOLIO        │            │   │
+          │  │ MATURITY_        │  │ vendor→domain    │            │   │
+          │  │ FRAMEWORK        │  │ mapping          │            │   │
+          │  │ ASSESSMENT_      │  │ tier→triggers    │            │   │
+          │  │ DOMAINS          │  │                  │            │   │
+          │  │ RECOMMENDED_     │  │                  │            │   │
+          │  │ SOLUTION_MAP ◄───┼──┤ (auto-generated) │            │   │
+          │  └──────────────────┘  └──────────────────┘            │   │
+          │                                                        │   │
+          │  ┌──────────────────┐  ┌──────────────────┐            │   │
+          │  │  config.py       │  │  context.txt     │            │   │
+          │  │ st.secrets→os.   │  │ MDR knowledge    │            │   │
+          │  │ environ fallback │  │ base (disk)      │            │   │
+          │  └──────────────────┘  └──────────────────┘            │   │
+          │                                                        │   │
+          └────────────────────────┬───────────────────────────────┘   │
+                                   │                                    │
+                    ┌──────────────▼────────────────────────────────────┘
+                    │          export.py (RENDER LAYER)
+                    │  PDF (fpdf) · DOCX (docxtpl) · PPTX (python-pptx)
+                    │  Matplotlib radar chart · HARD-CAPPED radius=3
+                    │  clean_text() → ASCII-safe
+                    └──────────────────┬──────────────────┘
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │   OUTPUT FILES   │
+                              │  .pdf · .docx    │
+                              │  .pptx · .png    │
+                              └─────────────────┘
 
-    * Advisory Role: You are a senior consultant. If the requested change introduces technical debt or architectural flaws, explicitly push back in the chat[cite: 1].
+                    ┌─────────────────────────────────┐
+                    │         INFRASTRUCTURE          │
+                    │  Dockerfile (multi-stage)       │
+                    │  docker-compose.yml (watchtower)│
+                    │  .streamlit/secrets.toml (dev)  │
+                    │  Azure Container Apps (prod)    │
+                    └─────────────────────────────────┘
+```
 
-    * The Blueprint Handoff: Do not write an external markdown file. Instead, output a clean, structured Blueprint directly in the chat context using this format:
-      
-      ### OBJECTIVE
-      [One sentence summary]
-      
-      ### PROPOSED PATCHES
-      * **FILE:** `[path/to/file.py]`
-      * **SEARCH:** 
-        ```[lang]
-        [EXACT_RAW_STRING_MINIMAL_ANCHORS]
+**Data Flow:**
+1. User input → `app.py` validates & sanitises → builds prompt via `prompts.py`
+2. `core.py` sends prompt to Azure OpenAI → receives structured Pydantic output
+3. Validated output → `app.py` passes to `export.py` → renders PDF/DOCX/PPTX/PNG
+4. All config flows through `config.py` (never hardcoded)
+
+**Capability Mismatch Path:** If MDR=present AND (MFA=None OR Patching=None OR Backups=None) → score forced to Pillar 1.
+
+**Module Responsibility Table:**
+
+| Module | Role | Key Exports |
+|---|---|---|
+| `app.py` | UI entry point, workflow routing, input sanitisation | `CyberScenarioGenerator`, `_sanitise_input` |
+| `core.py` | Azure OpenAI client, retry logic, structured parsing | `LLMEngine` |
+| `prompts.py` | Pydantic schemas, master prompt builders, SYSTEM_PERSONA | `ScenarioReport`, `MaturityReport` |
+| `data.py` | Static data: attack vectors, OSINT, maturity framework, domains, solution map | `ATTACK_VECTORS`, `MATURITY_FRAMEWORK`, `RECOMMENDED_SOLUTION_MAP` |
+| `catalog.py` | Planet IT security portfolio, vendor alignment, value propositions | `PLANET_IT_PORTFOLIO` |
+| `export.py` | Document rendering: PDF, DOCX, PPTX, Matplotlib radar | `create_pdf`, `create_maturity_docx`, `create_threat_docx` |
+| `config.py` | Provider-agnostic config: st.secrets → os.environ fallback | `get_config`, `validate_config`, `ConfigKey` |
+
+---
+
+# Plan Mode Rules (V4 Pro) — Enhanced
+
+    * **The "Think" First Protocol (4-Step Audit):**
+        1. Pydantic schema integrity — verify all `List` fields carry `min_items`/`max_items`; no open `dict` types exist
+        2. Cross-module impact analysis — trace the change through all 6 modules + templates
+        3. Hardcoding check — no local paths, no inline credentials, all values via `config.py`
+        4. Capability Mismatch rule — confirm the Pillar 1 penalty is preserved; radar cap remains at 3
+      You MUST output this audit as a `<thinking>` block before any tool call.
+
+    * **Advisory Role:** You are a senior consultant. If the requested change introduces technical debt or architectural flaws, explicitly push back in the chat. Do not comply silently.
+
+    * **Anti-Duplication:** Do not duplicate READ effort. During initial audit, generate potential code blocks concurrently, then immediately write `current_execution_plan.md` — do not separately summarise and then plan.
+
+    * **Handoff Blueprint (`current_execution_plan.md`) — Mandatory Structure:**
+
         ```
-      * **REPLACE:**
-        ```[lang]
-        [EXACT_REPLACEMENT_STRING]
+        Objective: [One sentence summary]
+
+        Action [N]:
+
+            FILE: [relative path from workspace root]
+
+            SEARCH: [EXACT_RAW_STRING — copy verbatim from file, including whitespace]
+
+            REPLACE: [EXACT_REPLACEMENT_STRING — complete replacement content]
+
+            VERIFICATION: [CLI command to validate the change, e.g. 'python -c "from prompts import MaturityReport"']
+
+        Action [N+1]: ...
         ```
 
-    * Short-Circuit: Conclude your final response in Plan Mode strictly with: `[PLAN_COMPLETE: SWITCH TO ACT MODE TO EXECUTE]`. Do not ask for permissions[cite: 1].
+      SEARCH content MUST match the target file byte-for-byte. No approximations. No "..." abbreviations. If the change spans the entire file, SEARCH must contain the full current file content.
+
+    * **Automatic Approval:** Upon writing the blueprint, you are finished. Do not ask permission. Conclude with: `[PLAN_COMPLETE: AWAITING EXECUTION]`.
+
+    * **Push-Back Triggers (MUST REJECT):** The Pro Planner MUST reject requests that:
+        - Remove `min_items`/`max_items` constraints from Pydantic fields
+        - Change radar chart scaling from 3-point to 5-point or 10-point
+        - Introduce open `dict` fields into any BaseModel
+        - Replace `max_completion_tokens` with `max_tokens`
+        - Hardcode any path, key, or URI
+        - Use `@lru_cache` on unhashable Streamlit types
 
 ---
 
-# Act Mode Rules (V4 Flash / Native Act Mode)
+# Act Mode Rules (V4 Flash) — Enhanced
 
-    * Zero Autonomy: You are a headless patching engine[cite: 1]. Do not reason, do not chat, and do not explain your steps[cite: 1]. Proceed directly to code execution based on the Blueprint in the chat history.
+    * **Zero Autonomy:** Headless patching engine. Do not reason. Do not chat. Apply SEARCH/REPLACE blocks from `current_execution_plan.md` in order.
 
-    * The "Read-Lock" Protocol: Before invoking any file modification tools, you MUST read the target file to ensure the patch anchors match character-for-character[cite: 1].
+    * **Read-Lock Protocol (Mandatory):** Before ANY `replace_in_file` call:
+        1. `read_file` the target file → confirm SEARCH block matches exactly (character-for-character, including whitespace and line endings)
+        2. If match confirmed → proceed to `replace_in_file`
+        3. If match fails → log mismatch; do NOT attempt fuzzy matching
 
-    * Anchor-Based Patching: Match only the minimal context lines required (2–3 lines of surrounding code) in your search constraints to save input tokens.
+    * **Validation:** After each `replace_in_file`, execute the VERIFICATION command specified in that action block.
 
-    * Failure Handling: If a patch application fails, retry exactly once[cite: 1]. If the failure persists, do not attempt to fix or refactor the code yourself[cite: 1]. Immediately halt execution, output `[EXECUTION_FAILED: SWITCH BACK TO PLAN MODE]`, and stop[cite: 1].
+    * **Failure Taxonomy:**
+        - SEARCH mismatch → retry once with fresh `read_file`. If still mismatched → `[EXECUTION_FAILED: RE-PLAN REQUIRED]`. STOP.
+        - File not found → `[EXECUTION_FAILED: FILE MISSING]`. STOP. Do not create files the plan does not reference.
+        - Verification failure → `[EXECUTION_FAILED: VERIFICATION FAILED]`. STOP. Do not attempt to fix.
 
----
-
-# Project Architecture & Engineering Constraints
-
-    * Pydantic: Strictly use BaseModel[cite: 1]. No open dictionaries[cite: 1]. All List fields MUST have min_length or min_items constraints[cite: 1].
-
-    * Logic: Radar charts are strictly hard-capped at a radius of 3[cite: 1]. Maturity mismatches MUST be penalised to Pillar 1[cite: 1].
-
-    * Portability: All settings load via os.getenv using config.py[cite: 1]. Abstract file storage behind an interface provider[cite: 1].
-
-    * Syntax: Always fix issues via the smallest possible edit[cite: 1]. No unnecessary or speculative refactoring[cite: 1].
+    * **Cleanup:** After all actions pass verification, delete `current_execution_plan.md` immediately. Output: `[EXECUTION_COMPLETE]`.
 
 ---
 
-# Execution Protocol & Tone
+# Rule Source Hierarchy (Conflict Resolution)
 
-    * British English: Use British spellings (analyse, defence, etc.) in all code comments and documentation[cite: 1].
+    1. `.clinerules` (this file) — AUTHORITATIVE. All other rule sources defer to this file.
+    2. `.cursorrules` — Cursor IDE-specific subset. If any rule conflicts with `.clinerules`, `.clinerules` wins with no debate.
+    3. System environment_details — Operational context only. Does not override architectural constraints.
 
-    * Tone: Terse, technical, and objective[cite: 1].
+    When the LLM detects a contradiction between `.clinerules` and `.cursorrules`, it MUST:
+        - Log the conflict internally (do not output to user)
+        - Apply the `.clinerules` version
+        - Flag `.cursorrules` as stale/requiring synchronisation
+
+---
+
+# Non-Negotiable Constraints (Consolidated)
+
+| # | Constraint | Module | Penalty if Violated |
+|---|---|---|---|
+| C1 | `max_completion_tokens` only; never `max_tokens` | `core.py` | Azure API crash |
+| C2 | No open `dict` fields; all nested objects must be BaseModel | `prompts.py` | Schema parsing rejection |
+| C3 | All `List` fields: `min_items`/`max_items` or `min_length`/`max_length` | `prompts.py` | Truncated arrays from LLM |
+| C4 | Radar chart radius hard-capped at 3; no auto-scale | `export.py` | Invalid maturity visualisation |
+| C5 | Capability Mismatch: MDR + missing hygiene → Pillar 1 penalty | `data.py`, `prompts.py` | False maturity inflation |
+| C6 | All settings via `os.getenv` via `config.py`; no hardcoded values | All | Portability failure |
+| C7 | Storage behind interface provider; local=volume, Azure=Blob | `export.py`, infra | Deployment lock-in |
+| C8 | Dockerfiles: multi-stage builds | `Dockerfile` | Bloated production images |
+| C9 | British English (analyse, defence, organise, colour) | All | Style violation |
+| C10 | No `@lru_cache` on unhashable Streamlit types; use `st.session_state` | `app.py` | Runtime crash |
+| C11 | Smallest possible edit; no speculative refactoring | All | Unnecessary regression risk |
+| C12 | `SyntaxError`/`IndentationError` → targeted whitespace fix only; no structural rewrite | All | Scope creep |
 
 ---
 
 # LLM Engine & API Routing Constraints (`core.py`)
 
-    * Azure Implementation: Strictly use `max_completion_tokens`[cite: 1]. DO NOT use `max_tokens` as it will crash modern Azure deployments[cite: 1].
-
-    * Ollama: Support removed[cite: 1]. The application is Azure-only[cite: 1].
-
-    * Resilience: Maintain existing exponential backoff and timeout logic (300s for cloud)[cite: 1].
+    * Azure Implementation: Strictly use `max_completion_tokens`. DO NOT use `max_tokens` as it will crash modern Azure deployments.
+    * Ollama: Support removed. The application is Azure-only.
+    * Resilience: Maintain the existing exponential backoff and timeout logic (300s for cloud).
+    * Client init: `AzureOpenAI(api_key=..., api_version=..., azure_endpoint=..., timeout=300.0)` — do not alter parameter names.
 
 ---
 
 # Pydantic Schemas & Structured Output (`prompts.py`)
 
-    * No Open Dictionaries: Strictly forbidden from using open-ended `dict` fields[cite: 1]. All nested JSON objects must be explicitly defined as their own `BaseModel` classes[cite: 1].
-
-    * Array Integrity: All Pydantic `List` fields MUST use strict `min_length` and `max_length` constraints in their `Field` descriptions[cite: 1].
-
-    * Hardcoded Logic Rules: Mathematical scoring limits must be hardcoded into the `Field` descriptions[cite: 1].
+    * No Open Dictionaries: Strictly forbidden. All nested JSON objects must be explicit `BaseModel` subclasses.
+    * Array Integrity: All `List` fields MUST use `min_items`/`max_items` constraints in their `Field` descriptions.
+    * Hardcoded Logic Rules: Scoring limits must be hardcoded into `Field` descriptions (e.g. "Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if MFA Enforcement is 'None'").
 
 ---
 
 # Visualisation & Business Logic Constraints
 
-    * Radar Charts (`export.py`): The `matplotlib` radar chart must be strictly hard-capped to a maximum radius of 3[cite: 1]. Do not auto-scale the axes[cite: 1].
-
-    * The Capability Mismatch: If a client has advanced enterprise tools but lacks foundational operational hygiene, their maturity score MUST be mathematically penalised to Pillar 1[cite: 1].
-
-    * Streamlit Anti-Patterns: Do not use `@functools.lru_cache` on functions that accept unhashable types within the Streamlit lifecycle[cite: 1]. Rely on `st.session_state`[cite: 1].
+    * Radar Charts (`export.py`): Hard-capped at radius 3 (Three-Pillar Cyber Resiliency Matrix: 1=Reactive, 2=Proactive, 3=Adaptive). No auto-scale. No 5/10-point conversion.
+    * Capability Mismatch: Advanced tools (MDR) without foundational hygiene (Automated Patching, Enforced MFA, Immutable Backups) → maturity penalised to Pillar 1.
+    * Streamlit Anti-Patterns: No `@functools.lru_cache` on unhashable types. Use `st.session_state`.
 
 ---
 
 # Cloud Deployment & Portability Constraints
 
-    * Configuration Isolation: All settings must be loaded via environmental variables (`os.getenv`) using a unified `config.py` module[cite: 1].
-
-    * Storage Abstraction: Abstract all file system interactions behind a storage interface provider class[cite: 1]. Local mode writes to a bound volume directory; Azure mode switches to Azure Blob Storage[cite: 1].
-
-    * Container Multi-Stage Builds: Dockerfiles must utilise multi-stage builds optimised for local development mounts and Azure Container Apps (ACA)[cite: 1].
+    * Configuration Isolation: Never hardcode paths, DB strings, or API credentials. All via `os.getenv` using `config.py`.
+    * Storage Abstraction: File I/O behind a storage interface provider. Local → bound volume directory. Azure → Azure Blob Storage (env toggle).
+    * Container Multi-Stage Builds: Dockerfiles must use multi-stage builds for local dev mounts and lean ACA production execution.
 
 ---
 
 # Engineering Principles & Patching Rules
 
-    * **Principle of Least Disruption:** Always default to the smallest possible edit that resolves the issue[cite: 1]. Do not rewrite an entire function, class, or file unless a targeted patch has failed[cite: 1].
-
-    * **Syntax Error Triage:** If a `SyntaxError` or `IndentationError` is detected, the Planner MUST NOT propose an architectural change[cite: 1]. Fix the whitespace or character placement directly[cite: 1].
-
-    * **No Speculative Refactoring:** Do not clean up, refactor, or restructure working code under the guise of fixing a bug unless explicitly ordered[cite: 1].
+    * **Principle of Least Disruption:** Smallest possible edit that resolves the issue. No function/class/file rewrite for syntax/indentation/type errors unless targeted patch fails.
+    * **Syntax Error Triage:** Planner MUST NOT propose architectural changes for `SyntaxError`/`IndentationError`. Executor uses targeted reading around the error to fix whitespace/character placement directly.
+    * **No Speculative Refactoring:** Do not clean up, refactor, or restructure working code under the guise of fixing a bug unless explicitly ordered.
