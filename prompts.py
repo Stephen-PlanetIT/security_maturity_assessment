@@ -4,7 +4,7 @@ import datetime
 import random
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, format_governance_narrative
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL
 
 # ==========================================
 # PYDANTIC MODELS: THREAT SIMULATOR
@@ -61,7 +61,9 @@ class ScenarioReport(BaseModel):
         "Section 4 (Recommended Solutions): Summarise the defence strategy in a consultative, third-person tone. Do NOT use first-person ('we', 'our') or second-person ('you', 'your')."
     )
     timeline: List[TimelineEvent] = Field(
-        description="Section 5: The chronological attack timeline showing the WITH-Sophos MDR version. First event at start_time, last event at end_time (38-min MTTR)."
+        description="Section 5: The chronological attack timeline showing the WITH-Sophos MDR version. First event at start_time, last event at end_time (38-min MTTR).",
+        min_items=5,
+        max_items=12,
     )
     timelines: ThreatTimelines = Field(
         description="Dual timelines: one showing the unmitigated attack path (without_sophos) and one showing the MDR-protected path (with_sophos)."
@@ -137,6 +139,13 @@ class ComplianceSection(BaseModel):
         max_items=6,
     )
 
+class ThreatScenarioItem(BaseModel):
+    """A threat scenario linked to a maturity assessment, auto-generated from gaps."""
+    id: str = Field(description="Unique identifier for the threat scenario, e.g. 'ts-maturity-1'.")
+    name: str = Field(description="Display name for the threat scenario.")
+    incident_type: str = Field(description="Pillar mapping for this scenario, e.g. 'Pillar 1: Reactive Cybersecurity'.")
+    narrative: str = Field(description="Full Markdown narrative describing the threat scenario.")
+
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs.")
     radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
@@ -172,6 +181,10 @@ class MaturityReport(BaseModel):
     success_metrics: List[str] = Field(description="3-4 measurable KPIs.")
     engagement_cadence: List[str] = Field(description="Schedule of advisory meetings.")
     consultant_discovery_guide: List[str] = Field(description="Provocative questions for the discovery phase.")
+    threat_scenarios: Optional[List[ThreatScenarioItem]] = Field(
+        default=None,
+        description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation."
+    )
 
 # ==========================================
 # CONTEXT INJECTION & MASTER PERSONA
@@ -381,51 +394,3 @@ Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive C
     return base_prompt + "\n\n" + ban_clause + "\n\n" + rules
 
 
-def build_threat_from_maturity_prompt(client_inputs, maturity_report):
-    """
-    Construct a prompt that takes the completed MaturityReport context
-    (pillar scores, critical gaps, crown jewels, RTO, insurance status)
-    and asks the LLM to generate a maturity-aligned ThreatScenarioEnvelope.
-    The scenario must illustrate how an attacker would exploit the specific
-    gaps identified in the assessment.
-    """
-    pillar = getattr(maturity_report, 'resiliency_matrix_mapping', 'Pillar 1')
-    
-    # Build gap summary from domain assessments
-    gaps_summary = []
-    for domain in getattr(maturity_report, 'domain_assessments', []):
-        name = getattr(domain, 'domain_name', 'Unknown')
-        maturity = getattr(domain, 'current_maturity_level', 'Unknown')
-        critical = getattr(domain, 'critical_gaps', [])
-        if critical:
-            gaps_summary.append(f"  - {name} ({maturity}): {', '.join(critical)}")
-    
-    gap_text = '\n'.join(gaps_summary) if gaps_summary else 'No critical gaps identified.'
-    
-    prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Industry: {client_inputs['industry']}
-CLIENT ENVIRONMENT: Users: {client_inputs.get('users', '500')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')}
-MATURITY CONTEXT: {pillar}
-IDENTIFIED GAPS:
-{gap_text}
-
-OPERATIONAL TELEMETRY:
-- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
-- Cyber Insurance: {client_inputs.get('insurance', 'Unknown')}
-- IR Readiness: {client_inputs.get('ir_readiness', 'Unknown')}
-- MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
-- Patch Management: {client_inputs.get('patching', 'Unknown')}
-- Backup Strategy: {client_inputs.get('backups', 'Unknown')}
-
-THREAT SCENARIO REQUIREMENTS:
-- Generate a maturity-aligned ThreatScenarioEnvelope.
-- The scenario MUST exploit the specific gaps identified above.
-- If MFA is not universally enforced, the attack vector MUST exploit credential-based access.
-- If patching is manual/ad-hoc, the attack MUST leverage an unpatched vulnerability.
-- If backups are absent or on-premise only, the impact MUST include unrecoverable data loss.
-- The executive_summary must be board-ready: explain the attack path, the business impact tied to their RTO and Crown Jewels, and why their current maturity level leaves them exposed.
-- The timeline must span from initial access through to objective completion.
-- Include 3-5 specific mitigations tied directly to the recommended solutions from the assessment.
-
-Act as ROLE 1 (Tactical Threat Analyst) but write for a cybersecurity maturity advisory context. Use British English."""
-
-    return prompt

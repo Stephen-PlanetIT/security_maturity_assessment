@@ -6,8 +6,13 @@ __pycache__/
 env/
 venv/
 .env
+.git/
+*.md
+current_execution_plan.md
+test_*.py
+fix_templates.py
+tools/
 .streamlit/secrets.toml
-context.txt
 Scenario tags.txt
 README.md
 .gitignore

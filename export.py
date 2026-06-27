@@ -2,7 +2,6 @@
 import io
 import json
 import re
-import textwrap
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -13,19 +12,21 @@ import numpy as np
 import os
 import tempfile
 
-def _xml_escape_dict(d):
+def _xml_escape_dict(d, _depth=0):
     """Recursively escape &, <, > in all string values of a dict for safe DOCX XML embedding."""
+    if _depth > 10:
+        return d
     escaped = {}
     for key, value in d.items():
         if isinstance(value, str):
-            escaped[key] = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            escaped[key] = value.replace("&", "&").replace("<", "<").replace(">", ">")
         elif isinstance(value, list):
             escaped[key] = [
-                v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if isinstance(v, str) else v
+                v.replace("&", "&").replace("<", "<").replace(">", ">") if isinstance(v, str) else v
                 for v in value
             ]
         elif isinstance(value, dict):
-            escaped[key] = _xml_escape_dict(value)
+            escaped[key] = _xml_escape_dict(value, _depth=_depth + 1)
         else:
             escaped[key] = value
     return escaped
@@ -247,10 +248,16 @@ def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4
     tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     try:
         plt.savefig(tmpfile.name, format='png', bbox_inches='tight')
+        return tmpfile.name
+    except Exception:
+        plt.close(fig)
+        try:
+            os.unlink(tmpfile.name)
+        except OSError:
+            pass
+        raise
     finally:
         plt.close(fig)
-    
-    return tmpfile.name
 
 
 def _normalize_kd(kd):
@@ -438,9 +445,11 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
 
     # Find the {{ threat_scenarios }} placeholder paragraph
     placeholder_element = None
+    body_parent = None
     for paragraph in doc.paragraphs:
         if '{{ threat_scenarios }}' in paragraph.text:
             placeholder_element = paragraph._element
+            body_parent = paragraph._parent
             break
 
     if placeholder_element is None:
@@ -450,7 +459,7 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
     def _new_para_after(prev_el, style=None):
         new_p = OxmlElement('w:p')
         prev_el.addnext(new_p)
-        para = Paragraph(new_p, prev_el.getparent())
+        para = Paragraph(new_p, body_parent)
         if style:
             para.style = style
         return para, new_p

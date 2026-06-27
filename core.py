@@ -33,12 +33,17 @@ class LLMEngine:
             return None
 
     @staticmethod
-    def _build_extra_params(client):
-        """Build the extra_params dict for Azure OpenAI."""
+    def _build_extra_params(streaming=False):
+        """Build the extra_params dict for Azure OpenAI.
+
+        When streaming, max_completion_tokens is omitted as the streaming
+        protocol handles token limits differently.
+        """
         extra_params = {
-            "max_completion_tokens": 8192,
             "temperature": 0.6
         }
+        if not streaming:
+            extra_params["max_completion_tokens"] = 8192
         return extra_params
 
     @staticmethod
@@ -47,7 +52,7 @@ class LLMEngine:
             return None
             
         try:
-            extra_params = LLMEngine._build_extra_params(client)
+            extra_params = LLMEngine._build_extra_params()
                 
             # Exponential Backoff Retry Logic
             max_retries = 3
@@ -82,7 +87,7 @@ class LLMEngine:
             return None
 
         try:
-            extra_params = LLMEngine._build_extra_params(client)
+            extra_params = LLMEngine._build_extra_params()
             extra_params["temperature"] = temperature
 
             max_retries = 3
@@ -110,19 +115,6 @@ class LLMEngine:
             return None
 
     @staticmethod
-    def generate_threat_scenario_for_maturity(client, deployment, client_inputs, maturity_report):
-        """
-        Generate a maturity-aligned threat scenario as a follow-on to Cybersecurity Maturity Assessment.
-        Returns a ThreatScenarioEnvelope Pydantic object or None on failure.
-        """
-        from prompts import build_threat_from_maturity_prompt, ThreatScenarioEnvelope, SYSTEM_PERSONA
-        
-        prompt = build_threat_from_maturity_prompt(client_inputs, maturity_report)
-        return LLMEngine.generate_structured_report(
-            client, deployment, SYSTEM_PERSONA, prompt, ThreatScenarioEnvelope
-        )
-
-    @staticmethod
     def generate_text_report_streaming(client, deployment, system_persona, user_prompt, temperature=0.7):
         """
         Generate a free-text response with streaming support.
@@ -136,13 +128,9 @@ class LLMEngine:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                extra_params = LLMEngine._build_extra_params(client)
+                extra_params = LLMEngine._build_extra_params(streaming=True)
                 extra_params["temperature"] = temperature
                 extra_params["stream"] = True
-
-                # Remove max_completion_tokens from extra_params for streaming if present
-                # (streaming handles this differently)
-                extra_params.pop("max_completion_tokens", None)
 
                 response = client.chat.completions.create(
                     model=deployment,
@@ -165,6 +153,5 @@ class LLMEngine:
                     _logger.error("Streaming generation exhausted retries (%d attempts): %s", max_retries, e, exc_info=True)
                     yield "\n\n[An error occurred during streaming. Please try again.]"
                     return
-                import time
                 time.sleep((2 ** attempt) + random.random())
                 continue

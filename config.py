@@ -129,5 +129,8 @@ def get_planet_branding_palette():
                 "textColor": text
             }
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to parse PLANET_BRAND_COLORS; branding palette not applied.", exc_info=True
+        )
     return None

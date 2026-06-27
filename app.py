@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import random
 import time
 import re as _re
@@ -10,7 +11,6 @@ from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
 
-_SANITISE_RE = _re.compile(r'["]{3,}|\'{3,}|`{3,}|(?:\r?\n){3,}')
 _SANITISE_REPLACEMENTS = [
     (_re.compile(r'["]{3,}'), '"'),
     (_re.compile(r"'{3,}"), "'"),
@@ -41,8 +41,14 @@ def _sanitise_client_inputs(inputs: dict) -> dict:
         for k, v in inputs.items()
     }
 
+def _safe_get(item, key, default=None):
+    """Access a key from a dict or attribute from an object safely."""
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
 # --- VERSION TRACKER ---
-with open("VERSION", "r") as f:
+with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
     APP_VERSION = f.read().strip()
 
 def validate_platform_config():
@@ -211,7 +217,7 @@ def get_maturity_docx_bytes():
         # Re-attach threat scenarios from session state (survives pickle round-trip)
         ts_data = st.session_state.get('maturity_threat_scenarios')
         if ts_data is not None:
-            object.__setattr__(st.session_state['maturity_obj'], "threat_scenarios", ts_data)
+            st.session_state['maturity_obj'].threat_scenarios = ts_data
         try:
             st.session_state['maturity_docx_bytes'] = create_maturity_docx(
                 st.session_state['client_inputs'], 
@@ -509,7 +515,11 @@ client_inputs = {
     "partnership_type": partnership_type
 }
 
-st.session_state['client_inputs'] = _sanitise_client_inputs(client_inputs)
+import json as _json
+_client_hash = _json.dumps(client_inputs, sort_keys=True, default=str)
+if st.session_state.get('_client_inputs_hash') != _client_hash:
+    st.session_state['client_inputs'] = _sanitise_client_inputs(client_inputs)
+    st.session_state['_client_inputs_hash'] = _client_hash
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
 st.divider()
@@ -699,22 +709,16 @@ Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-dri
                         accumulated += token
                     
                     if accumulated.strip():
-                        threat_scenarios = [{
-                            "id": "ts-maturity-1",
-                            "name": f"{pillar} Maturity-Aligned Threat Scenario",
-                            "incident_type": pillar,
-                            "narrative": accumulated.strip(),
-                            "triggers": [],
-                            "assets_at_risk": [crown_jewels],
-                            "potential_impacts": [],
-                            "recommended_actions": [],
-                            "mdr_case_log": "",
-                            "timelines": [],
-                            "severity_by_maturity": {},
-                            "likelihood_by_maturity": {},
-                            "containment_steps": [],
-                        }]
-                        object.__setattr__(maturity_obj, "threat_scenarios", threat_scenarios)
+                        from prompts import ThreatScenarioItem
+                        threat_scenarios = [
+                            ThreatScenarioItem(
+                                id="ts-maturity-1",
+                                name=f"{pillar} Maturity-Aligned Threat Scenario",
+                                incident_type=pillar,
+                                narrative=accumulated.strip(),
+                            )
+                        ]
+                        maturity_obj.threat_scenarios = threat_scenarios
                         st.session_state['maturity_threat_scenarios'] = threat_scenarios
                         st.session_state['maturity_obj'] = maturity_obj
                 except Exception as e:
@@ -724,22 +728,16 @@ Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-dri
                     )
                     # Fallback: build a lightweight threat scenario from the maturity report itself
                     if maturity_obj:
-                        threat_scenarios = [{
-                            "id": "ts-maturity-1",
-                            "name": f"{maturity_obj.resiliency_matrix_mapping} Threat Scenario",
-                            "incident_type": maturity_obj.resiliency_matrix_mapping,
-                            "narrative": maturity_obj.cost_of_inaction,
-                            "triggers": maturity_obj.success_metrics or [],
-                            "assets_at_risk": [client_inputs.get('critical_infra', 'Unknown')],
-                            "potential_impacts": [],
-                            "recommended_actions": maturity_obj.consultant_discovery_guide or [],
-                            "mdr_case_log": "",
-                            "timelines": [],
-                            "severity_by_maturity": {},
-                            "likelihood_by_maturity": {},
-                            "containment_steps": [],
-                        }]
-                        object.__setattr__(maturity_obj, "threat_scenarios", threat_scenarios)
+                        from prompts import ThreatScenarioItem
+                        threat_scenarios = [
+                            ThreatScenarioItem(
+                                id="ts-maturity-1",
+                                name=f"{maturity_obj.resiliency_matrix_mapping} Threat Scenario",
+                                incident_type=maturity_obj.resiliency_matrix_mapping,
+                                narrative=maturity_obj.cost_of_inaction,
+                            )
+                        ]
+                        maturity_obj.threat_scenarios = threat_scenarios
                         st.session_state['maturity_threat_scenarios'] = threat_scenarios
                         st.session_state['maturity_obj'] = maturity_obj
                 # Clear any cached export bytes from previous runs
@@ -835,12 +833,6 @@ Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-dri
                 st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
                 st.markdown(f"**Resources:** {phase.resource_requirements}")
                 st.divider()
-        def _safe_get(item, key, default=None):
-            """Access a key from a dict or attribute from an object safely."""
-            if isinstance(item, dict):
-                return item.get(key, default)
-            return getattr(item, key, default)
-
         # Threat Scenarios (auto-generated) rendering
         if getattr(maturity, 'threat_scenarios', None):
             try:

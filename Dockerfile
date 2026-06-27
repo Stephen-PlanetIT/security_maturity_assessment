@@ -34,6 +34,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code and assets
 COPY *.py ./
 COPY VERSION .
+COPY context.txt .
 COPY .streamlit/config.toml .streamlit/config.toml
 COPY planet_it_master_template.pptx .
 COPY planet_it_maturity_assessment_template.docx .
