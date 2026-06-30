@@ -17,7 +17,7 @@ jobs:
           # Authenticates the source clone using the built-in ephemeral token
           SOURCE_REPO: "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           # Authenticates the destination push using your Fine-Grained PAT
-          TARGET_REPO: "https://x-access-token:${{ secrets.DESTINATION_PAT }}@github.com/Gallenhamph/MDR-Use-Case.git"
+          TARGET_REPO: "https://x-access-token:${{ secrets.DESTINATION_PAT }}@github.com/Stephen-PlanetIT/security_maturity_assessment.git"
         run: |
           git clone --bare $SOURCE_REPO temp-mirror-dir
           cd temp-mirror-dir
