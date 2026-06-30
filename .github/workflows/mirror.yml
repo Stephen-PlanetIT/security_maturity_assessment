@@ -2,7 +2,11 @@ name: Push Mirror
 
 on:
   push:
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  workflow_dispatch:
+
+# Explicitly grant read access for the default GITHUB_TOKEN
+permissions:
+  contents: read
 
 jobs:
   mirror:
@@ -10,12 +14,11 @@ jobs:
     steps:
       - name: Execute bare clone and mirror push
         env:
-          SOURCE_REPO: "https://github.com/${{ github.repository }}.git"
+          # Authenticates the source clone using the built-in ephemeral token
+          SOURCE_REPO: "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          # Authenticates the destination push using your Fine-Grained PAT
           TARGET_REPO: "https://x-access-token:${{ secrets.DESTINATION_PAT }}@github.com/Gallenhamph/MDR-Use-Case"
         run: |
-          # Create a temporary directory for the bare clone
           git clone --bare $SOURCE_REPO temp-mirror-dir
           cd temp-mirror-dir
-          
-          # Force exactly match the destination to the source
           git push --mirror $TARGET_REPO
