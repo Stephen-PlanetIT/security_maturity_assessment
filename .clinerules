@@ -11,6 +11,7 @@ On every new session or task, before any tool call or response, you MUST:
 2. Output exactly: `[CLINERULES_LOADED: Plan/Act protocol active. Radar cap=3. Azure-only. British English.]`
 3. If any rule in `.cursorrules` contradicts this file, `.clinerules` takes absolute precedence. Log the conflict silently and proceed under `.clinerules` authority.
 4. If this bootstrap line does NOT appear in your output, assume the rules were NOT ingested and re-read this file.
+5. Provide a brief one paragraph summary of the cause of the issue and the planned resolution
 
 ---
 

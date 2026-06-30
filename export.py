@@ -16,20 +16,25 @@ def _xml_escape_dict(d, _depth=0):
     """Recursively escape &, <, > in all string values of a dict for safe DOCX XML embedding."""
     if _depth > 10:
         return d
-    escaped = {}
-    for key, value in d.items():
-        if isinstance(value, str):
-            escaped[key] = value.replace("&", "&").replace("<", "<").replace(">", ">")
-        elif isinstance(value, list):
-            escaped[key] = [
-                v.replace("&", "&").replace("<", "<").replace(">", ">") if isinstance(v, str) else v
-                for v in value
-            ]
-        elif isinstance(value, dict):
-            escaped[key] = _xml_escape_dict(value, _depth=_depth + 1)
-        else:
-            escaped[key] = value
-    return escaped
+    def _escape_str(s: str) -> str:
+        # Escape raw XML-sensitive characters without double-escaping existing entities
+        s = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;)', '&amp;', s)
+        s = s.replace('<', '&lt;').replace('>', '&gt;')
+        return s
+    if isinstance(d, dict):
+        escaped = {}
+        for key, value in d.items():
+            if isinstance(value, str):
+                escaped[key] = _escape_str(value)
+            elif isinstance(value, list):
+                escaped[key] = [_escape_str(v) if isinstance(v, str) else v for v in value]
+            elif isinstance(value, dict):
+                escaped[key] = _xml_escape_dict(value, _depth=_depth + 1)
+            else:
+                escaped[key] = value
+        return escaped
+    # If a non-dict is passed, escape if it's a string; otherwise return as-is
+    return _escape_str(d) if isinstance(d, str) else d
 
 
 # --- TEXT CLEANER (UNICODE SAFE) ---
@@ -418,7 +423,7 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     
     
     # Render the docx template with our context mapping
-    doc.render(context)
+    doc.render(_xml_escape_dict(context))
     
     # Save document into a BytesIO memory stream
     buffer = io.BytesIO()
@@ -801,7 +806,7 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         context["partnership_outline"] = partnership_outline
     else:
         context["partnership_outline"] = ""
-    doc.render(context)
+    doc.render(_xml_escape_dict(context))
 
     # Post-render: inject formatted threat scenarios with proper Word styling
     threat_scenarios_data_for_inject = getattr(report_data, "threat_scenarios", None)

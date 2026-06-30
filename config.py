@@ -38,15 +38,23 @@ def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
 
     Returns None only if the key is absent in all sources and no default is given.
     """
-    # 1. Try st.secrets (local .streamlit/secrets.toml)
-    #    Note: st.secrets.get() raises StreamlitSecretNotFoundError if no TOML
-    #    file exists at all, so we must catch broadly here.
+    # Detect presence of a local secrets file to avoid noisy Streamlit warnings in containers.
+    secrets_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+    use_streamlit_secrets = False
     try:
-        value = st.secrets.get(key)
-        if value is not None:
-            return value
-    except (AttributeError, FileNotFoundError, ModuleNotFoundError):
-        pass  # No secrets file — fall through to os.environ
+        use_streamlit_secrets = os.path.exists(secrets_path)
+    except Exception:
+        use_streamlit_secrets = False
+
+    # 1. Try st.secrets only if a secrets.toml exists locally
+    if use_streamlit_secrets:
+        try:
+            value = st.secrets.get(key)
+            if value is not None:
+                return value
+        except Exception:
+            # If Streamlit raises any secrets-related exception, silently fall through to env
+            pass
 
     # 2. Try os.environ (ACA / container runtime)
     value = os.environ.get(key)
