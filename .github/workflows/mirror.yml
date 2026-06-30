@@ -1,0 +1,21 @@
+name: Push Mirror
+
+on:
+  push:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute bare clone and mirror push
+        env:
+          SOURCE_REPO: "https://github.com/${{ github.repository }}.git"
+          TARGET_REPO: "https://x-access-token:${{ secrets.DESTINATION_PAT }}@github.com/Gallenhamph/MDR-Use-Case"
+        run: |
+          # Create a temporary directory for the bare clone
+          git clone --bare $SOURCE_REPO temp-mirror-dir
+          cd temp-mirror-dir
+          
+          # Force exactly match the destination to the source
+          git push --mirror $TARGET_REPO
