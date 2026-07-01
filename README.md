@@ -1,9 +1,9 @@
 # 🪐 Planet IT Strategic Advisory Platform
 
 ## Overview
-The **Planet IT Strategic Advisory Platform** is an AI-powered, enterprise-grade consulting engine built to generate highly customised, compliance-aligned security assessments and tactical threat simulations. 
+The **Planet IT Strategic Advisory Platform** is an AI-powered, enterprise-grade consulting engine built to generate highly customised, compliance-aligned security assessments and tactical threat simulations.
 
-Designed for security consultants, the platform leverages advanced Large Language Models (LLMs) to analyse a client's environment. It instantly generates boardroom-ready strategic deliverables: deep Technical Deployment Roadmaps in Microsoft Word (`.docx`) and Microsoft PowerPoint (`.pptx`) formats, aligned to the **Planet IT Cyber Resiliency Matrix**.
+Designed for security consultants, the platform leverages advanced Large Language Models (LLMs) to analyse a client's environment. It instantly generates boardroom-ready strategic deliverables aligned to the **Planet IT Cyber Resiliency Matrix**: Cybersecurity Maturity Assessments in Microsoft Word (`.docx`) and Tactical Threat Simulation Reports in PDF.
 
 ---
 
@@ -22,44 +22,45 @@ Designed for security consultants, the platform leverages advanced Large Languag
 - **Single-Pass Scenario Generation:** Utilises highly optimised prompt framing to simultaneously generate a realistic strategic breach narrative and a detailed SOC Incident Case Log (with PIDs, cmdlines, and MITRE references).
 
 ### 3. Enterprise Export Pipeline
-- **Dynamic Radar Charts:** Renders publication-quality polar area charts using `matplotlib` strictly hard-capped to a maximum radius of 3 (representing the Three-Pillar Cyber Resiliency Matrix).
-- **Structured Word Doc Rendering:** Uses `docxtpl` to inject AI-generated assessments and recommendations directly into pre-formatted, corporate-branded templates (`planet_it_vciso_template.docx`).
-- **PowerPoint Master Slide Injection:** Utilises `python-pptx` to programmatically inject strategic assessment roadmaps and executive briefs into high-quality client presentations.
--
+- **Dynamic Radar Charts:** Renders publication-quality polar area charts using `matplotlib`, hard-capped to a maximum radius of 3 (representing the Three-Pillar Cyber Resiliency Matrix).
+- **Structured Word Doc Rendering:** Uses `docxtpl` to inject AI-generated assessments and recommendations into pre-formatted templates:
+  - `planet_it_maturity_assessment_template.docx` (auto-fallback to `planet_it_maturity_assessment_template_v2.docx` where required)
+  - `planet_it_threat_scenario_template.docx`
+- **Threat Simulator PDF Export:** Uses `fpdf` to render a publication-ready Tactical Threat Simulation Report.
+
 ---
 
- ### Deliverables and assets
- The core deliverables produced by the platform are:
- - Word document: Strategic Assessment (planet_it_vciso_template.docx)
- - PowerPoint deck: Client presentation (planet_it_master_template.pptx)
- - Radar visuals: Matplotlib charts included in reports
- 
- Asset templates present in the repository:
- - planet_it_master_template.pptx
- - planet_it_threat_scenario_template.docx
- - planet_it_vciso_template.docx
- 
- ### Domain coverage
- The Planet IT Cyber Resiliency Matrix covers the following 9 domains:
- - Endpoint & Server Security
- - Email & Data Protection
- - Identity & Access Management (IAM)
- - Network & Cloud Perimeter
- - Security Operations & Response (SecOps)
- - Security Validation & Testing
- - Governance, Risk & Compliance (GRC)
- - Operational Resilience & Backup
- - Supply Chain & Third-Party Risk
- 
- ### Environment variables (quick reference)
- Cloud (Azure OpenAI) mode:
- - AZURE_OPENAI_API_KEY
- - AZURE_OPENAI_ENDPOINT
- - AZURE_OPENAI_DEPLOYMENT
- - AZURE_OPENAI_API_VERSION
- Local (Ollama) mode:
- - OLLAMA_BASE_URL
- - OLLAMA_MODEL
+### Deliverables and assets
+The core deliverables produced by the platform are:
+- Word document: Cybersecurity Maturity Assessment (`planet_it_maturity_assessment_template.docx`)
+- Word document: Tactical Threat Scenario (`planet_it_threat_scenario_template.docx`)
+- PDF: Tactical Threat Simulation Report
+- Radar visuals: Matplotlib charts embedded in reports
+
+Asset templates present in the repository:
+- `planet_it_maturity_assessment_template.docx`
+- `planet_it_maturity_assessment_template_v2.docx`
+- `planet_it_threat_scenario_template.docx`
+- `planet_it_master_template.pptx` (currently unused)
+
+### Domain coverage
+The Planet IT Cyber Resiliency Matrix covers the following 9 domains:
+- Endpoint & Server Security
+- Email & Data Protection
+- Identity & Access Management (IAM)
+- Network & Cloud Perimeter
+- Security Operations & Response (SecOps)
+- Security Validation & Testing
+- Governance, Risk & Compliance (GRC)
+- Operational Resilience & Backup
+- Supply Chain & Third-Party Risk
+
+### Environment variables (quick reference)
+Cloud (Azure OpenAI) mode:
+- AZURE_OPENAI_API_KEY
+- AZURE_OPENAI_ENDPOINT
+- AZURE_OPENAI_DEPLOYMENT
+- AZURE_OPENAI_API_VERSION
 
 ### Docker & Secrets notes
 - After code changes, rebuild Docker images to ensure changes are incorporated:
@@ -67,11 +68,11 @@ Designed for security consultants, the platform leverages advanced Large Languag
   docker-compose up --build
   ```
 - Secrets management:
-  - Store sensitive credentials in environment-specific secret files (e.g., secrets.toml or .streamlit/secrets.toml) and avoid committing secrets to version control. For local development, you can copy an example like secrets.example.toml and rename it to secrets.toml, then populate values. In production, configure environment variables via your deployment platform.
-### 4. Dual LLM Inference Engine (Cloud & Local)
-* **Sidebar Toggle:** Instantly routes generation traffic between:
-  * **☁️ Cloud (Azure OpenAI):** Utilises high-performance Azure endpoints with strict API configurations (`max_completion_tokens`) and long-tail timeouts (`180s`) to safely construct massive, multi-page structured reports.
-  * **🖥️ Local (Ollama):** Targets local models (e.g., `deepseek-r1:14b`) with beta completion parsing and custom context limit payloads (`num_ctx: 16384`, `num_predict: 8192`) to bypass local token truncation.
+  - Store sensitive credentials in environment-specific secret files (e.g., `.streamlit/secrets.toml`) and avoid committing secrets to version control. For local development, you can copy an example like `secrets.example.toml` and rename it to `secrets.toml`, then populate values. In production, configure environment variables via your deployment platform.
+
+### Azure LLM Engine (Cloud-only)
+* **Azure OpenAI Only:** The application exclusively uses Azure OpenAI with strict API configurations (`max_completion_tokens`) and resilient timeouts (`300s`).
+* **Structured & Free-Text Modes:** Supports Pydantic-validated structured outputs and free-text generation, with retry and optional streaming.
 
 ---
 
@@ -80,11 +81,11 @@ Designed for security consultants, the platform leverages advanced Large Languag
 The application maintains a strictly targeted, modular architecture:
 
 * `app.py`: Streamlit frontend layout, user input telemetry, security culture calculation, and workflow state routing.
-* `core.py`: LLM engine client abstraction, endpoint routing, resilient exponential backoff retry loops, and structured JSON schema completions.
+* `core.py`: Azure OpenAI client, exponential backoff, `max_completion_tokens` usage, and 300s timeout for resilience; structured JSON schema completions.
 * `prompts.py`: Strict, typed Pydantic schema models (`MaturityReport`, `DomainAssessment`, `RoadmapPhase`, `RadarChartData`) and master consulting system personas.
 * `catalog.py`: The unified Planet IT security solution portfolio, vendor alignment logic, and corporate value propositions.
 * `data.py`: Static knowledge base holding attack vectors, static OSINT simulation maps, and Cyber Resiliency Matrix parameters.
-* `export.py`: Document generation pipelines handling DocxTemplate renderings, python-pptx templates, and custom Matplotlib radar generation.
+* `export.py`: Document generation for Word (docxtpl) and PDF (fpdf), plus custom Matplotlib radar generation (radius hard-capped at 3).
 
 ---
 
@@ -94,15 +95,11 @@ The application maintains a strictly targeted, modular architecture:
 Create a `.streamlit/secrets.toml` file in the project root containing your API credentials and environment options:
 
 ```toml
-# --- Azure OpenAI Configuration (For Cloud Mode) ---
+# --- Azure OpenAI Configuration (Cloud Mode) ---
 AZURE_OPENAI_API_KEY = "your_azure_api_key_here"
 AZURE_OPENAI_ENDPOINT = "https://your-endpoint.openai.azure.com/"
 AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
 AZURE_OPENAI_API_VERSION = "2024-02-15-preview"
-
-# --- Ollama Configuration (For Local Mode) ---
-OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
-OLLAMA_MODEL = "deepseek-r1:14b"
 ```
 
 ### 2. Local Python Environment
