@@ -15,7 +15,9 @@ env:
   IMAGE_NAME: gallenhamph/mdr-use-case
 
 jobs:
+  
   build-and-push-image:
+    if: github.repository_owner == 'collisbradley@gmail.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
