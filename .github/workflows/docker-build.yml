@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-and-push:
-    if: github.repository_owner == 'collisbradley@gmail.com'
+    if: github.repository_owner == 'Gallenhamph'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   mirror:
-    if: github.repository_owner == 'collisbradley@gmail.com'
+    if: github.repository_owner == 'Gallenhamph'
     runs-on: ubuntu-latest
     steps:
       - name: Execute bare clone and mirror push
