@@ -10,7 +10,7 @@ on:
 env:
   REGISTRY: ghcr.io
   # Must be strictly lowercase to satisfy Docker registry rules
-  IMAGE_NAME: Stephen-PlanetIT/mdr-use-case
+  IMAGE_NAME: Stephen-PlanetIT/security_maturity_assessment
 
 jobs:
   build-and-push:
