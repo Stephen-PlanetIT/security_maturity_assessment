@@ -1,0 +1,94 @@
+name: Trigger auto deployment for vciso-app
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches:
+      [ feature/vciso-engine ]
+    paths:
+    - '**'
+    - '.github/workflows/vciso-app-AutoDeployTrigger-144cdf71-861b-44fa-92d8-37238a68377c.yml'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    if: github.repository_owner == 'Stephen-PlanetIT'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write #This is required for requesting the OIDC JWT Token
+      contents: read #Required when GH token is used to authenticate with private repo
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.VCISOAPP_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.VCISOAPP_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.VCISOAPP_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Container Apps extension
+        run: |
+          az extension add --name containerapp --upgrade --allow-preview true -y
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --file Dockerfile \
+            --tag acrvcisoaudit.azurecr.io/vciso-app:${{ github.sha }} \
+            .
+
+      - name: Login to Azure Container Registry
+        run: |
+          echo "${{ secrets.VCISOAPP_REGISTRY_PASSWORD }}" | \
+          docker login acrvcisoaudit.azurecr.io \
+            --username "${{ secrets.VCISOAPP_REGISTRY_USERNAME }}" \
+            --password-stdin
+
+      - name: Push image to registry
+        run: |
+          docker push acrvcisoaudit.azurecr.io/vciso-app:${{ github.sha }}
+
+      - name: Set registry credentials on Container App
+        run: |
+          az containerapp registry set \
+            -n vciso-app \
+            -g Bradley \
+            --server acrvcisoaudit.azurecr.io \
+            --username "${{ secrets.VCISOAPP_REGISTRY_USERNAME }}" \
+            --password "${{ secrets.VCISOAPP_REGISTRY_PASSWORD }}" \
+            --output none
+
+      - name: Deploy new image to Container App (with retry)
+        run: |
+          set -e
+          IMAGE="acrvcisoaudit.azurecr.io/vciso-app:${{ github.sha }}"
+          for attempt in $(seq 1 12); do
+            echo "::group::Deploy attempt $attempt/12"
+            if az containerapp update \
+                -n vciso-app \
+                -g Bradley \
+                --image "$IMAGE" \
+                --output none; then
+              echo "::endgroup::"
+              echo "✅ Deployment successful on attempt $attempt"
+              exit 0
+            fi
+            exit_code=$?
+            echo "::endgroup::"
+            if [ $exit_code -eq 1 ]; then
+              echo "⚠️  Another provisioning operation is likely in progress."
+              echo "   Waiting 30 seconds before retry..."
+              sleep 30
+            else
+              echo "❌ Unexpected exit code: $exit_code"
+              exit $exit_code
+            fi
+          done
+          echo "❌ Deployment failed after 12 attempts"
+          exit 1
