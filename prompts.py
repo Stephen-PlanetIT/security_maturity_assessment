@@ -111,7 +111,7 @@ class RadarChartData(BaseModel):
     email: int = Field(description="Score 1, 2, or 3.")
     cloud: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if SaaS Backup is 'None'.")
     secops: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan'.")
-    testing: int = Field(description="Score 1, 2, or 3.")
+    testing: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Penetration Testing cadence is 'None' or Vulnerability Scanning is 'None'.")
     culture: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Security Training is 'None'.")
     grc: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
 
@@ -163,6 +163,11 @@ class MaturityReport(BaseModel):
         description="Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client."
     )
     microsoft_healthchecks_recommendations: Optional[str] = Field(description="Recommendations for Microsoft healthchecks and hardening when Microsoft tools are used.")
+    
+    # Proactive testing, IR and DR programme outlines
+    proactive_testing_programme: Optional[str] = Field(default=None, description="A comprehensive, narrative programme for proactive security validation: penetration testing cadence (external, internal, web app/API), continuous exposure management, breach-and-attack simulation/ATT&CK emulation, and phishing exercises. Reference CREST/NCSC CHECK where appropriate. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
+    incident_response_plan_outline: Optional[str] = Field(default=None, description="A narrative outline of the Incident Response Plan: roles/RACI, communications tree, top playbooks mapped to likely incidents, integration with any IR retainer, and a quarterly tabletop testing schedule. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
+    disaster_recovery_plan_outline: Optional[str] = Field(default=None, description="A narrative outline of the Disaster Recovery Plan: RTO/RPO mapping for critical systems, backup immutability/air-gapping, failover/runbook procedures, and DR test cadence. Must reference the provided RTO where available. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
     
     # --- LOCKED DOMAIN LENGTH ---
     domain_assessments: List[DomainAssessment] = Field(
@@ -388,6 +393,12 @@ You MUST populate the following optional fields with substantive, consultative c
 - **partnership_details:** A dedicated section describing co-managed or fully managed partnership arrangements. Reference the official partnership URLs: Fully Managed ({FULLY_MANAGED_URL}) and Co-Managed ({CO_MANAGED_URL}). Explain what Planet IT delivers under each model, the shared responsibility matrix, and SLAs. Minimum 2 paragraphs. Bullet points are strictly prohibited.
 - **partnership_links:** A list of 2-3 official Planet IT governance or partnership resource URLs. Use the two official URLs above plus one additional Planet IT resource URL.
 - **threat_intelligence_context:** A threat intelligence contextualisation specific to the client's industry and Crown Jewels. Summarise the current threat actor landscape, relevant APT groups, and how the client's assets are targeted. Minimum 1 paragraph. Bullet points are strictly prohibited.
+
+### PROACTIVE TESTING, IR AND DR PROGRAMMES
+You MUST also populate the following optional narrative fields with concrete, execution-ready guidance tailored to the client's environment:
+- **proactive_testing_programme:** Define a 12–18 month security validation programme with a penetration testing cadence (e.g., external quarterly, internal bi-annual, web app/API aligned to release cycles), continuous exposure management recommendations, breach-and-attack simulation/ATT&CK emulation, and phishing campaigns. Include scoping prerequisites and evidence management approach. Minimum 2 paragraphs. Bullet points are strictly prohibited.
+- **incident_response_plan_outline:** Summarise the IR plan with roles/RACI, communications tree, incident playbooks mapped to the client's top threats, integration with any IR retainer (e.g., Sophos MDR Plus, Microsoft DART), and a quarterly tabletop/testing schedule. Minimum 2 paragraphs. Bullet points are strictly prohibited.
+- **disaster_recovery_plan_outline:** Summarise DR strategy with system-level RTO/RPO mapping for the Crown Jewels, immutable/air-gapped backups, failover runbooks, and DR exercise cadence. Tie explicitly to the submitted RTO. Minimum 2 paragraphs. Bullet points are strictly prohibited.
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     

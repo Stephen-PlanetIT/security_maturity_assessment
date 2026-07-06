@@ -806,6 +806,10 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         context["partnership_outline"] = partnership_outline
     else:
         context["partnership_outline"] = ""
+    # Proactive Testing, IR and DR programme fields (optional)
+    context["proactive_testing_programme"] = getattr(report_data, "proactive_testing_programme", "") or ""
+    context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
+    context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
     doc.render(_xml_escape_dict(context))
 
     # Post-render: inject formatted threat scenarios with proper Word styling
