@@ -237,3 +237,175 @@ Always maintain a highly professional, objective, and consultative tone. Use Bri
 
 When generating domain assessments and roadmap recommendations, reference the Authorised Solution Portfolio above to recommend specific products. Match the product tier to the client's size and environment. Always explain why a specific product is appropriate for the client's context.
 """
+
+# ==========================================
+# MDR DECISION ASSIST: Sophos MDR vs Adlumin
+# ==========================================
+
+# A lightweight, static comparison to help consultants articulate the key
+# differences between Sophos MDR and Adlumin MDR. This is intentionally
+# deterministic and does not rely on the LLM. British English style is used.
+MDR_COMPARISON = {
+    "categories": [
+        {
+            "id": 1,
+            "title": "Tech Stack Integration & Core Philosophy",
+            "sophos": [
+                "Endpoint-led, ecosystem-centric — strongest when combined with Sophos Intercept X, Firewall, Email, etc.",
+                "XDR supports third-party telemetry on higher tiers, but maximum value comes from a unified agent.",
+            ],
+            "adlumin": [
+                "Vendor-agnostic, cloud SIEM/SOAR foundation.",
+                "Designed to layer over existing tools (Microsoft, CrowdStrike, Cisco, etc.) without rip-and-replace.",
+            ],
+        },
+        {
+            "id": 2,
+            "title": "Response Style: Human-led vs AI Automation",
+            "sophos": [
+                "Human-led threat hunting and hands-on-keyboard remediation.",
+                "With delegated authority, analysts actively contain, neutralise, and eradicate threats across the estate.",
+            ],
+            "adlumin": [
+                "AI-driven automation via built-in SOAR playbooks handles routine mitigation.",
+                "Human analysts focus on complex hunting, threat verification, and investigations.",
+            ],
+        },
+        {
+            "id": 3,
+            "title": "Log Management, Transparency & Co-Management",
+            "sophos": [
+                "Outcome-focused SOC; visibility via Sophos Central cases and detections.",
+                "Not designed as a co-managed, raw log analysis tool.",
+            ],
+            "adlumin": [
+                "Absolute transparency and co-management — client sees the same dashboard and raw SIEM data as the SOC.",
+                "Real-time visibility of triage with retained data ownership.",
+            ],
+        },
+        {
+            "id": 4,
+            "title": "Compliance and All-in-One Tooling",
+            "sophos": [
+                "Focus on proactive detection and active response.",
+                "Compliance and vulnerability management are handled as separate disciplines or extensions in the ecosystem.",
+            ],
+            "adlumin": [
+                "Native UEBA, vulnerability scanning, darknet monitoring, and automated compliance reporting templates.",
+                "Strong fit where audit reporting and SIEM-native visibility are primary requirements.",
+            ],
+        },
+        {
+            "id": 5,
+            "title": "Commercial Realities & TCO",
+            "sophos": [
+                "Pricing scales by estate size and service tier; underlying endpoint licensing or integration packs often required.",
+                "Best TCO when the client standardises on Sophos tooling.",
+            ],
+            "adlumin": [
+                "Packaged to encompass environment-wide ingestion for predictable costs — attractive to the mid-market.",
+                "Useful when clients want SIEM + MDR without separate ingestion or infrastructure fees.",
+            ],
+        },
+    ],
+    "decision_framework": [
+        "Choose Sophos MDR if the client wants deep, human-led remediation and is open to (or already utilises) a unified Sophos estate.",
+        "Choose Adlumin MDR if the client wants to preserve a multi-vendor security stack, requires native SIEM/compliance reporting, and prefers a transparent, co-managed operational view.",
+    ],
+}
+
+
+def choose_mdr_recommendation(preferences: dict, context: Optional[dict] = None) -> dict:
+    """Return a recommendation between Sophos MDR and Adlumin MDR.
+
+    preferences keys (expected):
+      - stack_philosophy: 'Sophos estate' | 'Vendor-agnostic' | 'No preference'
+      - response_style: 'Human-led' | 'Automation-first' | 'No preference'
+      - transparency: 'Managed outcomes' | 'Full SIEM co-managed' | 'No preference'
+      - compliance_tooling: 'Separate tools' | 'Built-in compliance/UEBA' | 'No preference'
+      - commercials: 'Optimise Sophos estate' | 'Predictable SIEM-inclusive' | 'No preference'
+
+    Returns a dict: {
+      'recommendation': 'Sophos MDR' | 'Adlumin MDR' | 'Tie',
+      'rationale': [list of strings],
+      'scorecard': {'Sophos MDR': int, 'Adlumin MDR': int}
+    }
+    """
+    score = {"Sophos MDR": 0, "Adlumin MDR": 0}
+    rationale: List[str] = []
+
+    # 1. Stack philosophy
+    sp = (preferences or {}).get("stack_philosophy", "No preference")
+    if sp == "Sophos estate":
+        score["Sophos MDR"] += 1
+        rationale.append("Preference for a unified Sophos-led estate aligns to Sophos MDR's ecosystem strengths.")
+    elif sp == "Vendor-agnostic":
+        score["Adlumin MDR"] += 1
+        rationale.append("Vendor-agnostic approach maps to Adlumin's SIEM/SOAR-first architecture.")
+
+    # 2. Response style
+    rs = (preferences or {}).get("response_style", "No preference")
+    if rs == "Human-led":
+        score["Sophos MDR"] += 1
+        rationale.append("Human-led, hands-on-keyboard remediation favours Sophos MDR.")
+    elif rs == "Automation-first":
+        score["Adlumin MDR"] += 1
+        rationale.append("Automation-first operations favour Adlumin's SOAR-native model.")
+
+    # 3. Transparency & co-management
+    tr = (preferences or {}).get("transparency", "No preference")
+    if tr == "Managed outcomes":
+        score["Sophos MDR"] += 1
+        rationale.append("Outcome-focused SOC operations align with Sophos MDR.")
+    elif tr == "Full SIEM co-managed":
+        score["Adlumin MDR"] += 1
+        rationale.append("Full SIEM access and co-managed operations align with Adlumin.")
+
+    # 4. Compliance & built-ins
+    ct = (preferences or {}).get("compliance_tooling", "No preference")
+    if ct == "Separate tools":
+        score["Sophos MDR"] += 1
+        rationale.append("Compliance handled via the broader ecosystem is consistent with Sophos MDR.")
+    elif ct == "Built-in compliance/UEBA":
+        score["Adlumin MDR"] += 1
+        rationale.append("Built-in compliance and UEBA favour Adlumin's SIEM heritage.")
+
+    # 5. Commercials
+    cm = (preferences or {}).get("commercials", "No preference")
+    if cm == "Optimise Sophos estate":
+        score["Sophos MDR"] += 1
+        rationale.append("Optimising an existing Sophos investment typically reduces TCO with Sophos MDR.")
+    elif cm == "Predictable SIEM-inclusive":
+        score["Adlumin MDR"] += 1
+        rationale.append("Predictable SIEM-inclusive pricing favours Adlumin for many mid-market estates.")
+
+    # Tie-breakers using light-weight environment signals (optional)
+    ctx = context or {}
+    if score["Sophos MDR"] == score["Adlumin MDR"]:
+        try:
+            endpoint_vendor = str(ctx.get("endpoint", "")).lower()
+            firewall_vendor = str(ctx.get("firewall", "")).lower()
+            comp_targets = str(ctx.get("compliance", "")).lower()
+        except Exception:
+            endpoint_vendor = firewall_vendor = comp_targets = ""
+
+        if "sophos" in endpoint_vendor:
+            score["Sophos MDR"] += 1
+            rationale.append("Existing Sophos endpoint estate provides additional synergy with Sophos MDR.")
+        elif any(v in firewall_vendor for v in ["palo alto", "cisco", "fortinet", "check point"]):
+            score["Adlumin MDR"] += 1
+            rationale.append("Heterogeneous, non-Sophos perimeter suggests a vendor-agnostic MDR like Adlumin.")
+
+        if "pci" in comp_targets or "hipaa" in comp_targets:
+            score["Adlumin MDR"] += 1
+            rationale.append("Regulatory reporting emphasis favours Adlumin's built-in compliance reporting.")
+
+    recommendation = "Sophos MDR" if score["Sophos MDR"] > score["Adlumin MDR"] else (
+        "Adlumin MDR" if score["Adlumin MDR"] > score["Sophos MDR"] else "Tie"
+    )
+
+    return {
+        "recommendation": recommendation,
+        "rationale": rationale,
+        "scorecard": score,
+    }

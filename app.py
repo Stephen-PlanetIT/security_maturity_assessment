@@ -6,6 +6,7 @@ import re as _re
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import FULLY_MANAGED_URL, CO_MANAGED_URL
+from data import MDR_COMPARISON, choose_mdr_recommendation
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
@@ -565,6 +566,92 @@ if st.session_state.get('_client_inputs_hash') != _client_hash:
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
 st.divider()
+
+# --- MDR DECISION ASSIST: Sophos MDR vs Adlumin ---
+with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=False):
+    st.caption("Use this guided assistant to differentiate Sophos MDR and Adlumin MDR and generate a context-aware recommendation.")
+
+    # Preference selectors (five decision dimensions)
+    col_pref1, col_pref2, col_pref3 = st.columns(3)
+    with col_pref1:
+        stack_philosophy = st.selectbox(
+            "Technology Stack Philosophy",
+            ["No preference", "Sophos estate", "Vendor-agnostic"],
+            help="Preference for a unified Sophos-led estate or a vendor-agnostic approach."
+        )
+    with col_pref2:
+        response_style = st.selectbox(
+            "Response Style",
+            ["No preference", "Human-led", "Automation-first"],
+            help="Hands-on-keyboard human remediation vs automation-led playbooks."
+        )
+    with col_pref3:
+        transparency = st.selectbox(
+            "Transparency & Co-Management",
+            ["No preference", "Managed outcomes", "Full SIEM co-managed"],
+            help="Outcome-focused SOC vs full, co-managed SIEM access and visibility."
+        )
+
+    col_pref4, col_pref5 = st.columns(2)
+    with col_pref4:
+        compliance_tooling = st.selectbox(
+            "Compliance & Built-ins",
+            ["No preference", "Separate tools", "Built-in compliance/UEBA"],
+            help="Do you require native SIEM/UEBA/compliance reporting in-platform?"
+        )
+    with col_pref5:
+        commercials = st.selectbox(
+            "Commercials & TCO",
+            ["No preference", "Optimise Sophos estate", "Predictable SIEM-inclusive"],
+            help="Optimise an existing Sophos investment or prefer predictable SIEM-inclusive pricing?"
+        )
+
+    # Optional hygiene reminder aligned to Capability Mismatch (non-intrusive)
+    _mfa = st.session_state['client_inputs'].get('mfa_status', 'Unknown')
+    _patch = st.session_state['client_inputs'].get('patching', 'Unknown')
+    _bkp = st.session_state['client_inputs'].get('backups', 'Unknown')
+    if _mfa in ["None", "Privileged Accounts Only"] or _patch == "Manual / Ad-hoc" or _bkp in ["No Formal Backups", "On-Premise Only"]:
+        st.warning("Foundational hygiene gaps detected (MFA, patching, backups). Prioritise remediation before finalising MDR provider selection to avoid Capability Mismatch and inflated costs.")
+
+    # Build preferences and compute recommendation
+    prefs = {
+        "stack_philosophy": stack_philosophy,
+        "response_style": response_style,
+        "transparency": transparency,
+        "compliance_tooling": compliance_tooling,
+        "commercials": commercials,
+    }
+    rec = choose_mdr_recommendation(prefs, context=st.session_state['client_inputs'])
+
+    # Output recommendation and rationale
+    if rec.get('recommendation') == 'Tie':
+        st.info("Decision outcome: Tie — both providers can fit. Use the comparison below and environmental tie-breakers to decide.")
+    elif rec.get('recommendation') == 'Sophos MDR':
+        st.success("Recommended: Sophos MDR — aligns best with stated preferences and current environment.")
+    else:
+        st.success("Recommended: Adlumin MDR — aligns best with stated preferences and current environment.")
+
+    score = rec.get('scorecard', {})
+    st.caption(f"Scorecard — Sophos MDR: {score.get('Sophos MDR', 0)} | Adlumin MDR: {score.get('Adlumin MDR', 0)}")
+    rationale_lines = rec.get('rationale', [])
+    if rationale_lines:
+        st.markdown("**Rationale:**")
+        st.markdown("\n".join([f"- {r}" for r in rationale_lines]))
+
+    st.divider()
+    st.markdown("### Comparison Matrix")
+    for cat in MDR_COMPARISON.get('categories', []):
+        st.markdown(f"#### {cat.get('title')}")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Sophos MDR**")
+            st.markdown("\n".join([f"- {item}" for item in cat.get('sophos', [])]))
+        with col_b:
+            st.markdown("**Adlumin MDR**")
+            st.markdown("\n".join([f"- {item}" for item in cat.get('adlumin', [])]))
+    dfw = MDR_COMPARISON.get('decision_framework', [])
+    if dfw:
+        st.info("\n".join([f"• {line}" for line in dfw]))
 
 # --- WORKFLOW ROUTING ---
 if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
