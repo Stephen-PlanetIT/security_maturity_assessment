@@ -622,6 +622,14 @@ with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=Fa
         "commercials": commercials,
     }
     rec = choose_mdr_recommendation(prefs, context=st.session_state['client_inputs'])
+    # Persist decision for downstream prompt builders
+    st.session_state['mdr_decision'] = rec.get('recommendation')
+    st.session_state['mdr_decision_rationale'] = rec.get('rationale', [])
+    try:
+        st.session_state['client_inputs']['mdr_decision'] = st.session_state['mdr_decision']
+        st.session_state['client_inputs']['mdr_decision_rationale'] = st.session_state['mdr_decision_rationale']
+    except Exception:
+        pass
 
     # Output recommendation and rationale
     if rec.get('recommendation') == 'Tie':

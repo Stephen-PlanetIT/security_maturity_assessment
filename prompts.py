@@ -391,6 +391,28 @@ You MUST populate the following optional fields with substantive, consultative c
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
-    return base_prompt + "\n\n" + ban_clause + "\n\n" + rules
+    # Inject MDR decision hint ahead of rules, if present
+    mdr_pref = client_inputs.get('mdr_decision', 'None')
+    mdr_hint = ""
+    if not mdr_pref or mdr_pref in ('None', 'Tie'):
+        try:
+            ep = str(client_inputs.get('endpoint', '')).lower()
+            comp = str(client_inputs.get('compliance', [])).lower()
+        except Exception:
+            ep = ''
+            comp = ''
+        if 'sophos' in ep:
+            mdr_pref = 'Sophos MDR'
+        elif 'pci' in comp or 'hipaa' in comp:
+            mdr_pref = 'Adlumin MDR'
+        else:
+            mdr_pref = ''
+    if mdr_pref:
+        mdr_hint = f"""
+    ### MDR DECISION ENGINE HINT
+    Preferred MDR Provider: {mdr_pref}.
+    Apply this preference when selecting recommended_solutions for the 'Security Operations & Response (SecOps)' domain. If the preferred vendor is banned, fall back to an allowable alternative from the AUTHORIZED PRODUCT MAPPING. Maintain the Capability Mismatch penalties and all guardrails exactly as specified.
+    """
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + rules
 
 

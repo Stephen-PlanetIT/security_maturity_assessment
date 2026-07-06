@@ -44,6 +44,21 @@ PLANET_IT_PORTFOLIO = {
             "trigger_conditions": ["Existing Microsoft E5 estate", "Heavily invested in Azure Sentinel / Microsoft XDR", "Need Microsoft-native threat hunting"],
             "core_features": ["Managed Threat Hunting on Microsoft XDR Telemetry", "Azure Sentinel SIEM Integration", "Microsoft DART Escalation Pathway"],
             "planet_it_value_add": "Planet IT enhances Microsoft Defender Experts coverage with cross-vendor telemetry integration (firewalls, network, non-Microsoft identity) and foundational operational hygiene management—capabilities the Microsoft-native service does not address. Recommended for organisations with deep Microsoft E5 investment requiring a managed bridge between Microsoft and non-Microsoft security layers."
+        },
+        {
+            "vendor": "Adlumin MDR",
+            "category": "Vendor-Agnostic SIEM/SOAR MDR",
+            "tier": "SME to Mid-Market (Transparent Co-Managed)",
+            "recommended_for_domains": ["Security Operations & Response (SecOps)"],
+            "trigger_conditions": ["Multi-vendor stack in place", "Need native SIEM and automated compliance reporting", "Desire co-managed transparency"],
+            "core_features": [
+                "Cloud SIEM/SOAR foundation (vendor-agnostic)",
+                "AI-driven automation playbooks (70%+ routine alert handling)",
+                "Full client access to the same dashboard and raw SIEM logs",
+                "Native UEBA, vulnerability scanning, darknet monitoring",
+                "Automated compliance reporting templates (e.g., PCI, HIPAA)"
+            ],
+            "planet_it_value_add": "Planet IT deploys and tunes Adlumin as a transparent, co-managed SOC platform layered over the client’s existing tools, enabling rapid time-to-value without rip-and-replace. Strong fit for clients prioritising SIEM-native reporting and predictable, SIEM-inclusive MDR costs."
         }
     ],
     "Endpoint_and_Server_Security": [
