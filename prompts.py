@@ -335,23 +335,25 @@ The client has explicitly banned the following vendors: [{ban_list}].
 You MUST NOT recommend, mention, or suggest any of these banned vendors in any section of the report, including domain assessments, recommended solutions, phased roadmap, or any other field. Suggest functionally equivalent alternatives from other providers instead. If all viable vendors in a category are banned, state that a solution is required and Planet IT can advise on suitable alternatives.
 """
     base_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Consultant: {client_inputs.get('consultant_name', 'Advisor')}
-CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
+    CLIENT ENVIRONMENT: Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')} | Endpoints: {client_inputs.get('endpoints', '600')} | Servers: {client_inputs.get('servers', '50')} | Critical Asset: {client_inputs.get('critical_infra', 'Unknown')} | Security Culture Tier: {client_inputs.get('savviness', 'Unknown')} | Compliance Targets: {client_inputs.get('compliance', [])}
 
-STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint Vendor: {client_inputs.get('endpoint', 'Unknown')} | Endpoint Capability: {client_inputs.get('endpoint_posture', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
-NETWORK & DATA: Remote Access: {client_inputs.get('remote_access', 'Unknown')} | SaaS Backup (M365): {client_inputs.get('saas_backup', 'Unknown')}
-ADAPTIVE CONTROLS DEPLOYED: {client_inputs.get('advanced_controls', 'None')}
+    STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint Vendor: {client_inputs.get('endpoint', 'Unknown')} | Endpoint Capability: {client_inputs.get('endpoint_posture', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
+    NETWORK & DATA: Remote Access: {client_inputs.get('remote_access', 'Unknown')} | SaaS Backup (M365): {client_inputs.get('saas_backup', 'Unknown')}
+    ADAPTIVE CONTROLS DEPLOYED: {client_inputs.get('advanced_controls', 'None')}
 
-OPERATIONAL TELEMETRY & RISK FACTORS:
-- MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
-- Patch Management: {client_inputs.get('patching', 'Unknown')}
-- Infrastructure Backups: {client_inputs.get('backups', 'Unknown')}
-- Incident Response Readiness: {client_inputs.get('ir_readiness', 'Unknown')}
-- Elite IR Retainer: {client_inputs.get('ir_retainer', 'None')}
-- Cyber Insurance Status: {client_inputs.get('insurance', 'Unknown')}
-- Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
+    OPERATIONAL TELEMETRY & RISK FACTORS:
+    - MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}
+    - Patch Management: {client_inputs.get('patching', 'Unknown')}
+    - Infrastructure Backups: {client_inputs.get('backups', 'Unknown')}
+    - Incident Response Readiness: {client_inputs.get('ir_readiness', 'Unknown')}
+    - Elite IR Retainer: {client_inputs.get('ir_retainer', 'None')}
+    - Cyber Insurance Status: {client_inputs.get('insurance', 'Unknown')}
+    - Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
 
-VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
-"""
+    VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
+
+    PARTNERSHIP STATUS & ENTITLEMENTS: Current Managed Service Status: {client_inputs.get('managed_service_status','None')} | Partnership Preference: {client_inputs.get('partnership_type','Unknown')} | Co-Managed Service Units (if any): {client_inputs.get('co_managed_units', 0)}
+    """
     
     rules = f"""
 ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
@@ -397,6 +399,9 @@ You MUST populate the following optional fields with substantive, consultative c
 - **partnership_details:** A dedicated section describing co-managed or fully managed partnership arrangements. Reference the official partnership URLs: Fully Managed ({FULLY_MANAGED_URL}) and Co-Managed ({CO_MANAGED_URL}). Explain what Planet IT delivers under each model, the shared responsibility matrix, and SLAs. Minimum 2 paragraphs. Bullet points are strictly prohibited.
 - **partnership_links:** A list of 2-3 official Planet IT governance or partnership resource URLs. Use the two official URLs above plus one additional Planet IT resource URL.
 - **threat_intelligence_context:** A threat intelligence contextualisation specific to the client's industry and Crown Jewels. Summarise the current threat actor landscape, relevant APT groups, and how the client's assets are targeted. Minimum 1 paragraph. Bullet points are strictly prohibited.
+
+### EXISTING MANAGED SERVICE STATUS (STRICT HANDLING)
+If the 'Current Managed Service Status' indicates 'Planet IT Fully Managed (Active)', assume general alignment to the Planet stack is likely; verify actual deployment and configuration before asserting alignment. Do not inflate any radar scores or bypass guardrails. Focus recommended solutions on optimisation, health checks, and advanced adoption rather than duplicative procurement. If 'Planet IT Co-Managed (Active)' and 'Co-Managed Service Units' > 0, explicitly flag which Phase 1/2 tasks can be executed under existing service units; treat them as entitlements (not guarantees) and confirm with the account team. If an 'Other MSP' is active, acknowledge the existing partnership and avoid redundant managed‑support recommendations; propose an optional migration path to Planet IT only if it provides clear value in context.
 
 ### PROACTIVE TESTING, IR AND DR PROGRAMMES
 You MUST also populate the following optional narrative fields with concrete, execution-ready guidance tailored to the client's environment:

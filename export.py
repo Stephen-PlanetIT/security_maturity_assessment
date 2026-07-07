@@ -174,6 +174,8 @@ def draw_estate_summary(pdf, inputs):
     draw_row("Endpoints / Servers", f"{safe_get('endpoints')} / {safe_get('servers')}")
     draw_row("Target Compliance", safe_get('compliance'))
     draw_row("Crown Jewels", safe_get('critical_infra'))
+    draw_row("Managed Service Status", safe_get('managed_service_status'))
+    draw_row("Co-Managed Service Units", safe_get('co_managed_units', 0))
     pdf.ln(3)
 
     # --- Group 2: Technology Stack ---
@@ -353,6 +355,8 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
         "in_house_team": client_inputs.get("in_house_team", "Unknown"),
         "compliance": client_inputs.get("compliance", "None"),
         "critical_infra": client_inputs.get("critical_infra", "Unknown"),
+        "managed_service_status": client_inputs.get("managed_service_status", "None"),
+        "co_managed_units": client_inputs.get("co_managed_units", 0),
         
         # --- Technology Stack ---
         "mdr_provider": client_inputs.get("mdr_provider", "None"),
@@ -734,6 +738,8 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         "in_house_team": client_inputs.get("in_house_team", "Unknown"),
         "compliance": client_inputs.get("compliance", "None"),
         "critical_infra": client_inputs.get("critical_infra", "Unknown"),
+        "managed_service_status": client_inputs.get("managed_service_status", "None"),
+        "co_managed_units": client_inputs.get("co_managed_units", 0),
         "mdr_provider": client_inputs.get("mdr_provider", "None"),
         "endpoint": client_inputs.get("endpoint", "Unknown"),
         "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"),

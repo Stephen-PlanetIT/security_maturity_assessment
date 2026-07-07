@@ -101,6 +101,8 @@ class CyberScenarioGenerator:
         backups = inputs.get('backups', 'Unknown')
         mfa_status = inputs.get('mfa_status', 'Unknown')
         ir_retainer = inputs.get('ir_retainer', 'None')
+        managed_status = inputs.get('managed_service_status', 'None')
+        co_units = inputs.get('co_managed_units', 0)
 
         strong_ms_investment = m365_license in ["Microsoft 365 E5", "M365 Business Premium"]
 
@@ -170,6 +172,22 @@ class CyberScenarioGenerator:
         if "Pillar 1" in culture:
             safe_append("Security_Awareness_and_Training", "Hoxhunt",
                 "**Security Awareness Training:** A phishing simulation and training programme is recommended. Planet IT can advise on suitable platforms.")
+
+        # Managed service status acknowledgement (non-inflationary, advisory only)
+        if isinstance(managed_status, str):
+            if managed_status == "Planet IT Fully Managed (Active)":
+                recs.append("**Existing Planet IT Fully Managed engagement:** Alignment to the Planet stack is likely, but not guaranteed. Prioritise configuration verification, health checks, and optimisation over duplicative procurement.")
+            elif managed_status == "Planet IT Co-Managed (Active)":
+                try:
+                    units = int(co_units or 0)
+                except Exception:
+                    units = 0
+                if units > 0:
+                    recs.append("**Co-Managed Entitlements:** Consider executing priority hardening tasks via existing co‑managed service units where appropriate. Treat as entitlements subject to account validation.")
+                else:
+                    recs.append("**Co-Managed Operations:** Acknowledge the co‑managed model and explore whether service units are available to accelerate remediation without net‑new spend.")
+            elif isinstance(managed_status, str) and managed_status.startswith("Other MSP"):
+                recs.append("**Existing Third‑Party MSP:** Maintain awareness of current MSP responsibilities. Avoid redundant managed‑support recommendations; propose an optional migration path to Planet IT only if it provides clear value.")
 
         if not recs:
             recs.append("**Internal SOC Optimisation:** Leverage the existing 24/7 team for proactive threat hunting, as baseline controls are currently saturated.")
@@ -352,6 +370,8 @@ TEST_DATA = {
     "rto": "12-24 Hours",
     "ir_readiness": "No Formal Plan",
     "ir_retainer": "None",
+    "managed_service_status": "None (No managed service in place)",
+    "co_managed_units": 0,
 }
 
 # --- UI INPUTS ---
@@ -449,6 +469,31 @@ if partnership_type == "Fully Managed":
     st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
 else:
     st.markdown(f"Official URL: {CO_MANAGED_URL}")
+
+# --- Managed Service Status (Current State) ---
+managed_status_options = [
+    "None (No managed service in place)",
+    "Planet IT Fully Managed (Active)",
+    "Planet IT Co-Managed (Active)",
+    "Other MSP Fully Managed (Active)",
+    "Other MSP Co-Managed (Active)",
+    "In Transition / Evaluating",
+]
+managed_service_status = st.selectbox(
+    "Current Managed Service Status",
+    managed_status_options,
+    index=(managed_status_options.index("None (No managed service in place)") if dev else 0),
+    help="Capture current support so recommendations and governance sections reflect reality."
+)
+co_units_val = 0
+if "Co-Managed" in managed_service_status:
+    co_units_val = st.number_input(
+        "Co-Managed: Service Units Available (estimate)",
+        min_value=0, value=(TEST_DATA['co_managed_units'] if dev else 0),
+        help="If applicable, an indicative balance that may be exchanged for services."
+    )
+st.session_state['managed_service_status'] = managed_service_status
+st.session_state['co_managed_units'] = co_units_val
 
 ## --- OPERATIONAL & RISK TELEMETRY ---
 st.markdown("### ⚙️ Operational & Risk Telemetry")
@@ -558,6 +603,8 @@ client_inputs = {
     "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None",
     "ir_retainer": _norm(ir_retainer, "None"),
     "banned_vendors": banned_vendors,
+    "managed_service_status": _norm(st.session_state.get('managed_service_status', 'None'), "None"),
+    "co_managed_units": st.session_state.get('co_managed_units', 0),
     "partnership_type": partnership_type
 }
 
