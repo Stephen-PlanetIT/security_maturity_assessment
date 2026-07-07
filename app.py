@@ -344,6 +344,7 @@ TEST_DATA = {
     "physical_locations": 3,
     "advanced_controls": [],
     "validation_notes": "",
+    "context_notes": "",
     "mfa_status": "Privileged Accounts Only",
     "patching": "Manual / Ad-hoc",
     "backups": "On-Premise Only",
@@ -436,6 +437,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
             default=(TEST_DATA['advanced_controls'] if dev else [])
         )
         validation_notes = st.text_area("Validation Notes", value=(TEST_DATA['validation_notes'] if dev else ""), placeholder="e.g., Customer requires ISO 27001 alignment by Q4")
+        context_notes = st.text_area("Consultant Context (LLM-visible)", value=(TEST_DATA['context_notes'] if dev else ""), placeholder="e.g., Nuances, constraints, or messaging to incorporate across the report")
 
     st.divider()
 
@@ -547,6 +549,7 @@ client_inputs = {
     "pentest_status": _norm(pentest_status), 
     "vuln_scanning": _norm(vuln_scanning), 
     "validation_notes": validation_notes,
+    "context_notes": context_notes,
     "mfa_status": _norm(mfa_status),
     "patching": _norm(patching),
     "backups": _norm(backups),
