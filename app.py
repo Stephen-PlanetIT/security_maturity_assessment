@@ -382,7 +382,37 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         st.subheader("Organisational Profile")
         customer_name = st.text_input("Customer Name", value=(TEST_DATA['customer_name'] if dev else ""), placeholder="e.g., Acme Corp")
         consultant_name = st.text_input("Consultant Name", value=(TEST_DATA['consultant_name'] if dev else ""), placeholder="e.g., Jane Doe")
-        industry_options = ["Select Industry...", "Healthcare", "Finance", "Manufacturing", "Retail", "Technology", "Other"]
+        industry_options = [
+            "Select Industry...",
+            "Healthcare",
+            "Finance",
+            "Manufacturing",
+            "Retail & eCommerce",
+            "Technology",
+            "Education",
+            "Legal",
+            "Local Government",
+            "Central Government",
+            "Non-profit / Charity",
+            "Energy & Utilities",
+            "Construction",
+            "Logistics & Supply Chain",
+            "Media & Entertainment",
+            "Hospitality & Leisure",
+            "Pharmaceuticals & Life Sciences",
+            "Professional Services",
+            "Real Estate & Facilities",
+            "Transportation",
+            "Aviation",
+            "Defence & Aerospace",
+            "Critical National Infrastructure (CNI)",
+            "Insurance",
+            "Telecommunications",
+            "Automotive",
+            "Agriculture & Food",
+            "Mining & Natural Resources",
+            "Other",
+        ]
         industry = st.selectbox("Industry", industry_options, index=(industry_options.index(TEST_DATA['industry']) if dev else 0), help="Example: Technology")
         users = st.number_input("Headcount", min_value=0, value=(TEST_DATA['users'] if dev else 0), help="Example: 500")
         critical_infra = st.text_input("Crown Jewels", value=(TEST_DATA['critical_infra'] if dev else ""), placeholder="e.g., Patient Records Database")
