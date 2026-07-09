@@ -213,5 +213,45 @@ PLANET_IT_PORTFOLIO = {
             "core_features": ["Cloud-first architecture", "Automated recovery testing", "M365 & Server Integration"],
             "planet_it_value_add": "Active backup success monitoring and automated recovery testing by Planet IT, ensuring data integrity and rapid restoration capability."
         }
+    ],
+    "Security_Validation_and_Testing": [
+        {
+            "vendor": "Sophos Penetration Testing",
+            "category": "Security Validation & Testing Services",
+            "tier": "All Sizes",
+            "recommended_for_domains": ["Security Validation & Testing"],
+            "trigger_conditions": ["Compliance-mandated annual testing", "First-time baseline assessment", "New external exposure or major change"],
+            "core_features": ["CREST-aligned external & internal testing", "Web App/API testing", "Clear vulnerability reproduction steps"],
+            "planet_it_value_add": "Planet IT scopes and coordinates vendor testing, ensuring evidence is captured and remediation is prioritised and tracked to closure across the estate."
+        },
+        {
+            "vendor": "Planet IT Penetration Testing",
+            "category": "Security Validation & Testing Services",
+            "tier": "SME to Mid-Market",
+            "recommended_for_domains": ["Security Validation & Testing"],
+            "trigger_conditions": ["No regular testing cadence", "Mergers & Acquisitions", "Critical application release"],
+            "core_features": ["External/Internal testing", "Web App/API assessments", "Red team style scenarios by agreement"],
+            "planet_it_value_add": "End-to-end testing engagement delivered by Planet IT with a remediation workshop, retest window, and evidence suitable for board and auditor consumption."
+        }
+    ],
+    "Governance_Risk_and_Compliance_Services": [
+        {
+            "vendor": "Planet IT IR/DR Roundtables",
+            "category": "Incident Response & Disaster Recovery Consultancy",
+            "tier": "All Sizes",
+            "recommended_for_domains": ["Governance, Risk & Compliance (GRC)"],
+            "trigger_conditions": ["No formal plan", "Untested plans", "Leadership turnover"],
+            "core_features": ["Quarterly tabletop exercises", "RACI and comms tree validation", "Scenario planning mapped to top threats"],
+            "planet_it_value_add": "Facilitated roundtables led by Planet IT to validate IR/DR readiness, document decisions, and capture action owners and timelines."
+        },
+        {
+            "vendor": "Planet IT IR/DR Planning Workshop",
+            "category": "Incident Response & Disaster Recovery Consultancy",
+            "tier": "All Sizes",
+            "recommended_for_domains": ["Governance, Risk & Compliance (GRC)"],
+            "trigger_conditions": ["Greenfield IR/DR", "Policy refresh required", "Cyber insurance mandate"],
+            "core_features": ["IR plan development", "DR runbooks with RTO/RPO mapping", "Quarterly testing schedule"],
+            "planet_it_value_add": "Structured workshops to build or refresh IR and DR plans aligned to business RTO/RPO, with deliverables integrated into the client's governance model."
+        }
     ]
 }
