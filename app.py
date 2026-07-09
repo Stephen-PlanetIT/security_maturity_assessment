@@ -326,14 +326,46 @@ with st.sidebar:
 # --- MAIN PAGE HEADER ---
 st.title("Security Use Case & Cybersecurity Maturity Assessment Generator")
 
-# --- DEV/TEST UTILITIES ---
-with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
-    col_dev1, col_dev2 = st.columns(2)
-    if col_dev1.button("Fill with Test Data"):
-        st.session_state['use_test_data'] = True
-    if col_dev2.button("Clear All Fields"):
-        st.session_state['use_test_data'] = False
-    dev = st.session_state.get('use_test_data', False) or st.session_state.get('use_imported_profile', False)
+with st.expander("Profile: Export / Import", expanded=False):
+    import json as _json
+    col_e1, col_e2 = st.columns([1, 1])
+    # Export uses the sanitised, canonical client_inputs if available
+    export_profile = st.session_state.get('client_inputs', {})
+    file_customer_name = st.session_state.get('client_inputs', {}).get('customer_name', 'Client')
+    with col_e1:
+        if export_profile:
+            st.download_button(
+                "⬇️ Export current options (.json)",
+                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+                file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
+                mime="application/json"
+            )
+        else:
+            st.info("Provide inputs to enable export.")
+    with col_e2:
+        uploaded = st.file_uploader("Import options (.json)", type=["json"])
+        if uploaded is not None:
+            try:
+                raw = uploaded.read()
+                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                if not isinstance(profile, dict):
+                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                else:
+                    # Minimal validation: ensure required fields exist
+                    required_keys = ["customer_name", "industry", "users"]
+                    if not all(k in profile for k in required_keys):
+                        st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
+                    st.session_state['_imported_profile'] = profile
+                    st.session_state['use_imported_profile'] = True
+                    st.session_state['use_test_data'] = False
+                    st.success("Profile imported. Applying to UI...")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to import profile: {e}")
+
+# --- DEV FLAG (computed early; UI moved to bottom) ---
+dev = st.session_state.get('use_test_data', False) or st.session_state.get('use_imported_profile', False)
 
 TEST_DATA = {
     "customer_name": "Acme Corp",
@@ -381,6 +413,9 @@ if st.session_state.get('use_imported_profile') and st.session_state.get('_impor
     TEST_DATA = st.session_state['_imported_profile']
 
 # --- UI INPUTS ---
+# [Moved] Profile: Export / Import expander relocated after inputs are initialised to avoid NameError
+
+st.divider()
 with st.expander("Customer Estate & Engagement Profile", expanded=True):
     col1, col2, col3 = st.columns(3)
     
@@ -652,8 +687,9 @@ if st.session_state.get('_client_inputs_hash') != _client_hash:
     st.session_state['_client_inputs_hash'] = _client_hash
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
+# [Moved to top] Profile: Export / Import expander removed here to avoid duplication
+
 # --- MDR DECISION ASSIST: Sophos MDR vs Adlumin ---
-st.divider()
 with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=False):
     st.caption("Use this guided assistant to differentiate Sophos MDR and Adlumin MDR and generate a context-aware recommendation.")
 
@@ -747,79 +783,7 @@ with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=Fa
     if dfw:
         st.info("\n".join([f"• {line}" for line in dfw]))
 
-
-st.divider()
-with st.expander("Profile: Export / Import", expanded=False):
-    col_e1, col_e2 = st.columns([1, 1])
-    # Build a UI profile that mirrors TEST_DATA keys so it can pre-populate widgets
-    export_profile = {
-        "customer_name": customer_name,
-        "consultant_name": consultant_name,
-        "industry": industry,
-        "users": users,
-        "critical_infra": critical_infra,
-        "endpoints": endpoints,
-        "servers": servers,
-        "operating_systems": operating_systems,
-        "mdr_provider": mdr_provider,
-        "endpoint": endpoint,
-        "endpoint_posture": endpoint_posture,
-        "firewall": firewall,
-        "remote_access": remote_access,
-        "saas_backup": saas_backup,
-        "identity": identity,
-        "m365_license": m365_license,
-        "email": email,
-        "cloud_env": cloud_env,
-        "in_house_team": in_house_team,
-        "pentest_status": pentest_status,
-        "vuln_scanning": vuln_scanning,
-        "public_web_apps": public_web_apps,
-        "compliance": compliance,
-        "physical_locations": physical_locations,
-        "advanced_controls": advanced_controls,
-        "validation_notes": validation_notes,
-        "context_notes": context_notes,
-        "mfa_status": mfa_status,
-        "patching": patching,
-        "backups": backups,
-        "insurance": insurance,
-        "rto": rto,
-        "ir_readiness": ir_readiness,
-        "ir_retainer": ir_retainer,
-        "managed_service_status": managed_service_status,
-        "co_managed_units": co_units_val,
-        "partnership_type": partnership_type,
-        "banned_vendors": banned_vendors,
-    }
-    with col_e1:
-        st.download_button(
-            "⬇️ Export current options (.json)",
-            data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
-            file_name=f"{cached_customer_name.replace(' ', '_')}_options.json",
-            mime="application/json"
-        )
-    with col_e2:
-        uploaded = st.file_uploader("Import options (.json)", type=["json"])
-        if uploaded is not None:
-            try:
-                raw = uploaded.read()
-                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
-                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
-                if not isinstance(profile, dict):
-                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
-                else:
-                    # Minimal validation: ensure required fields exist
-                    required_keys = ["customer_name", "industry", "users"]
-                    if not all(k in profile for k in required_keys):
-                        st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
-                    st.session_state['_imported_profile'] = profile
-                    st.session_state['use_imported_profile'] = True
-                    st.session_state['use_test_data'] = False
-                    st.success("Profile imported. Applying to UI...")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Failed to import profile: {e}")
+        st.divider()
 
 st.divider()
 
@@ -1184,6 +1148,15 @@ Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-dri
                             st.write(f"- {r}")
         # Display Cost of Inaction (GBP) if available in the maturity report
         _display_cost_of_inaction_section()
+
+with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
+    col_dev1, col_dev2 = st.columns(2)
+    if col_dev1.button("Fill with Test Data"):
+        st.session_state['use_test_data'] = True
+        st.rerun()
+    if col_dev2.button("Clear All Fields"):
+        st.session_state['use_test_data'] = False
+        st.rerun()
 
 st.divider()
 st.markdown(
