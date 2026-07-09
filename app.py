@@ -333,7 +333,7 @@ with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
         st.session_state['use_test_data'] = True
     if col_dev2.button("Clear All Fields"):
         st.session_state['use_test_data'] = False
-dev = st.session_state.get('use_test_data', False)
+    dev = st.session_state.get('use_test_data', False) or st.session_state.get('use_imported_profile', False)
 
 TEST_DATA = {
     "customer_name": "Acme Corp",
@@ -372,7 +372,13 @@ TEST_DATA = {
     "ir_retainer": "None",
     "managed_service_status": "None (No managed service in place)",
     "co_managed_units": 0,
+    "partnership_type": "Fully Managed",
+    "banned_vendors": [],
 }
+
+# Apply imported profile override for UI defaults
+if st.session_state.get('use_imported_profile') and st.session_state.get('_imported_profile'):
+    TEST_DATA = st.session_state['_imported_profile']
 
 # --- UI INPUTS ---
 with st.expander("Customer Estate & Engagement Profile", expanded=True):
@@ -463,7 +469,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     banned_vendors = st.multiselect(
         "Excluded Vendors",
         options=all_vendors,
-        default=[],
+        default=(TEST_DATA.get('banned_vendors', []) if dev else []),
         help="Select vendors to exclude from all recommendations and LLM-generated content."
     )
     
@@ -493,7 +499,8 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
 
 ## --- PARTNERSHIP GOVERNANCE ---
 st.markdown("### 🔗 Partnership Governance")
-partnership_type = st.radio("Partnership Governance Model", ["Fully Managed", "Co-Managed"])
+_pt_opts = ["Fully Managed", "Co-Managed"]
+partnership_type = st.radio("Partnership Governance Model", _pt_opts, index=(_pt_opts.index(TEST_DATA['partnership_type']) if dev else 0))
 st.session_state['partnership_type'] = partnership_type
 if partnership_type == "Fully Managed":
     st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
@@ -512,7 +519,7 @@ managed_status_options = [
 managed_service_status = st.selectbox(
     "Current Managed Service Status",
     managed_status_options,
-    index=(managed_status_options.index("None (No managed service in place)") if dev else 0),
+    index=(managed_status_options.index(TEST_DATA['managed_service_status']) if dev else 0),
     help="Capture current support so recommendations and governance sections reflect reality."
 )
 co_units_val = 0
@@ -645,9 +652,8 @@ if st.session_state.get('_client_inputs_hash') != _client_hash:
     st.session_state['_client_inputs_hash'] = _client_hash
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
-st.divider()
-
 # --- MDR DECISION ASSIST: Sophos MDR vs Adlumin ---
+st.divider()
 with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=False):
     st.caption("Use this guided assistant to differentiate Sophos MDR and Adlumin MDR and generate a context-aware recommendation.")
 
@@ -740,6 +746,83 @@ with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=Fa
     dfw = MDR_COMPARISON.get('decision_framework', [])
     if dfw:
         st.info("\n".join([f"• {line}" for line in dfw]))
+
+
+st.divider()
+with st.expander("Profile: Export / Import", expanded=False):
+    col_e1, col_e2 = st.columns([1, 1])
+    # Build a UI profile that mirrors TEST_DATA keys so it can pre-populate widgets
+    export_profile = {
+        "customer_name": customer_name,
+        "consultant_name": consultant_name,
+        "industry": industry,
+        "users": users,
+        "critical_infra": critical_infra,
+        "endpoints": endpoints,
+        "servers": servers,
+        "operating_systems": operating_systems,
+        "mdr_provider": mdr_provider,
+        "endpoint": endpoint,
+        "endpoint_posture": endpoint_posture,
+        "firewall": firewall,
+        "remote_access": remote_access,
+        "saas_backup": saas_backup,
+        "identity": identity,
+        "m365_license": m365_license,
+        "email": email,
+        "cloud_env": cloud_env,
+        "in_house_team": in_house_team,
+        "pentest_status": pentest_status,
+        "vuln_scanning": vuln_scanning,
+        "public_web_apps": public_web_apps,
+        "compliance": compliance,
+        "physical_locations": physical_locations,
+        "advanced_controls": advanced_controls,
+        "validation_notes": validation_notes,
+        "context_notes": context_notes,
+        "mfa_status": mfa_status,
+        "patching": patching,
+        "backups": backups,
+        "insurance": insurance,
+        "rto": rto,
+        "ir_readiness": ir_readiness,
+        "ir_retainer": ir_retainer,
+        "managed_service_status": managed_service_status,
+        "co_managed_units": co_units_val,
+        "partnership_type": partnership_type,
+        "banned_vendors": banned_vendors,
+    }
+    with col_e1:
+        st.download_button(
+            "⬇️ Export current options (.json)",
+            data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+            file_name=f"{cached_customer_name.replace(' ', '_')}_options.json",
+            mime="application/json"
+        )
+    with col_e2:
+        uploaded = st.file_uploader("Import options (.json)", type=["json"])
+        if uploaded is not None:
+            try:
+                raw = uploaded.read()
+                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                if not isinstance(profile, dict):
+                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                else:
+                    # Minimal validation: ensure required fields exist
+                    required_keys = ["customer_name", "industry", "users"]
+                    if not all(k in profile for k in required_keys):
+                        st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
+                    st.session_state['_imported_profile'] = profile
+                    st.session_state['use_imported_profile'] = True
+                    st.session_state['use_test_data'] = False
+                    st.success("Profile imported. Applying to UI...")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to import profile: {e}")
+
+st.divider()
+
 
 # --- WORKFLOW ROUTING ---
 if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
