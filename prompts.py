@@ -278,8 +278,18 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
 
     context_notes = client_inputs.get('context_notes', '')
     context_clause = f"\nCONSULTANT CONTEXT NOTES (Incorporate where relevant; do not quote verbatim; do not override guardrails): {context_notes}\n" if context_notes else ""
-
-    return f"Act as ROLE 1 and generate a highly technical breach scenario.\n{base_prompt}\nTHREAT INTELLIGENCE: {osint_data}{context_clause}\n{scenario_rules}"
+    reference_sample = client_inputs.get('reference_sample', '')
+    anti_mimicry_clause = ""
+    if reference_sample:
+        anti_mimicry_clause = (
+            "\nREFERENCE SAMPLE (TONE ONLY — DO NOT COPY):\n"
+            f"{reference_sample}\n\n"
+            "ANTI-MIMICRY DIRECTIVE: You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or section wording from the reference sample. "
+            "Target high stylistic dissimilarity. Vary sentence length and cadence, change rhetorical structure, and use different connective phrases. "
+            "If any sentence would share more than 8 consecutive words with the sample, rewrite it.\n"
+        )
+    
+    return f"Act as ROLE 1 and generate a highly technical breach scenario.\n{base_prompt}\nTHREAT INTELLIGENCE: {osint_data}{context_clause}{anti_mimicry_clause}\n{scenario_rules}"
 
 
 def build_mdr_case_prompt(client_inputs, scenario_narrative):
@@ -448,7 +458,17 @@ Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive C
 Use these notes to tailor narratives and recommendations where appropriate. Do not violate guardrails or inflate scores. Do not copy verbatim; synthesise them into relevant sections.
 {cn}
 """
+    anti_mimicry_clause = ""
+    reference_sample = client_inputs.get('reference_sample', '')
+    if reference_sample:
+        anti_mimicry_clause = f"""
+### REFERENCE SAMPLE (TONE ONLY — DO NOT COPY)
+{reference_sample}
 
-    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + rules
+### ANTI-MIMICRY DIRECTIVE
+You MUST NOT replicate the reference sample's phrasing, sentence structure, paragraph ordering, or section wording. Target high stylistic dissimilarity. Vary sentence length, use alternative connective phrases, and restructure paragraphs while preserving required schema and guardrails. If any sentence would share more than 8 consecutive words with the sample, rewrite it.
+"""
+    
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules
 
 

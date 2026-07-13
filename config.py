@@ -26,6 +26,10 @@ class ConfigKey:
     AZURE_DEPLOYMENT = "AZURE_OPENAI_DEPLOYMENT"
     AZURE_API_VERSION = "AZURE_OPENAI_API_VERSION"
 
+    # Reference Sample (tone-only)
+    REFERENCE_SAMPLE_FILE = "REFERENCE_SAMPLE_FILE"
+    REFERENCE_SAMPLE_TEXT = "REFERENCE_SAMPLE_TEXT"
+
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
     """
@@ -142,3 +146,45 @@ def get_planet_branding_palette():
             "Failed to parse PLANET_BRAND_COLORS; branding palette not applied.", exc_info=True
         )
     return None
+
+
+def get_reference_sample() -> str:
+    """
+    Load an optional tone-only reference sample from configuration.
+    Resolution order:
+      1) REFERENCE_SAMPLE_FILE (path). Supports .txt and .docx (UTF-8/text extraction)
+      2) REFERENCE_SAMPLE_TEXT (inline string)
+      3) "" (empty string) if neither provided
+
+    Safety: returns at most 6000 characters to bound prompt size.
+    """
+    import io
+    import os as _os
+    path = get_config(ConfigKey.REFERENCE_SAMPLE_FILE)
+    sample_text = ""
+    if path:
+        try:
+            if str(path).lower().endswith(".docx"):
+                try:
+                    from docx import Document  # python-docx (dependency of docxtpl)
+                    doc = Document(path)
+                    paragraphs = [p.text for p in getattr(doc, 'paragraphs', []) if getattr(p, 'text', '').strip()]
+                    sample_text = "\n".join(paragraphs)
+                except Exception:
+                    # If docx parsing fails, fall back to empty sample (fail closed)
+                    sample_text = ""
+            else:
+                with io.open(path, "r", encoding="utf-8") as f:
+                    data = f.read()
+                    sample_text = data if isinstance(data, str) else ""
+        except Exception:
+            # Fail closed (no sample) if the file cannot be read
+            sample_text = ""
+    if not sample_text:
+        text = get_config(ConfigKey.REFERENCE_SAMPLE_TEXT)
+        if isinstance(text, str) and text.strip():
+            sample_text = text
+    sample_text = sample_text.strip()
+    if len(sample_text) > 6000:
+        sample_text = sample_text[:6000]
+    return sample_text

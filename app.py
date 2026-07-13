@@ -685,6 +685,14 @@ _client_hash = _json.dumps(client_inputs, sort_keys=True, default=str)
 if st.session_state.get('_client_inputs_hash') != _client_hash:
     st.session_state['client_inputs'] = _sanitise_client_inputs(client_inputs)
     st.session_state['_client_inputs_hash'] = _client_hash
+    # Inject reference sample from configuration (tone-only; non-UI)
+    try:
+        from config import get_reference_sample
+        _ref = get_reference_sample()
+        if _ref:
+            st.session_state['client_inputs']['reference_sample'] = _ref
+    except Exception:
+        pass
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
 # [Moved to top] Profile: Export / Import expander removed here to avoid duplication
@@ -968,6 +976,16 @@ SCENARIO REQUIREMENTS:
 Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-driven breach scenario in British English. Use Markdown for hyperlinks. Do not use bullet points in narrative sections — write flowing paragraphs."""
 
                     # Stream the threat narrative
+                    ref_sample = st.session_state['client_inputs'].get('reference_sample', '')
+                    if ref_sample:
+                        threat_prompt += f"""
+
+REFERENCE SAMPLE (TONE ONLY — DO NOT COPY)
+{ref_sample}
+
+ANTI-MIMICRY DIRECTIVE
+You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or section wording from the reference sample. Target high stylistic dissimilarity and vary sentence length and cadence. If any sentence would share more than 8 consecutive words with the sample, rewrite it.
+"""
                     accumulated = ""
                     for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
                         accumulated += token
