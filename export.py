@@ -762,6 +762,14 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         "rto": client_inputs.get("rto", "Unknown"),
         "advanced_controls": client_inputs.get("advanced_controls", "None"),
         "exec_summary": report_data.executive_summary if hasattr(report_data, "executive_summary") else "",
+        "executive_summary_actions": getattr(report_data, "executive_summary_actions", []) or [],
+        "executive_summary_actions_bullets": "\n".join([f"- {x}" for x in getattr(report_data, "executive_summary_actions", [])]) if getattr(report_data, "executive_summary_actions", None) else "",
+        "executive_summary_actions_numbered": "\n".join([f"{i+1}. {x}" for i, x in enumerate(getattr(report_data, "executive_summary_actions", []))]) if getattr(report_data, "executive_summary_actions", None) else "",
+        "executive_summary_action_blocks": getattr(report_data, "executive_summary_action_blocks", []) or [],
+        "executive_summary_actions_word": ("\n\n".join([
+            f"{idx+1}. {getattr(blk, 'heading', '')}\nFinding: {getattr(blk, 'finding', '')}\nRisk: {getattr(blk, 'risk', '')}\n\nRemediation actions:\n" + "\n".join([f"{i+1}. {act}" for i, act in enumerate(getattr(blk, 'remediation_actions', []) or [])])
+            for idx, blk in enumerate(getattr(report_data, 'executive_summary_action_blocks', []) or [])
+        ]) if getattr(report_data, 'executive_summary_action_blocks', None) else ""),
         "matrix_mapping": report_data.resiliency_matrix_mapping if hasattr(report_data, "resiliency_matrix_mapping") else "",
         "cost_of_inaction": report_data.cost_of_inaction if hasattr(report_data, "cost_of_inaction") else "",
         "domains": domains_list,

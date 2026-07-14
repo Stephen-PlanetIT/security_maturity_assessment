@@ -148,8 +148,16 @@ class ThreatScenarioItem(BaseModel):
     incident_type: str = Field(description="Pillar mapping for this scenario, e.g. 'Pillar 1: Reactive Cybersecurity'.")
     narrative: str = Field(description="Full Markdown narrative describing the threat scenario.")
 
+class ExecutiveSummaryActionBlock(BaseModel):
+    heading: str = Field(description="Short headline for the recommendation, e.g., 'Legacy endpoint protection with no EDR capability'. British English.")
+    finding: str = Field(description="1–2 paragraphs describing the current gap/finding in British English. Bullet points are prohibited.")
+    risk: str = Field(description="Concise board-level risk statement tied to Crown Jewels, RTO, and insurance/regulatory context. Bullet points are prohibited.")
+    remediation_actions: List[str] = Field(description="Concrete remediation steps. Provide 4–8 actions.", min_items=4, max_items=8)
+
 class MaturityReport(BaseModel):
     executive_summary: str = Field(description="A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs.")
+    executive_summary_actions: List[str] = Field(description="Exactly three 'Finding — Action' bullet points that summarise the top findings and the specific remediation action required. Provide precisely three items; each item must be a single concise sentence formatted as 'Finding — Action' in British English, vendor-agnostic, and directly tied to the executive summary.", min_items=3, max_items=3)
+    executive_summary_action_blocks: List[ExecutiveSummaryActionBlock] = Field(description="Three structured recommendation blocks carrying Heading, Finding, Risk, and Remediation actions.", min_items=3, max_items=3)
     radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
     cost_of_inaction: str = Field(description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
@@ -373,9 +381,12 @@ You MUST NOT recommend, mention, or suggest any of these banned vendors in any s
     """
     
     rules = f"""
-ASSESSMENT FRAMEWORK TO APPLY: {MATURITY_FRAMEWORK}
-DOMAINS TO ASSESS: {ASSESSMENT_DOMAINS}
-AUTHORIZED PRODUCT MAPPING: {RECOMMENDED_SOLUTION_MAP}
+FRAMEWORK & DOMAINS (REFERENCE ONLY):
+- Apply the Planet IT Cyber Resiliency framework and assess all domains listed in ASSESSMENT_DOMAINS.
+- Do NOT echo full framework or domain definitions in your output.
+
+AUTHORIZED PRODUCT MAPPING (REFERENCE ONLY):
+- Use RECOMMENDED_SOLUTION_MAP by reference; do NOT restate the full mapping verbatim.
 
 ### THE PLANET IT CYBER RESILIENCY MATRIX (THE THREE PILLARS)
 You must assess the client's current maturity and map them strictly against these three pillars:
@@ -469,6 +480,21 @@ Use these notes to tailor narratives and recommendations where appropriate. Do n
 You MUST NOT replicate the reference sample's phrasing, sentence structure, paragraph ordering, or section wording. Target high stylistic dissimilarity. Vary sentence length, use alternative connective phrases, and restructure paragraphs while preserving required schema and guardrails. If any sentence would share more than 8 consecutive words with the sample, rewrite it.
 """
     
-    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules
+    # Explicit instruction for Executive Summary Actions (headline‑style 'Finding — Action')
+    actions_instruction = """
+### EXECUTIVE SUMMARY ACTIONS (REQUIRED)
+Populate 'executive_summary_actions' with exactly three items. Use concise headline‑style phrasing formatted as 'Finding — Action'. Write in British English, keep vendor‑agnostic, and ensure each action directly remediates the highest risks summarised in the executive_summary. Avoid additional punctuation beyond the em dash.
+
+### EXECUTIVE SUMMARY ACTIONS — STRUCTURED (REQUIRED)
+Populate 'executive_summary_action_blocks' with exactly three objects. For each object:
+- heading: Short headline, British English (max ~12 words).
+- finding: 1–2 short paragraphs (target ≤ 150 words total); no bullet points; consultative tone.
+- risk: A concise statement (target ≤ 80 words) contextualised to Crown Jewels, RTO, insurance/regulators; no bullet points.
+- remediation_actions: 4–8 concrete steps, each ≤ 24 words. Respect ban list; remain vendor‑agnostic where appropriate.
+
+Do NOT restate full framework, domain lists, or product mappings in any field; reference them without echoing definitions.
+"""
+
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + actions_instruction
 
 

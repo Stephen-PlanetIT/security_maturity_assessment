@@ -211,6 +211,20 @@
       "description": "A detailed, multi-paragraph C-level executive summary of the business risk and overall posture. You MUST include context on the threat landscape for their specific industry, the financial and reputational impact of a breach to their specific Crown Jewels, and a high-level strategic roadmap summary. Write this specifically for a CISO, IT Director, or Board of Directors audience. Minimum 3 paragraphs."
     },
     {
+      "name": "executive_summary_actions",
+      "data_type": "List[str]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.executive_summary_actions",
+      "description": "Exactly three 'Finding — Action' bullet points summarising the top findings and the actions needed to remediate them."
+    },
+    {
+      "name": "executive_summary_action_blocks",
+      "data_type": "List[ExecutiveSummaryActionBlock]",
+      "source": "prompts.py",
+      "schema_path": "MaturityReport.executive_summary_action_blocks",
+      "description": "Three structured recommendation blocks with Heading, Finding, Risk, and numbered Remediation actions."
+    },
+    {
       "name": "radar_chart_data",
       "data_type": "RadarChartData",
       "source": "prompts.py",
