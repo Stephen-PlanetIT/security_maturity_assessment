@@ -94,6 +94,9 @@ def render_maturity_gauge_png(percent: int, category: str, figsize=(3,3), show_c
     start_deg = 90    # 12 o'clock
 
     fig, ax = plt.subplots(figsize=figsize, dpi=240)
+    # Expand canvas width to accommodate legend, then reserve a larger right margin
+    fig.set_size_inches(figsize[0]*1.5, figsize[1])
+    fig.subplots_adjust(left=0.08, right=0.55, top=0.95, bottom=0.08)
     ax.set_aspect('equal')
     ax.axis('off')
     # Prevent cropping of arc patches by fixing axis limits
@@ -136,12 +139,23 @@ def render_maturity_gauge_png(percent: int, category: str, figsize=(3,3), show_c
     # Legend aligned to the right, matching band colours
     try:
         handles = [
-            Patch(facecolor=GAUGE_PALETTE["Strong"], edgecolor="none", label="Strong"),
-            Patch(facecolor=GAUGE_PALETTE["Moderate"], edgecolor="none", label="Moderate"),
-            Patch(facecolor=GAUGE_PALETTE["Needs Attention"], edgecolor="none", label="Needs Attention"),
-            Patch(facecolor=GAUGE_PALETTE["High Risk"], edgecolor="none", label="High Risk"),
+            Patch(facecolor=GAUGE_PALETTE["Strong"], edgecolor="none", label="Strong (80–100)"),
+            Patch(facecolor=GAUGE_PALETTE["Moderate"], edgecolor="none", label="Moderate (60–79)"),
+            Patch(facecolor=GAUGE_PALETTE["Needs Attention"], edgecolor="none", label="Needs Attention (40–59)"),
+            Patch(facecolor=GAUGE_PALETTE["High Risk"], edgecolor="none", label="High Risk (0–39)"),
         ]
-        fig.legend(handles=handles, loc="center right", bbox_to_anchor=(1.35, 0.5), frameon=False, fontsize=8)
+        # Place legend inside the reserved right margin and reduce its footprint
+        fig.legend(
+            handles=handles,
+            loc="center left",
+            bbox_to_anchor=(0.60, 0.5),  # nudge further inside the figure
+            borderaxespad=0.0,
+            frameon=False,
+            fontsize=7,
+            handlelength=1.2,
+            handletextpad=0.6,
+            columnspacing=0.6,
+        )
     except Exception:
         pass
 
@@ -780,7 +794,7 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
     chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
     # Compute and render overall maturity gauge (document-only)
     overall_percent, overall_category = compute_overall_maturity_percent(dict(zip(labels, values)) if labels and values else {})
-    gauge_path = render_maturity_gauge_png(overall_percent, overall_category, show_center_label=False)
+    gauge_path = render_maturity_gauge_png(overall_percent, overall_category, show_center_label=True)
     try:
         with open(gauge_path, "rb") as gf:
             gauge_buffer = io.BytesIO(gf.read())
@@ -790,6 +804,28 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         except OSError:
             pass
     maturity_gauge_image = InlineImage(doc, gauge_buffer, width=Inches(2.5))
+
+    # --- Domain rating summary (map 1–3 to 0–100 and categorise) ---
+    domain_ratings = []
+    def _categorise_percent(p):
+        for n, lo, hi in GAUGE_BANDS:
+            if lo <= p <= hi:
+                return n
+        return "High Risk" if p < 40 else "Strong"
+    if labels and values:
+        for lbl, val in zip(labels, values):
+            try:
+                v = float(val)
+            except Exception:
+                v = 1.0
+            if v < 0:
+                v = 0.0
+            if v > 3:
+                v = 3.0
+            pct_val = int(round((v / 3.0) * 100))
+            category_val = _categorise_percent(pct_val)
+            domain_ratings.append({"domain": lbl, "percent": pct_val, "category": category_val})
+    domain_ratings_bullets = "\n".join([f"- {d['domain']}: {d['category']} ({d['percent']}/100)" for d in domain_ratings])
 
     # 2) Domains & Roadmap derivation with safe defaults
     domains_list = []
@@ -911,6 +947,8 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         # --- Radar Chart Image ---
         "radar_chart": chart_image,
         "maturity_gauge": maturity_gauge_image,
+        "domain_ratings": domain_ratings,
+        "domain_ratings_bullets": domain_ratings_bullets,
         "maturity_score": f"{overall_percent}/100",
         "maturity_score_category": overall_category,
         "pentest_status": client_inputs.get("pentest_status", "Unknown"),
