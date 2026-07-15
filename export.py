@@ -7,10 +7,158 @@ from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from fpdf import FPDF
 from data import format_governance_narrative
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch, Arc
+import matplotlib.patheffects as pe
 import numpy as np
 import os
 import tempfile
+
+# ===== Maturity Gauge (document-only) =====
+# Weighted model (Option A): sums to 1.00, elevated Culture
+MATURITY_WEIGHTS = {
+    "iam": 0.17,
+    "endpoint": 0.17,
+    "network": 0.11,
+    "email": 0.05,
+    "cloud": 0.13,
+    "secops": 0.13,
+    "testing": 0.03,
+    "culture": 0.09,
+    "grc": 0.12,
+}
+
+GAUGE_BANDS = [
+    ("High Risk", 0, 39),
+    ("Needs Attention", 40, 59),
+    ("Moderate", 60, 79),
+    ("Strong", 80, 100),
+]
+
+GAUGE_PALETTE = {
+    "High Risk": "#C62828",
+    "Needs Attention": "#FB8C00",
+    "Moderate": "#FBC02D",
+    "Strong": "#2E7D32",
+}
+
+def compute_overall_maturity_percent(radar_scores: dict):
+    """
+    Compute overall maturity percent from radar_chart_data (1–3 per domain),
+    using MATURITY_WEIGHTS. Returns (percent:int, category:str).
+    Underlying 3-point cap remains intact; we only present a 0–100 label.
+    """
+    if not isinstance(radar_scores, dict):
+        radar_scores = {}
+    total = 0.0
+    for key, weight in MATURITY_WEIGHTS.items():
+        try:
+            v = radar_scores.get(key, 1)
+            v = 1 if v is None else float(v)
+        except Exception:
+            v = 1.0
+        # Clamp to [1,3]
+        if v < 1:
+            v = 1.0
+        if v > 3:
+            v = 3.0
+        total += weight * v
+    percent = int(round((total / 3.0) * 100))
+    if percent < 0:
+        percent = 0
+    if percent > 100:
+        percent = 100
+    category = None
+    for name, lo, hi in GAUGE_BANDS:
+        if lo <= percent <= hi:
+            category = name
+            break
+    if category is None:
+        category = "High Risk" if percent < 40 else "Strong"
+    return percent, category
+
+def render_maturity_gauge_png(percent: int, category: str, figsize=(3,3), show_center_label=True):
+    """
+    Render a rounded-ring gauge PNG with smooth band arcs and a category-coloured progress stroke.
+    Returns the path to a temporary PNG file.
+    """
+    # Normalise inputs
+    pct = int(max(0, min(100, int(percent))))
+    cat_colour = GAUGE_PALETTE.get(category, GAUGE_PALETTE.get("Strong", "#2E7D32"))
+
+    # Geometry and canvas
+    R = 1.0           # radius
+    LW = 24           # ring thickness (points)
+    start_deg = 90    # 12 o'clock
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=240)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    # Prevent cropping of arc patches by fixing axis limits
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.2, 1.2)
+
+    # Helper to convert percent to angle (clockwise from 12)
+    def to_angle(p):
+        return start_deg - (p / 100.0) * 360.0
+
+    # Background track
+    bg = Arc((0, 0), 2*R, 2*R, angle=0, theta1=0, theta2=360, linewidth=LW, color="#ECEFF1")
+    ax.add_patch(bg)
+
+    # Band strokes up to achieved percent — 0–40–60–80–100
+    bands = [
+        (0, 40, GAUGE_PALETTE["High Risk"]),
+        (40, 60, GAUGE_PALETTE["Needs Attention"]),
+        (60, 80, GAUGE_PALETTE["Moderate"]),
+        (80, 100, GAUGE_PALETTE["Strong"]),
+    ]
+    for lo, hi, col in bands:
+        seg_lo = lo
+        seg_hi = min(hi, pct)
+        if seg_hi <= seg_lo:
+            continue
+        a1, a2 = to_angle(seg_lo) + 0.6, to_angle(seg_hi) - 0.6  # slight gap at joins
+        arc = Arc((0, 0), 2*R, 2*R, angle=0, theta1=a2, theta2=a1, linewidth=int(LW * 0.75), color=col)
+        arc.set_path_effects([pe.Stroke(linewidth=int(LW * 0.90), foreground='white', alpha=0.12), pe.Normal()])
+        ax.add_patch(arc)
+
+    # Progress arc removed — band colouring above fills only up to achieved percent
+
+    # Center label (optional; suppressed for Word where headings render this)
+    if show_center_label:
+        ax.text(0, 0.05, f"{pct}", ha='center', va='center', fontsize=18, fontweight='bold')
+        ax.text(0, -0.16, "/100", ha='center', va='center', fontsize=8, color='#607D8B')
+        ax.set_title(f"{category}", fontsize=10, pad=10)
+
+    # Legend aligned to the right, matching band colours
+    try:
+        handles = [
+            Patch(facecolor=GAUGE_PALETTE["Strong"], edgecolor="none", label="Strong"),
+            Patch(facecolor=GAUGE_PALETTE["Moderate"], edgecolor="none", label="Moderate"),
+            Patch(facecolor=GAUGE_PALETTE["Needs Attention"], edgecolor="none", label="Needs Attention"),
+            Patch(facecolor=GAUGE_PALETTE["High Risk"], edgecolor="none", label="High Risk"),
+        ]
+        fig.legend(handles=handles, loc="center right", bbox_to_anchor=(1.35, 0.5), frameon=False, fontsize=8)
+    except Exception:
+        pass
+
+    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    try:
+        # Save without tight bbox to avoid clipping the ring
+        plt.savefig(tmpfile.name, format="png")
+        return tmpfile.name
+    except Exception:
+        plt.close(fig)
+        try:
+            os.unlink(tmpfile.name)
+        except OSError:
+            pass
+        raise
+    finally:
+        plt.close(fig)
 
 def _xml_escape_dict(d, _depth=0):
     """Recursively escape &, <, > in all string values of a dict for safe DOCX XML embedding."""
@@ -630,6 +778,18 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         except OSError:
             pass
     chart_image = InlineImage(doc, chart_buffer, width=Inches(4))
+    # Compute and render overall maturity gauge (document-only)
+    overall_percent, overall_category = compute_overall_maturity_percent(dict(zip(labels, values)) if labels and values else {})
+    gauge_path = render_maturity_gauge_png(overall_percent, overall_category, show_center_label=False)
+    try:
+        with open(gauge_path, "rb") as gf:
+            gauge_buffer = io.BytesIO(gf.read())
+    finally:
+        try:
+            os.unlink(gauge_path)
+        except OSError:
+            pass
+    maturity_gauge_image = InlineImage(doc, gauge_buffer, width=Inches(2.5))
 
     # 2) Domains & Roadmap derivation with safe defaults
     domains_list = []
@@ -750,6 +910,9 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         "savviness": client_inputs.get("savviness", "Unknown"),
         # --- Radar Chart Image ---
         "radar_chart": chart_image,
+        "maturity_gauge": maturity_gauge_image,
+        "maturity_score": f"{overall_percent}/100",
+        "maturity_score_category": overall_category,
         "pentest_status": client_inputs.get("pentest_status", "Unknown"),
         "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
         "remote_access": client_inputs.get("remote_access", "Unknown"),

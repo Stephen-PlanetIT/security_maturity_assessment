@@ -16,8 +16,20 @@ def insert_placeholder(input_path: str, output_path: str, placeholder: str = "{{
     doc.save(output_path)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python tools/insert_placeholder_to_docx.py input.docx output.docx")
+    # Allow optional third argument with comma-separated placeholders, e.g.:
+    # "{{ maturity_gauge }},{{ maturity_score }},{{ maturity_score_category }}"
+    if len(sys.argv) not in (3, 4):
+        print("Usage: python tools/insert_placeholder_to_docx.py input.docx output.docx [comma_separated_placeholders]")
         sys.exit(1)
     in_path, out_path = sys.argv[1], sys.argv[2]
-    insert_placeholder(in_path, out_path)
+    if len(sys.argv) == 4 and sys.argv[3].strip():
+        placeholders = [p.strip() for p in sys.argv[3].split(',') if p.strip()]
+        doc = Document(in_path)
+        doc.add_paragraph()
+        for ph in placeholders:
+            para = doc.add_paragraph()
+            run = para.add_run(ph)
+            run.bold = True
+        doc.save(out_path)
+    else:
+        insert_placeholder(in_path, out_path)
