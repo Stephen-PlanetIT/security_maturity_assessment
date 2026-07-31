@@ -45,6 +45,7 @@ SIMULATED_OSINT = {
     "Microsoft Entra ID (Azure AD)": ["Widespread MFA fatigue attacks combined with localised brute-forcing."],
     "Mimecast": ["Increase in Quishing (QR Code Phishing) bypassing Mimecast's URL rewriting."],
     "Proofpoint": ["Threat actors leveraging evasive PDF documents containing embedded malicious links."],
+    "Egress": ["Adaptive AI email security focusing on abnormal recipient/intent patterns; increased use of linguistically sophisticated BEC evading static rules."],
     "AWS": ["Exploitation of overly permissive IAM roles via SSRF vulnerabilities on public-facing EC2 instances."],
     "Microsoft Azure": ["Abuse of Azure Automation Runbooks to pivot laterally across the Azure environment."],
     "GCP": ["Targeting of exposed service account keys embedded in developer repositories."]

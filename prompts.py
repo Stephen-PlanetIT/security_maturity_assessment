@@ -365,6 +365,7 @@ You MUST NOT recommend, mention, or suggest any of these banned vendors in any s
     STACK: MDR/SOC: {client_inputs.get('mdr_provider', 'None')} | Endpoint Vendor: {client_inputs.get('endpoint', 'Unknown')} | Endpoint Capability: {client_inputs.get('endpoint_posture', 'Unknown')} | Email: {client_inputs.get('email', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')} | Identity: {client_inputs.get('identity', 'Unknown')}
     NETWORK & DATA: Remote Access: {client_inputs.get('remote_access', 'Unknown')} | SaaS Backup (M365): {client_inputs.get('saas_backup', 'Unknown')}
     ADAPTIVE CONTROLS DEPLOYED: {client_inputs.get('advanced_controls', 'None')}
+    PROACTIVE SECURITY TOOLS IN USE: {client_inputs.get('proactive_tools', 'None')}
 
     OPERATIONAL TELEMETRY & RISK FACTORS:
     - MFA Enforcement: {client_inputs.get('mfa_status', 'Unknown')}

@@ -128,6 +128,15 @@ PLANET_IT_PORTFOLIO = {
             "trigger_conditions": ["Finance, Healthcare, Legal", "Strict compliance needs"],
             "core_features": ["7-year Immutable Archiving", "Targeted Threat Protection"],
             "planet_it_value_add": "Compliance-aligned retention policies mapped to industry-specific regulatory standards, with 7-year immutable archiving for e-discovery and legal hold requirements."
+        },
+        {
+            "vendor": "Egress",
+            "category": "Adaptive Email Security & DLP",
+            "tier": "SME to Enterprise",
+            "recommended_for_domains": ["Email & Data Protection"],
+            "trigger_conditions": ["Targeted spear-phishing", "Outbound data loss risks", "Insider risk concerns"],
+            "core_features": ["Adaptive AI for risk-based email protection", "Outbound email DLP", "In-the-moment recipient verification"],
+            "planet_it_value_add": "Planet IT integrates Egress to add adaptive protection and outbound DLP controls, complementing existing secure email gateways in regulated environments."
         }
     ],
     "Identity_and_Access_Management": [
@@ -178,6 +187,15 @@ PLANET_IT_PORTFOLIO = {
             "trigger_conditions": ["High click rates on phishing", "No current training", "Need measurable human risk reduction"],
             "core_features": ["Personalised, Gamified Phishing Simulations", "Real-Time Micro-Training", "Human Risk Scoring & Reporting"],
             "planet_it_value_add": "Deployment and management of Hoxhunt's adaptive human risk platform by Planet IT, delivering personalised phishing simulations and just-in-time micro-training to measurably reduce employee susceptibility to social engineering."
+        },
+        {
+            "vendor": "KnowBe4",
+            "category": "Security Awareness Training",
+            "tier": "SME to Enterprise",
+            "recommended_for_domains": ["Identity & Access Management (IAM)", "Governance, Risk & Compliance (GRC)"],
+            "trigger_conditions": ["Baseline compliance needs", "Desire for broad content library", "Phishing simulation programme required"],
+            "core_features": ["Large training content library", "Phishing simulation & reporting", "Policy management"],
+            "planet_it_value_add": "Planet IT designs and manages a measurable awareness programme using KnowBe4, aligning campaigns and reporting to board-level risk reduction objectives."
         }
     ],
     "Cloud_Security_and_Posture": [

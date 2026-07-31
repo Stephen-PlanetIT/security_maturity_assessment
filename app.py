@@ -104,7 +104,7 @@ class CyberScenarioGenerator:
         managed_status = inputs.get('managed_service_status', 'None')
         co_units = inputs.get('co_managed_units', 0)
 
-        strong_ms_investment = m365_license in ["Microsoft 365 E5", "M365 Business Premium"]
+        strong_ms_investment = any(l in str(m365_license) for l in ["Microsoft 365 E5", "M365 Business Premium"])
 
         # 1. MDR & The Capability Mismatch (Endpoint)
         if mdr in ["Sophos MDR", "Sophos MDR Plus", "Planet IT Managed SOC"] and patching == "Manual / Ad-hoc":
@@ -375,7 +375,7 @@ TEST_DATA = {
     "critical_infra": "Patient Records Database",
     "endpoints": 600,
     "servers": 50,
-    "operating_systems": ["Windows 10/11", "Windows Server"],
+    "operating_systems": ["Windows 10", "Windows 11", "Windows Server"],
     "mdr_provider": "Sophos MDR",
     "endpoint": "Sophos",
     "endpoint_posture": "EDR Deployed (Endpoint Detection & Response)",
@@ -393,6 +393,7 @@ TEST_DATA = {
     "compliance": ["ISO 27001", "Cyber Essentials"],
     "physical_locations": 3,
     "advanced_controls": [],
+    "proactive_tools": [],
     "validation_notes": "",
     "context_notes": "",
     "mfa_status": "Privileged Accounts Only",
@@ -462,7 +463,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         st.subheader("Technology Stack")
         endpoints = st.number_input("Number of Endpoints", min_value=0, value=(TEST_DATA['endpoints'] if dev else 0), help="Example: 600")
         servers = st.number_input("Number of Servers", min_value=0, value=(TEST_DATA['servers'] if dev else 0), help="Example: 50")
-        operating_systems = st.multiselect("Operating Systems in Use", ["Windows 10/11", "Windows Server", "macOS", "Linux", "ChromeOS"], default=(TEST_DATA['operating_systems'] if dev else []), help="Example: Windows 10/11, Windows Server")
+        operating_systems = st.multiselect("Operating Systems in Use", ["Windows 10", "Windows 11", "Windows Server", "macOS", "Linux", "ChromeOS"], default=(TEST_DATA['operating_systems'] if dev else []), help="Example: Windows 11, Windows Server")
         mdr_options = ["Select MDR / SOC Provider...", "None", "Sophos MDR", "Sophos MDR Plus", "Microsoft Defender Experts", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"]
         mdr_provider = st.selectbox("Current MDR / SOC Provider", mdr_options, index=(mdr_options.index(TEST_DATA['mdr_provider']) if dev else 0), help="Example: Sophos MDR")
         
@@ -476,7 +477,16 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         firewall_options = ["Select Firewall Vendor...", "Fortinet", "Palo Alto", "Cisco", "Sophos", "Check Point", "SonicWall", "Other"]
         firewall = st.selectbox("Firewall Vendor", firewall_options, index=(firewall_options.index(TEST_DATA['firewall']) if dev else 0), help="Example: Fortinet")
 
-        remote_access_options = ["Select Remote Access Strategy...", "None / Cloud Only", "Legacy VPN (Client-based)", "Always-On VPN", "Zero Trust Network Access (ZTNA) / SASE"]
+        remote_access_options = [
+            "Select Remote Access Strategy...",
+            "None / Cloud Only",
+            "Legacy VPN (Client-based)",
+            "Always-On VPN",
+            "VPN with Certificate-based Authentication",
+            "Clientless VPN Portal",
+            "Zero Trust Network Access (ZTNA) / SASE",
+            "SD-WAN with Secure Access Overlay"
+        ]
         remote_access = st.selectbox("Remote Access Strategy", remote_access_options, index=(remote_access_options.index(TEST_DATA['remote_access']) if dev else 0), help="Example: Legacy VPN (Client-based)")
         
         saas_backup_options = ["Select SaaS Backup...", "None (Relying on Microsoft/Google)", "Basic Retention Policies Only", "Dedicated Third-Party SaaS Backup"]
@@ -486,10 +496,16 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         st.subheader("Cloud & Identity")
         identity_options = ["Select Identity Provider...", "Microsoft Entra ID (Azure AD)", "Okta", "On-Prem Active Directory", "None"]
         identity = st.selectbox("Identity Provider", identity_options, index=(identity_options.index(TEST_DATA['identity']) if dev else 0), help="Example: Microsoft Entra ID (Azure AD)")
-        m365_license_options = ["Select Microsoft 365 Licensing...", "None / On-Prem Only", "M365 Business Premium", "Microsoft 365 E5", "Office 365 E3 / M365 E3"]
-        m365_license = st.selectbox("Microsoft 365 Licensing", m365_license_options, index=(m365_license_options.index(TEST_DATA['m365_license']) if dev else 0), help="Example: M365 Business Premium")
+        m365_license_options = ["None / On-Prem Only", "M365 Business Premium", "Microsoft 365 E5", "Office 365 E3 / M365 E3"]
+        m365_licenses = st.multiselect(
+            "Microsoft 365 Licensing",
+            m365_license_options,
+            default=([TEST_DATA['m365_license']] if dev and TEST_DATA.get('m365_license') else []),
+            help="Select all that apply. Example: M365 Business Premium"
+        )
+        m365_license_str = ", ".join(m365_licenses) if m365_licenses else "None / On-Prem Only"
         # Email security: prefer Mimecast or Barracuda; remove Sophos as a recommended option
-        email_options = ["Select Email Security...", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Other"]
+        email_options = ["Select Email Security...", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Egress", "Other"]
         email = st.selectbox("Email Security", email_options, index=(email_options.index(TEST_DATA['email']) if dev else 0), help="Example: Mimecast")
         cloud_env = st.multiselect("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"], default=(TEST_DATA['cloud_env'] if dev else []), help="Example: AWS")
 
@@ -526,6 +542,22 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
             "Advanced Adaptive Controls (Pillar 3)", 
             ["Zero-Trust Architecture (ZTA)", "Network Microsegmentation", "SOAR / Automated Remediation", "User Behaviour Analytics (UBA)", "Automated DR Orchestration", "Deception Tech (Honeypots)"],
             default=(TEST_DATA['advanced_controls'] if dev else [])
+        )
+        proactive_tools_options = [
+            "KnowBe4 Security Awareness",
+            "Hoxhunt",
+            "Cofense PhishMe",
+            "Proofpoint Security Awareness",
+            "Microsoft Attack Simulation Training",
+            "AttackIQ (BAS)",
+            "SafeBreach (BAS)",
+            "Mandiant Security Validation (BAS)"
+        ]
+        proactive_tools = st.multiselect(
+            "Proactive Security Tools",
+            proactive_tools_options,
+            default=(TEST_DATA.get('proactive_tools', []) if dev else []),
+            help="Select any training/BAS platforms already in use (e.g., KnowBe4, Hoxhunt)."
         )
         validation_notes = st.text_area("Validation Notes", value=(TEST_DATA['validation_notes'] if dev else ""), placeholder="e.g., Customer requires ISO 27001 alignment by Q4")
         context_notes = st.text_area("Consultant Context (LLM-visible)", value=(TEST_DATA['context_notes'] if dev else ""), placeholder="e.g., Nuances, constraints, or messaging to incorporate across the report")
@@ -656,7 +688,7 @@ client_inputs = {
     "endpoint_posture": _norm(endpoint_posture), # NEW LINE
     "firewall": _norm(firewall), 
     "identity": _norm(identity), 
-    "m365_license": _norm(m365_license, "None / On-Prem Only"), 
+    "m365_license": _norm(m365_license_str, "None / On-Prem Only"), 
     "email": _norm(email), 
     "cloud_env": ", ".join(cloud_env) if cloud_env else "None (Fully On-Prem)",
     "in_house_team": _norm(in_house_team), 
@@ -673,6 +705,7 @@ client_inputs = {
     "insurance": _norm(insurance, "None"),
     "rto": _norm(rto),
     "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None",
+    "proactive_tools": ", ".join(proactive_tools) if proactive_tools else "None",
     "ir_retainer": _norm(ir_retainer, "None"),
     "banned_vendors": banned_vendors,
     "managed_service_status": _norm(st.session_state.get('managed_service_status', 'None'), "None"),
