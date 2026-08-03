@@ -496,6 +496,15 @@ Populate 'executive_summary_action_blocks' with exactly three objects. For each 
 Do NOT restate full framework, domain lists, or product mappings in any field; reference them without echoing definitions.
 """
 
-    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + actions_instruction
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + """
+### DOMAIN WRITING PROFILES (REQUIRED)
+Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
+- Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.
+- Network Security: persona: Network Security Architect; focus on segmentation, traffic controls, and service resilience.
+- Security Operations & Response (SecOps): persona: SOC Consultant; focus on detection engineering, triage discipline, and MTTR.
+- Security Validation & Testing: persona: Security Assurance Consultant; focus on evidence, scoping, and test cadence.
+- Governance, Risk & Compliance (GRC): persona: Governance Advisor; focus on policy, oversight, and regulatory exposure.
+Strictly avoid repeated connective phrases across domains. Vary sentence length and cadence.
+""" + "\n\n" + actions_instruction
 
 

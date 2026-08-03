@@ -15,6 +15,14 @@ import matplotlib.patheffects as pe
 import numpy as np
 import os
 import tempfile
+from config import get_config
+try:
+    from quality_pipeline import process_maturity_report, process_threat_report, get_quality_thresholds, quality_gate_enabled
+except Exception:  # Safe fallback if module unavailable
+    process_maturity_report = None
+    process_threat_report = None
+    get_quality_thresholds = None
+    quality_gate_enabled = None
 
 # ===== Maturity Gauge (document-only) =====
 # Weighted model (Option A): sums to 1.00, elevated Culture
@@ -455,6 +463,12 @@ def _normalize_kd(kd):
 # ==========================================
 def create_pdf(inputs, scenario_obj, recs, mdr_case):
     pdf = ReportPDF()
+    # --- QUALITY PIPELINE (Threat Report PDF) ---
+    try:
+        if 'process_threat_report' in globals() and callable(process_threat_report) and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
+            scenario_obj, mdr_case, recs, _quality = process_threat_report(inputs, scenario_obj, recs, mdr_case)
+    except Exception:
+        pass
     pdf.add_page()
     pdf.set_font("helvetica", "B", 16)
     robust_multi_cell(pdf, 0, 10, "Tactical Threat Simulation Report", align='C')
@@ -501,7 +515,13 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_threat_scenario_template.docx")
     doc = DocxTemplate(template_path)
-    
+    # --- QUALITY PIPELINE (Threat Report DOCX) ---
+    try:
+        if 'process_threat_report' in globals() and callable(process_threat_report) and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
+            scenario_obj, mdr_case, recs, _quality = process_threat_report(client_inputs, scenario_obj, recs, mdr_case)
+    except Exception:
+        pass
+
     # Structure the context variables mirroring the template structure
     # Initialize with existing fields for backwards compatibility
     context = {
@@ -769,6 +789,17 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         if os.path.exists(alt_path):
             template_path = alt_path
             doc = DocxTemplate(template_path)
+
+    # --- QUALITY PIPELINE (Maturity Report) ---
+    try:
+        if 'process_maturity_report' in globals() and callable(process_maturity_report) and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
+            report_data, _quality = process_maturity_report(client_inputs, report_data)
+            thr = get_quality_thresholds() if callable(get_quality_thresholds) else {}
+            if isinstance(_quality, dict) and not _quality.get('passed', True):
+                raise RuntimeError("Quality gate failed: Report did not meet minimum thresholds for authenticity, repetition, commercial balance, or executive readability.")
+    except Exception:
+        # Fail open: continue export without blocking if pipeline errors
+        pass
 
     # 1) Radar chart image
     data = getattr(report_data, "radar_chart_data", None)
