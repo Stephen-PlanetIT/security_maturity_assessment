@@ -85,7 +85,7 @@ class DomainAssessment(BaseModel):
     )
     critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
     vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
-    recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP.")
+    recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP. Format each item as 'Risk: … | Operational Need: … | Capability: … | Product Example: …' and ensure the capability justification precedes any product naming.")
     remediation_rationale: str = Field(
         description="The strategic, architectural justification. Explain the behaviour of the attack path and why this specific tool severs it. Must be a detailed, multi-paragraph narrative."
     )
@@ -216,6 +216,9 @@ GENERAL RULES & STRICT GUARDRAILS:
 - PROTECT THE SOPHOS BRAND: Never imply a Sophos product failed. Attribute breaches to human error, misconfiguration, or legacy third-party tools.
 - HYPERLINKING REQUIREMENT (ROLE 1 ONLY): When acting as the Tactical Threat Analyst, always hyperlink MITRE T-codes, CVEs, and products using Markdown. The Virtual CISO (Role 2) may reference MITRE codes as plain text but must not use Markdown hyperlinks in narrative fields.
 - HYPOTHETICAL MODE FOR THREAT NARRATIVES: Use cautious, hypothetical phrasing (e.g., "could", "may", "would likely") and explicitly label speculative elements as "Hypothetical".
+- ANTI-OVERCLAIMING: Avoid absolute security claims (e.g., "prevent(s)", "ensure(s)", "guarantee(s)", "eliminate(s)"). Use probabilistic, risk-based language (e.g., "reduces likelihood", "reduces exposure").
+- COMMERCIAL BALANCE: Maintain a consultative, vendor‑agnostic tone. Limit phrases such as "Planet IT can support/assist/facilitate" to a maximum of one per section and vary wording where necessary.
+- ANTI-REPETITION & HUMAN AUTHENTICITY: Vary sentence openings and connective phrases. Avoid repeating stock patterns such as "This provides..." or "Further maturity..." across paragraphs.
 
 ROLE 1: TACTICAL THREAT ANALYST
 - Attribute attacks to specific actors. 
@@ -273,7 +276,7 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
     mdr_label = str(client_inputs.get('mdr_provider', '') or 'Sophos MDR')
     
     scenario_rules = f"""SCENARIO REQUIREMENTS:
-    - Meta: Use cautious, hypothetical phrasing throughout ("could", "may", "would likely") unless citing concrete telemetry.
+    - Meta: Use cautious, hypothetical phrasing throughout ("could", "may", "would likely") unless citing concrete telemetry. Avoid absolute security claims (e.g., "prevent(s)", "ensure(s)", "guarantee(s)"); prefer "reduces likelihood" or "reduces exposure".
     - Section 1: Threat Actor & Initial Access — Initial Access: "{attack_vector if not custom_scenario else custom_scenario}" (hyperlink MITRE T-codes and CVEs).
     - Section 2: Attacker Progression — Hypothetical attempted movement toward {client_inputs['critical_infra']}. For Sections 1–4, rely ONLY on the client's current stack; do NOT assume any MDR presence.
     - Section 3: Data Exfiltration — Explain how data could be staged and exfiltrated without MDR given the current stack.
@@ -483,6 +486,15 @@ You MUST NOT replicate the reference sample's phrasing, sentence structure, para
     
     # Explicit instruction for Executive Summary Actions (headline‑style 'Finding — Action')
     actions_instruction = """
+### EXECUTIVE SUMMARY STRUCTURE (REQUIRED)
+In the executive_summary, avoid generic sector commentary. Address the client specifically and cover:
+- Current Position
+- Business Context
+- Operational Dependency
+- Primary Risks
+- Priority Improvements
+- Strategic Outlook
+
 ### EXECUTIVE SUMMARY ACTIONS (REQUIRED)
 Populate 'executive_summary_actions' with exactly three items. Use concise headline‑style phrasing formatted as 'Finding — Action'. Write in British English, keep vendor‑agnostic, and ensure each action directly remediates the highest risks summarised in the executive_summary. Avoid additional punctuation beyond the em dash.
 
