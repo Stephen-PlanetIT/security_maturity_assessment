@@ -261,6 +261,72 @@ def _rewrite_text_block(text: str) -> str:
     t = govern_vendor_bias(t)
     return t
 
+# --- Vendor enforcement (ban scrub + supported stack alignment) ---
+def _scrub_banned_vendors_in_text(text: str, banned: List[str]) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    out = text
+    for b in (banned or []):
+        if not b:
+            continue
+        try:
+            pattern = re.compile(re.escape(str(b)), re.IGNORECASE)
+            out = pattern.sub("approved vendor", out)
+        except Exception:
+            pass
+    return out
+
+def _enforce_banned_vendors(report_data: Any, banned: List[str]) -> None:
+    if not banned:
+        return
+    if hasattr(report_data, "executive_summary"):
+        report_data.executive_summary = _scrub_banned_vendors_in_text(getattr(report_data, "executive_summary", ""), banned)
+    for item in getattr(report_data, "domain_assessments", []) or []:
+        for field in [
+            "current_state_analysis",
+            "business_impact_narrative",
+            "remediation_rationale",
+            "shared_responsibility",
+        ]:
+            if hasattr(item, field):
+                setattr(item, field, _scrub_banned_vendors_in_text(getattr(item, field), banned))
+        if hasattr(item, "recommended_solutions") and isinstance(item.recommended_solutions, list):
+            item.recommended_solutions = [_scrub_banned_vendors_in_text(x, banned) for x in item.recommended_solutions]
+
+def apply_supported_stack_vendor_selection(report_data: Any, client_inputs: dict) -> None:
+    """Rewrite Product Example entries to rotate through the top-3 supported vendors per domain.
+    Uses data.rank_vendors_for_domain; leaves narrative intact.
+    """
+    try:
+        from data import rank_vendors_for_domain  # type: ignore
+    except Exception:
+        rank_vendors_for_domain = None
+    if rank_vendors_for_domain is None:
+        return
+    banned = client_inputs.get("banned_vendors", []) if isinstance(client_inputs, dict) else []
+    for d in getattr(report_data, "domain_assessments", []) or []:
+        domain_name = getattr(d, "domain_name", "") or ""
+        vendors = rank_vendors_for_domain(client_inputs or {}, domain_name, banned_vendors=banned, max_candidates=3)
+        if not vendors:
+            continue
+        if hasattr(d, "recommended_solutions") and isinstance(d.recommended_solutions, list):
+            out = []
+            import re as _re
+            pat = _re.compile(r"(Product Example:\s*)([^|]+)$")
+            for i, entry in enumerate(d.recommended_solutions):
+                v = vendors[i % len(vendors)]
+                try:
+                    new_entry = pat.sub(r"\\1" + v, str(entry))
+                    if new_entry == entry:
+                        if "Product Example:" in str(entry):
+                            new_entry = str(entry).split("Product Example:")[0].rstrip(" |") + f" | Product Example: {v}"
+                        else:
+                            new_entry = str(entry).rstrip(" |") + f" | Product Example: {v}"
+                except Exception:
+                    new_entry = str(entry)
+                out.append(new_entry)
+            d.recommended_solutions = out
+
 # -------- Phase 2: Executive Summary Optimiser --------
 def generate_executive_summary(client_inputs: dict, report_data: Any) -> str:
     """Construct a consultant-style executive summary with fixed sections.
@@ -311,8 +377,10 @@ def generate_executive_summary(client_inputs: dict, report_data: Any) -> str:
 
 # -------- Phase 2: Recommendation Normalisation --------
 def normalize_recommendations(report_data: Any) -> None:
-    """Reshape recommendations to: Risk → Operational Need → Capability → Product Example.
-    Uses critical_gaps as risk, domain name for capability family, and preserves existing product text as example.
+    """Shape recommendations into consultative narrative paragraphs.
+    If the model produced rigid 'Risk: ... | Operational Need: ... | Capability: ... | Product Example: ...'
+    strings, transform them into natural British English sentences. Preserve any 'Product Example: <vendor>' suffix so
+    downstream vendor selection can rotate it.
     """
     for d in getattr(report_data, "domain_assessments", []) or []:
         domain_name = getattr(d, "domain_name", "Security Domain")
@@ -320,16 +388,38 @@ def normalize_recommendations(report_data: Any) -> None:
         recs = getattr(d, "recommended_solutions", []) or []
         if not isinstance(recs, list):
             continue
-        risk = gaps[0] if gaps else "Unaddressed control gap in this domain"
-        need = f"Address {risk.lower()} with policy, process, and technical controls"
+        risk = gaps[0] if gaps else "the highest‑priority gap in this domain"
         capability = f"{domain_name} capability uplift"
-        normalized = []
+        out: List[str] = []
         for r in recs:
-            product = str(r)
-            # Reject product-first phrasing by pre-pending capability justification
-            entry = f"Risk: {risk} | Operational Need: {need} | Capability: {capability} | Product Example: {product}"
-            normalized.append(entry)
-        d.recommended_solutions = normalized
+            s = str(r).strip()
+            vendor_suffix = ""
+            try:
+                import re as _re
+                m = _re.search(r"(?:\s*\|\s*)?Product\s+Example:\s*([^|]+)$", s, flags=_re.IGNORECASE)
+                if m:
+                    vendor_suffix = f" | Product Example: {m.group(1).strip()}"
+                    s = _re.sub(r"(?:\s*\|\s*)?Product\s+Example:\s*[^|]+$", "", s).strip()
+            except Exception:
+                pass
+            if "Risk:" in s and "Operational Need:" in s:
+                try:
+                    parts = [p.strip() for p in s.split("|")]
+                    kv = {}
+                    for part in parts:
+                        if ":" in part:
+                            k, v = part.split(":", 1)
+                            kv[k.strip().lower()] = v.strip()
+                    risk_txt = kv.get("risk", risk)
+                    need_txt = kv.get("operational need", f"Address {risk.lower()} with policy, process, and technical controls")
+                    capability_txt = kv.get("capability", capability)
+                    prose = f"{need_txt}. This strengthens the {capability_txt.lower()} and reduces exposure associated with {risk_txt.lower()}."
+                except Exception:
+                    prose = f"Address {risk.lower()} by strengthening {capability.lower()}; plan deployment with measurable outcomes."
+            else:
+                prose = s
+            out.append(f"{prose}{vendor_suffix}".strip())
+        d.recommended_solutions = out
 
 # -------- Phase 2: Final Humanisation Pass (Optional LLM) --------
 def humanise_text_with_llm(section_text: str) -> str:
@@ -403,6 +493,14 @@ def process_maturity_report(client_inputs: dict, report_data: Any) -> Tuple[Any,
     # Normalise recommendations where enabled
     if stage_enabled("RECOMMENDATION_NORMALISATION_ENABLED", "1"):
         normalize_recommendations(report_data)
+    # Enforce banned vendor scrub post-normalisation
+    banned = client_inputs.get("banned_vendors", []) if isinstance(client_inputs, dict) else []
+    _enforce_banned_vendors(report_data, banned)
+    # Align product examples to supported stack (top-3 ranked vendors per domain)
+    try:
+        apply_supported_stack_vendor_selection(report_data, client_inputs)
+    except Exception:
+        pass
 
     texts = {
         "executive_summary": getattr(report_data, "executive_summary", ""),

@@ -164,6 +164,144 @@ def _build_solution_map():
 
 RECOMMENDED_SOLUTION_MAP = _build_solution_map()
 
+# --- Compact allow-list text and vendor ranking helpers ---
+def build_compact_vendor_whitelist_text(max_per_domain: int = 3) -> str:
+    """Return a concise, domain→vendors allow‑list string derived from RECOMMENDED_SOLUTION_MAP.
+    Limits vendors per domain to keep tokens low (default 3)."""
+    parts = []
+    try:
+        for domain in ASSESSMENT_DOMAINS:
+            vendors = list(dict.fromkeys(RECOMMENDED_SOLUTION_MAP.get(domain, []) or []))
+            if max_per_domain > 0:
+                vendors = vendors[:max_per_domain]
+            if vendors:
+                parts.append(f"- {domain}: {', '.join(vendors)}")
+    except Exception:
+        pass
+    return "\n".join(parts)
+
+# Compact allow‑list text used in prompts to constrain recommendations to the Planet IT stack
+COMPACT_VENDOR_WHITELIST_TEXT = build_compact_vendor_whitelist_text(3)
+
+# === DfE 2026 Compliance Catalogue (lightweight, canonical names) ===
+# These titles are used only to anchor LLM output; do not invent new names in prompts.
+DFE_2026_STANDARD_NAME = "UK Department for Education Cyber Security Standards (2026)"
+DFE_2026_CONTROLS = [
+    {"id": "DFE-01", "name": "Account Security and MFA"},
+    {"id": "DFE-02", "name": "Patch and Vulnerability Management"},
+    {"id": "DFE-03", "name": "Backups and Recovery (Immutable/Offsite)"},
+    {"id": "DFE-04", "name": "Incident Response Plan and Testing"},
+    {"id": "DFE-05", "name": "Email and Web Filtering (Phishing Defence)"},
+    {"id": "DFE-06", "name": "Network Perimeter and Remote Access (VPN/ZTNA)"},
+    {"id": "DFE-07", "name": "Endpoint Protection and EDR/XDR"},
+    {"id": "DFE-08", "name": "Identity Governance and Privileged Access"},
+    {"id": "DFE-09", "name": "Security Awareness and Behaviour"},
+    {"id": "DFE-10", "name": "Third-Party and Supply Chain Risk"},
+    {"id": "DFE-11", "name": "Safeguarding: Filtering and Monitoring (Education)"},
+    {"id": "DFE-12", "name": "Data Protection and Records Handling"},
+]
+
+def rank_vendors_for_domain(client_inputs: dict, domain: str, banned_vendors: Optional[List[str]] = None, max_candidates: int = 3) -> List[str]:
+    """Return a ranked shortlist of vendors (top-N) for a given domain using PLANET_IT_PORTFOLIO and environment hints.
+
+    Signals (additive scoring):
+    - Prefer Sophos across domains (+30)
+    - Prefer Microsoft 365 native controls in IAM/Email when licence/stack indicates Microsoft (+15)
+    - Prefer Planet IT services where applicable (+12)
+    - Adlumin for SIEM transparency/compliance drivers or multi-vendor estates (+8)
+    - Network & Cloud Perimeter: Fortinet for >1000 users or explicit SD-WAN/ASIC needs (+10); Sophos Firewall default (+8)
+    - Trigger condition keyword matches (+1 each)
+    Filters:
+    - Exclude banned vendors if provided.
+    - Only include products declaring the domain in recommended_for_domains.
+    """
+    try:
+        from catalog import PLANET_IT_PORTFOLIO  # type: ignore
+    except Exception:
+        PLANET_IT_PORTFOLIO = {}
+
+    banned = set([str(b).strip().lower() for b in (banned_vendors or []) if str(b).strip()])
+    dname = str(domain).strip()
+    env = client_inputs or {}
+    endpoint = str(env.get("endpoint", "")).lower()
+    firewall = str(env.get("firewall", "")).lower()
+    identity = str(env.get("identity", "")).lower()
+    m365 = str(env.get("m365_license", env.get("email", ""))).lower()
+    comp = ",".join(env.get("compliance", []) if isinstance(env.get("compliance"), list) else [str(env.get("compliance", ""))]).lower()
+    users_val = env.get("users") or env.get("headcount") or 0
+    try:
+        users = int(users_val)
+    except Exception:
+        try:
+            users = int(str(users_val).split()[0])
+        except Exception:
+            users = 0
+    in_house = str(env.get("in_house_team", "")).lower()
+
+    def _score(vendor: str, product: dict) -> int:
+        score = 0
+        v_lower = vendor.lower()
+        if v_lower.startswith("sophos"):
+            score += 30
+        if "planet it" in v_lower:
+            score += 12
+        if ("microsoft" in v_lower or "defender" in v_lower) and (
+            "identity" in dname.lower() or "email" in dname.lower() or "cloud" in dname.lower()
+        ):
+            if any(tok in (m365 + identity) for tok in ["e3", "e5", "m365", "microsoft", "entra", "azure"]):
+                score += 15
+        if "adlumin" in v_lower:
+            if any(x in (endpoint + firewall) for x in ["cisco", "palo", "fortinet", "check point", "sentinelone", "crowdstrike"]) or any(
+                x in comp for x in ["pci", "hipaa", "sox"]
+            ):
+                score += 8
+        if "network" in dname.lower() or "perimeter" in dname.lower():
+            if "fortinet" in v_lower and users >= 1000:
+                score += 10
+            if "sophos firewall" in v_lower or (
+                "sophos" in v_lower and "firewall" in product.get("category", "").lower()
+            ):
+                score += 8
+        tc_list = product.get("trigger_conditions", []) or []
+        for tc in tc_list:
+            tcl = str(tc).lower()
+            if "24/7" in tcl and ("no" in in_house or "none" in in_house):
+                score += 1
+            if "multi-vendor" in tcl and any(x in (endpoint + firewall) for x in ["cisco", "palo", "fortinet", "check point", "crowd", "sentinel"]):
+                score += 1
+            if any(x in tcl for x in ["pci", "hipaa"]) and any(x in comp for x in ["pci", "hipaa"]):
+                score += 1
+            if "sd-wan" in tcl and (users >= 1000 or "sd-wan" in firewall):
+                score += 1
+        return score
+
+    scored: List[tuple] = []
+    try:
+        for products in PLANET_IT_PORTFOLIO.values():
+            for product in products:
+                try:
+                    vendors_domains = product.get("recommended_for_domains", []) or []
+                    if dname not in vendors_domains:
+                        continue
+                    vendor = str(product.get("vendor", "")).strip()
+                    if not vendor:
+                        continue
+                    if vendor.lower() in banned:
+                        continue
+                    score = _score(vendor, product)
+                    scored.append((vendor, score))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    best: dict = {}
+    for v, s in scored:
+        if v not in best or s > best[v]:
+            best[v] = s
+    ordered = sorted(best.items(), key=lambda kv: kv[1], reverse=True)
+    top = [v for v, _ in ordered[: max(1, int(max_candidates or 1))]]
+    return top
 # ==========================================
 # KNOWLEDGE BASE — LOADED FROM DISK
 # ==========================================
@@ -174,7 +312,7 @@ def _load_mdr_context():
     try:
         with open(ctx_path, "r") as f:
             text = f.read()
-        # Condense to ~500 words by taking the first meaningful paragraphs
+        # Condense to ~300 words by taking the first meaningful paragraphs
         lines = text.split('\n')
         condensed = []
         word_count = 0
@@ -183,7 +321,7 @@ def _load_mdr_context():
             if not stripped or stripped.startswith('Table of Contents') or stripped.startswith(' '):
                 continue
             words = stripped.split()
-            if word_count + len(words) > 500:
+            if word_count + len(words) > 300:
                 break
             condensed.append(stripped)
             word_count += len(words)
@@ -226,17 +364,17 @@ PORTFOLIO_KNOWLEDGE = _serialise_portfolio()
 # ==========================================================
 DEFAULT_MATURITY_CONTEXT = f"""
 You are acting as an Enterprise Virtual CISO and Principal Threat Analyst representing a top-tier advisory firm.
-Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps. 
+Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps.
 You strongly advocate for security consolidation, specifically leveraging the Sophos ecosystem (Sophos MDR, Intercept X, Sophos Firewall, etc.) and Microsoft 365 native security controls.
 Always maintain a highly professional, objective, and consultative tone. Use British English formatting.
 
 ### MDR Operations Knowledge Base
 {LOADED_MDR_CONTEXT}
 
-### Authorised Solution Portfolio
-{PORTFOLIO_KNOWLEDGE}
+### Authorised Solution Portfolio (Concise)
+Recommend products from the authorised portfolio curated in the application by reference only. Do not list full catalogues; select 1–2 concise, contextually justified examples where needed.
 
-When generating domain assessments and roadmap recommendations, reference the Authorised Solution Portfolio above to recommend specific products. Match the product tier to the client's size and environment. Always explain why a specific product is appropriate for the client's context.
+When generating domain assessments and roadmap recommendations, reference the authorised portfolio by name only and justify selections in context.
 """
 
 # ==========================================

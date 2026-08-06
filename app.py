@@ -325,7 +325,7 @@ with st.sidebar:
     if workflow == "📈 Cybersecurity Maturity Assessment":
         enable_threats = st.checkbox("Enable Threat Scenarios in Maturity Assessment", value=True)
         st.session_state['enable_threat_scenarios_in_maturity'] = enable_threats
-        enable_mc = st.checkbox("Enable Monte Carlo Risk Simulation (BETA)", value=False)
+        enable_mc = st.checkbox("Enable Monte Carlo Risk Simulation", value=True)
         st.session_state['enable_mc'] = enable_mc
         try:
             _default_mc = int(get_config("MC_ITERATIONS", 5000))
@@ -547,7 +547,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         vuln_scanning = st.selectbox("Vuln Scanning", vuln_options, index=(vuln_options.index(TEST_DATA['vuln_scanning']) if dev else 0), help="Example: Monthly Authenticated")
         public_web_apps = st.checkbox("Host Public Web Apps", value=(TEST_DATA['public_web_apps'] if dev else False))
     with col_ops2:
-        compliance = st.multiselect("Target Compliance", ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF"], default=(TEST_DATA['compliance'] if dev else []), help="Example: ISO 27001, Cyber Essentials")
+        compliance = st.multiselect("Target Compliance", ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF", "UK DfE (2026) Cyber Security Standards"], default=(TEST_DATA['compliance'] if dev else []), help="Example: ISO 27001, Cyber Essentials")
         physical_locations = st.number_input("Physical Locations", min_value=0, value=(TEST_DATA['physical_locations'] if dev else 0), help="Example: 3")
         advanced_controls = st.multiselect(
             "Advanced Adaptive Controls (Pillar 3)", 

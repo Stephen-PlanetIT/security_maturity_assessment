@@ -4,7 +4,7 @@ import datetime
 import random
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, COMPACT_VENDOR_WHITELIST_TEXT, DFE_2026_STANDARD_NAME, DFE_2026_CONTROLS
 
 # ==========================================
 # PYDANTIC MODELS: THREAT SIMULATOR
@@ -22,10 +22,10 @@ class ThreatEvent(BaseModel):
 class ThreatScenarioOutline(BaseModel):
     title: str = Field(description="Title of the threat scenario outline.")
     executive_summary: str = Field(description="Executive summary describing the scenario at a high level.")
-    timeline: List[str] = Field(description="Structured timeline steps for the threat scenario.")
+    timeline: List[str] = Field(description="Structured timeline steps for the threat scenario.", min_items=4, max_items=8)
     threat_events: List[ThreatEvent] = Field(description="Threat events composing the outline.", min_items=1)
     impact: Optional[str] = Field(default=None, description="Concise narrative of impact aligned to pillar scoring.")
-    mitigations: Optional[List[str]] = Field(default=None, description="Mitigations for the threat scenario outline.")
+    mitigations: Optional[List[str]] = Field(default=None, description="Mitigations for the threat scenario outline.", max_items=6)
 
 class PillarScore(BaseModel):
     pillar_1: int = Field(ge=1, le=3, description="Pillar 1 score (Reactive).")
@@ -83,25 +83,27 @@ class DomainAssessment(BaseModel):
     business_impact_narrative: str = Field(
         description="A board-ready business impact statement written in flowing, descriptive paragraphs. Convey the probability and severity of exploitation in natural language—do NOT display formula notation (e.g. 'Probability x Impact = Risk Score'), raw numerical scores, or clickable Markdown hyperlinks. You may reference relevant MITRE technique codes as inline plain text (e.g., 'T1189') where they add technical precision, but do NOT wrap them in Markdown link syntax. Tie the consequences directly to the client's Crown Jewels, Downtime Tolerance (RTO), Cyber Insurance status, and regulatory exposure. Write in full, descriptive sentences. Bullet points are strictly prohibited."
     )
-    critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.")
-    vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.")
-    recommended_solutions: List[str] = Field(description="Specific product recommendations pulled strictly from the RECOMMENDED_SOLUTION_MAP. Format each item as 'Risk: … | Operational Need: … | Capability: … | Product Example: …' and ensure the capability justification precedes any product naming.")
+    critical_gaps: List[str] = Field(description="2-3 specific architectural or operational gaps identified.", min_items=2, max_items=3)
+    vendor_agnostic_quick_wins: List[str] = Field(description="2-3 zero-cost, native configuration changes.", min_items=2, max_items=3)
+    recommended_solutions: List[str] = Field(description="Consultative recommendations written as flowing British English paragraphs. Provide 3–4 concise, narrative items that explain the operational need and capability rationale first, then (optionally) conclude with 'Product Example: <vendor>' drawn from the authorised solution map. Avoid rigid 'Risk | Need | Capability' patterns.", min_items=3, max_items=4)
     remediation_rationale: str = Field(
         description="The strategic, architectural justification. Explain the behaviour of the attack path and why this specific tool severs it. Must be a detailed, multi-paragraph narrative."
     )
     shared_responsibility: str = Field(description="The accountability split. Clarify exactly what Planet IT will deploy or manage versus what the Client is responsible for (e.g., HR policy enforcement, user adherence).")
     gap_remediation_steps: Optional[List[str]] = Field(
         description="Remediation steps to fill the gaps in this domain. Typically 3–5 concrete actions.",
-        default=None
+        default=None,
+        min_items=3,
+        max_items=5
     )
 
 class RoadmapPhase(BaseModel):
     phase_title: str = Field(description="Must be strictly named: 'Phase 1: Foundational Hygiene', 'Phase 2: Active Managed Defence', or 'Phase 3: Adaptive Governance & Resilience'.")    
     timeline: str = Field(description="e.g., '0-3 Months', '3-9 Months', '10-18+ Months'.")
     primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
-    key_deliverables: List[str] = Field(description="3-4 specific tactical deliverables for this phase.")
+    key_deliverables: List[str] = Field(description="3-4 specific tactical deliverables for this phase.", min_items=3, max_items=4)
     estimated_effort: str = Field(description="Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational').")
-    milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.")
+    milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.", min_items=3, max_items=5)
     resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
     business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
 
@@ -124,7 +126,7 @@ class MonetaryCostGBP(BaseModel):
 
 class GapRemediationPlan(BaseModel):
     gap_description: str = Field(description="Description of the identified remediation gap.")
-    recommended_actions: List[str] = Field(description="Action steps to remediate the gap.")
+    recommended_actions: List[str] = Field(description="Action steps to remediate the gap.", min_items=2, max_items=6)
     owner: Optional[str] = Field(default=None, description="Owner responsible for remediation.")
     due_by: Optional[str] = Field(default=None, description="Due date ISO format (YYYY-MM-DD).")
 
@@ -167,7 +169,7 @@ class MaturityReport(BaseModel):
     partnership_links: Optional[List[str]] = Field(default=None, description="Optional list of governance resource URLs or documents.")
     threat_intelligence_context: Optional[str] = Field(default=None, description="Threat intelligence context relevant to the governance narrative.")
     cost_of_inaction_summary: Optional[str] = Field(default=None, description="Short GBP cost-of-inaction narrative derived from MonetaryCostGBP or explicit input.")
-    compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.")
+    compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.", min_items=1, max_items=3)
     partnership_outline: Optional[str] = Field(
         default=None,
         description="Dedicated section describing co-managed or fully managed partnership arrangements and responsibilities between Planet IT and the client."
@@ -193,9 +195,9 @@ class MaturityReport(BaseModel):
         max_items=3
     )
     
-    success_metrics: List[str] = Field(description="3-4 measurable KPIs.")
-    engagement_cadence: List[str] = Field(description="Schedule of advisory meetings.")
-    consultant_discovery_guide: List[str] = Field(description="Provocative questions for the discovery phase.")
+    success_metrics: List[str] = Field(description="3-4 measurable KPIs.", min_items=3, max_items=4)
+    engagement_cadence: List[str] = Field(description="Schedule of advisory meetings.", min_items=3, max_items=6)
+    consultant_discovery_guide: List[str] = Field(description="Provocative questions for the discovery phase.", min_items=5, max_items=10)
     threat_scenarios: Optional[List[ThreatScenarioItem]] = Field(
         default=None,
         description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation."
@@ -483,6 +485,73 @@ Use these notes to tailor narratives and recommendations where appropriate. Do n
 ### ANTI-MIMICRY DIRECTIVE
 You MUST NOT replicate the reference sample's phrasing, sentence structure, paragraph ordering, or section wording. Target high stylistic dissimilarity. Vary sentence length, use alternative connective phrases, and restructure paragraphs while preserving required schema and guardrails. If any sentence would share more than 8 consecutive words with the sample, rewrite it.
 """
+
+    whitelist_clause = f"""
+    ### ALLOWED VENDORS BY DOMAIN (STRICT)
+    {COMPACT_VENDOR_WHITELIST_TEXT}
+
+    Selection rules:
+    - Prefer Sophos across domains where functionally appropriate.
+    - In IAM and Email, prefer Microsoft 365 native controls (Entra/Intune) when licence supports.
+    - SecOps: Sophos MDR by default; Sophos MDR Plus where full IR is required; Adlumin when SIEM transparency/compliance reporting is a primary driver or Sophos is banned/unsuitable.
+    - Network & Cloud Perimeter: Sophos Firewall by default; Fortinet for >1000 users or explicit SD‑WAN/ASIC requirements.
+    - Use up to three vendor candidates per domain and respect the ban list absolutely.
+    Strict: Recommend only from this allow‑list; keep selections concise and justified in context.
+    """
+
+    # DfE 2026 compliance clause (only when explicitly targeted)
+    comp_targets = str(client_inputs.get('compliance', '')).lower()
+    industry = str(client_inputs.get('industry', 'Other'))
+    want_dfe = any(x in comp_targets for x in [
+        "dfe", "department for education", "uk dfe (2026)", "education standards (2026)"])
+    dfe_clause = ""
+    if want_dfe:
+        # Map telemetry to deterministic gaps so the LLM cannot inflate compliance
+        mfa = str(client_inputs.get('mfa_status', 'Unknown'))
+        patching = str(client_inputs.get('patching', 'Unknown'))
+        backups = str(client_inputs.get('backups', 'Unknown'))
+        ir = str(client_inputs.get('ir_readiness', 'Unknown'))
+        remote = str(client_inputs.get('remote_access', 'Unknown'))
+        endpoint_cap = str(client_inputs.get('endpoint_posture', 'Unknown'))
+        email_sec = str(client_inputs.get('email', 'Unknown'))
+        culture = str(client_inputs.get('savviness', ''))
+
+        hard_rules = []
+        if mfa in ["None", "Privileged Accounts Only"]:
+            hard_rules.append("- If MFA is not universal, include a explicit gap for 'DFE-01 Account Security and MFA'.")
+        if patching == "Manual / Ad-hoc":
+            hard_rules.append("- If Patch Management is Manual/Ad‑hoc, include a explicit gap for 'DFE-02 Patch and Vulnerability Management'.")
+        if backups in ["No Formal Backups", "On-Premise Only"]:
+            hard_rules.append("- If backups are 'No Formal' or 'On‑Premise Only', include a explicit gap for 'DFE-03 Backups and Recovery'.")
+        if ir in ["No Formal Plan", "Documented IR Plan (Untested)"]:
+            hard_rules.append("- If IR readiness is 'No Formal Plan' or 'Untested', include a explicit gap for 'DFE-04 Incident Response Plan and Testing'.")
+        if remote in ["Legacy VPN (Client-based)", "None / Cloud Only"]:
+            hard_rules.append("- If Remote Access is legacy/none, include a explicit gap for 'DFE-06 Network Perimeter and Remote Access'.")
+        if endpoint_cap == "Legacy AV Only (Signatures/Heuristics)":
+            hard_rules.append("- If Endpoint capability is legacy AV only, include a explicit gap for 'DFE-07 Endpoint Protection and EDR/XDR'.")
+        if 'Pillar 1' in culture:
+            hard_rules.append("- If Security Culture is Pillar 1, include a explicit gap for 'DFE-09 Security Awareness and Behaviour'.")
+        if industry == "Education":
+            hard_rules.append("- If industry is Education, you MUST include an explicit assessment of 'DFE-11 Safeguarding: Filtering and Monitoring'. If web filtering/monitoring capability is not evidenced from inputs, treat it as a critical gap and propose a remediation plan.")
+
+        catalogue_lines = "\n".join([f"- {c['id']}: {c['name']}" for c in DFE_2026_CONTROLS])
+        rules_lines = "\n".join(hard_rules) if hard_rules else "- Apply control mapping pragmatically based on telemetry; do not infer compliance without explicit evidence."
+        dfe_clause = f"""
+### UK Department for Education (2026) Compliance Alignment (STRICT)
+Standard: {DFE_2026_STANDARD_NAME}
+
+Controls Catalogue:
+{catalogue_lines}
+
+Output Requirements:
+- You MUST add a ComplianceSection entry for this standard in 'compliance_alignment'.
+- Set 'standard' exactly to: {DFE_2026_STANDARD_NAME}
+- Populate 'critical_gaps' with 2–6 specific gaps mapped to the above control IDs where telemetry indicates non‑compliance.
+- Populate 'fill_plan' with 2–6 GapRemediationPlan items that describe concrete actions, owners, and due dates where appropriate.
+
+Deterministic Mapping Rules:
+{rules_lines}
+"""
     
     # Explicit instruction for Executive Summary Actions (headline‑style 'Finding — Action')
     actions_instruction = """
@@ -508,7 +577,7 @@ Populate 'executive_summary_action_blocks' with exactly three objects. For each 
 Do NOT restate full framework, domain lists, or product mappings in any field; reference them without echoing definitions.
 """
 
-    return base_prompt + "\n\n" + ban_clause + "\n\n" + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + """
+    return base_prompt + "\n\n" + ban_clause + "\n\n" + whitelist_clause + (("\n" + dfe_clause + "\n") if dfe_clause else "") + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + """
 ### DOMAIN WRITING PROFILES (REQUIRED)
 Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
 - Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.

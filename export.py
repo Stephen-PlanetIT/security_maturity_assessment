@@ -935,69 +935,7 @@ def _inject_monte_carlo_section_after_render(doc, mc, mc_text: str = ""):
                     b_para = _append_para(doc, style='List Bullet')
                 b_para.add_run(str(a))
 
-    # Consultant’s interpretation (LLM) and deterministic fallback
-    if isinstance(mc_text, str) and mc_text.strip():
-        if after_el is not None and body_parent_ref is not None:
-            ci_head, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            ci_head = _append_para(doc)
-        ci_run = ci_head.add_run("Consultant’s interpretation")
-        ci_run.bold = True
-        ci_run.font.size = Pt(11)
-        if after_el is not None and body_parent_ref is not None:
-            ci_para, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            ci_para = _append_para(doc)
-        ci_para.add_run(str(mc_text))
-
-    expl = mc.get('explanation')
-    if expl:
-        if after_el is not None and body_parent_ref is not None:
-            i_head, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            i_head = _append_para(doc)
-        i_run = i_head.add_run("What these numbers mean")
-        i_run.bold = True
-        i_run.font.size = Pt(11)
-        if after_el is not None and body_parent_ref is not None:
-            i_para, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            i_para = _append_para(doc)
-        i_para.add_run(str(expl))
-
-    # Top Exposure Drivers (if any)
-    drivers = mc.get('drivers') or []
-    if drivers:
-        if after_el is not None and body_parent_ref is not None:
-            d_head, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            d_head = _append_para(doc)
-        d_run = d_head.add_run("Top Exposure Drivers")
-        d_run.bold = True
-        d_run.font.size = Pt(11)
-        for d in drivers[:3]:
-            if after_el is not None and body_parent_ref is not None:
-                d_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
-            else:
-                d_para = _append_para(doc, style='List Bullet')
-            d_para.add_run(str(d))
-
-    # Optional assumptions
-    assumptions = mc.get('assumptions', []) or []
-    if assumptions:
-        if after_el is not None and body_parent_ref is not None:
-            a_head, new_el = _new_para_after(new_el, body_parent_ref)
-        else:
-            a_head = _append_para(doc)
-        a_run = a_head.add_run("Assumptions")
-        a_run.bold = True
-        a_run.font.size = Pt(11)
-        for a in assumptions:
-            if after_el is not None and body_parent_ref is not None:
-                b_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
-            else:
-                b_para = _append_para(doc, style='List Bullet')
-            b_para.add_run(str(a))
+    # [Removed duplicate Monte Carlo rendering block to prevent NameError and double insertion]
 
     if placeholder_element is not None and body_parent is not None:
         _render(after_el=placeholder_element, body_parent_ref=body_parent)
@@ -1319,9 +1257,42 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
     context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
     doc.render(_xml_escape_dict(context))
+    # Monte Carlo interpretation: deterministic by default; optional LLM mode via MC_INTERPRETATION_MODE
+    mc_text = mc_consultative_interpretation
+    try:
+        mode = str(get_config("MC_INTERPRETATION_MODE", "deterministic")).strip().lower()
+    except Exception:
+        mode = "deterministic"
+    if (not isinstance(mc_text, str) or not mc_text.strip()) and isinstance(mc, dict) and mc:
+        if mode == "llm":
+            try:
+                from core import LLMEngine
+                from prompts import build_mc_interpretation_prompt, SYSTEM_PERSONA
+                client = LLMEngine.get_client()
+                deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+                prompt = build_mc_interpretation_prompt(client_inputs, mc)
+                mc_text = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2) or ""
+            except Exception:
+                mc_text = ""
+        else:
+            try:
+                br = float(mc.get('breach_probability_pct', 0.0))
+                aal = float(mc.get('aal_gbp', 0.0))
+                p50 = float(mc.get('p50_gbp', 0.0))
+                p90 = float(mc.get('p90_gbp', 0.0))
+                p95 = float(mc.get('p95_gbp', 0.0))
+                cvar = float(mc.get('cvar95_gbp', 0.0))
+                mc_text = (
+                    f"In probabilistic terms, the model estimates a {br:.1f}% annual breach probability. "
+                    f"Expected annual loss is approximately £{aal:,.0f}, with typical outcomes around £{p50:,.0f} and tail events reaching £{p90:,.0f}–£{p95:,.0f}. "
+                    f"The CVaR95 figure (average of the worst 5% of simulated years) is £{cvar:,.0f}, which frames potential extreme exposure. "
+                    f"These figures are indicative; actual outcomes depend on control effectiveness, response time, and recovery discipline."
+                )
+            except Exception:
+                mc_text = ""
     # Post-render: insert Monte Carlo section (if available)
     try:
-        _inject_monte_carlo_section_after_render(doc, mc, mc_consultative_interpretation)
+        _inject_monte_carlo_section_after_render(doc, mc, mc_text)
     except Exception:
         # Fail-open: ensure the placeholder is removed if present
         try:
