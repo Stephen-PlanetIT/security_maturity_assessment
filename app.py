@@ -11,6 +11,7 @@ from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
+from risk import run_monte_carlo
 
 _SANITISE_REPLACEMENTS = [
     (_re.compile(r'["]{3,}'), '"'),
@@ -240,7 +241,9 @@ def get_maturity_docx_bytes():
         try:
             st.session_state['maturity_docx_bytes'] = create_maturity_docx(
                 st.session_state['client_inputs'], 
-                st.session_state['maturity_obj']
+                st.session_state['maturity_obj'],
+                st.session_state.get('mc_llm_interpretation', ""),
+                st.session_state.get('mc_summary')
             )
         except Exception as e:
             import logging
@@ -322,6 +325,14 @@ with st.sidebar:
     if workflow == "📈 Cybersecurity Maturity Assessment":
         enable_threats = st.checkbox("Enable Threat Scenarios in Maturity Assessment", value=True)
         st.session_state['enable_threat_scenarios_in_maturity'] = enable_threats
+        enable_mc = st.checkbox("Enable Monte Carlo Risk Simulation (BETA)", value=False)
+        st.session_state['enable_mc'] = enable_mc
+        try:
+            _default_mc = int(get_config("MC_ITERATIONS", 5000))
+        except Exception:
+            _default_mc = 5000
+        mc_iterations = st.number_input("Monte Carlo Iterations", min_value=100, max_value=20000, step=100, value=(_default_mc))
+        st.session_state['mc_iterations'] = mc_iterations
 
 # --- MAIN PAGE HEADER ---
 st.title("Security Use Case & Cybersecurity Maturity Assessment Generator")
@@ -1058,6 +1069,27 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                 # Clear any cached export bytes from previous runs
                 for key in ['maturity_docx_bytes']:
                     st.session_state.pop(key, None)
+                # Optionally compute Monte Carlo summary
+                try:
+                    if st.session_state.get('enable_mc', True):
+                        try:
+                            _iters = int(st.session_state.get('mc_iterations', get_config("MC_ITERATIONS", 5000)) or 5000)
+                        except Exception:
+                            _iters = 5000
+                        mc = run_monte_carlo(st.session_state['client_inputs'], st.session_state['maturity_obj'], iterations=_iters)
+                        st.session_state['mc_summary'] = mc
+                        # Generate LLM consultative interpretation (short, non-blocking UI)
+                        try:
+                            from prompts import build_mc_interpretation_prompt
+                            mc_prompt = build_mc_interpretation_prompt(st.session_state['client_inputs'], mc)
+                            accumulated = ""
+                            for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, mc_prompt, temperature=0.2):
+                                accumulated += token
+                            st.session_state['mc_llm_interpretation'] = accumulated.strip()
+                        except Exception:
+                            st.session_state['mc_llm_interpretation'] = ""
+                except Exception:
+                    pass
                 st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
             else:
                 st.error("Engine failed to generate the roadmap.")
@@ -1070,7 +1102,8 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                 "📄 Download Cybersecurity Maturity Report (Word)", 
                 data=docx_data, 
                 file_name=f"{cached_customer_name.replace(' ', '_')}_Cybersecurity_Maturity_Report.docx", 
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"maturity_docx_dl_{st.session_state.get('_client_inputs_hash','')}_{st.session_state.get('mc_iterations',0)}"
             )
 
     if st.session_state.get('maturity_obj'):
@@ -1121,6 +1154,31 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                 if rec:
                     st.markdown("### Microsoft Healthchecks & Hardening")
                     st.write(rec)
+            # Monte Carlo summary (optional)
+            mc = st.session_state.get('mc_summary')
+            if mc:
+                st.markdown("### Monte Carlo Risk Estimate")
+                st.info(
+                    f"Estimated annual breach probability: {mc.get('breach_probability_pct', 0.0):.1f}% | "
+                    f"AAL: £{mc.get('aal_gbp', 0.0):,.0f} | P50: £{mc.get('p50_gbp', 0.0):,.0f} | "
+                    f"P90: £{mc.get('p90_gbp', 0.0):,.0f} | P95: £{mc.get('p95_gbp', 0.0):,.0f} | CVaR95: £{mc.get('cvar95_gbp', 0.0):,.0f}"
+                )
+                # LLM consultative interpretation (customer-focused)
+                mc_text = st.session_state.get('mc_llm_interpretation')
+                if mc_text:
+                    st.markdown("#### Consultant’s interpretation")
+                    st.write(mc_text)
+                # Deterministic interpretive context for non-technical stakeholders
+                if mc.get('explanation'):
+                    st.markdown("#### What these numbers mean")
+                    st.write(mc.get('explanation'))
+                # Top exposure drivers (relative)
+                drivers = mc.get('drivers') or []
+                if drivers:
+                    st.markdown("#### Top exposure drivers")
+                    st.markdown("\n".join([f"- {d}" for d in drivers[:3]]))
+                with st.expander("Assumptions", expanded=False):
+                    st.markdown("\n".join([f"- {a}" for a in mc.get('assumptions', [])]))
                 
         with tab2:
             st.markdown("### Security Domain Analysis")

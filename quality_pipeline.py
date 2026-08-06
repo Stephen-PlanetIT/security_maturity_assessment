@@ -343,12 +343,19 @@ def humanise_text_with_llm(section_text: str) -> str:
         client = LLMEngine.get_client()
         deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
         prompt = (
-            "Review this report as a senior cybersecurity consultant. "
-            "Identify: - repetitive wording - AI phrasing - overclaiming - excessive vendor references - generic observations. "
-            "Rewrite affected sections only. Preserve technical meaning.\n\n" + section_text
+            "Rewrite the following text directly, applying light human edits to tone, clarity, and repetition. "
+            "Do not add headings, labels, or commentary. Return only the revised text — no ‘Suggestion’, ‘Before/After’, bullets of edits, or code blocks. "
+            "Preserve technical meaning and use British English.\n\nTEXT START\n" + section_text + "\nTEXT END"
         )
         improved = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2)
-        return improved or section_text
+        if not improved:
+            return section_text
+        # Defensive sanitiser: strip any suggestion-style artefacts if the model ignores instructions
+        cleaned = re.sub(r"(?im)^(?:suggest(?:ion|ed)\s*(?:edits?)?|before|after|change|replace)\s*[:：].*$", "", improved)
+        cleaned = re.sub(r"(?s)```.*?```", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*\*\s*(?:suggestion|edit|note)\s*[:：].*$", "", cleaned)
+        cleaned = cleaned.strip()
+        return cleaned if cleaned else section_text
     except Exception:
         # Fail closed to original text if LLM unavailable
         return section_text

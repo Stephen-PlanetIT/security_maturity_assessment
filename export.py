@@ -16,6 +16,7 @@ import numpy as np
 import os
 import tempfile
 from config import get_config
+from risk import run_monte_carlo
 try:
     from quality_pipeline import process_maturity_report, process_threat_report, get_quality_thresholds, quality_gate_enabled
 except Exception:  # Safe fallback if module unavailable
@@ -769,7 +770,243 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
     placeholder_element.getparent().remove(placeholder_element)
 
 
-def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
+def _inject_monte_carlo_section_after_render(doc, mc, mc_text: str = ""):
+    """
+    Insert a formatted Monte Carlo section at the {{ monte_carlo_section }} anchor, if present; otherwise append at end.
+    Renders:
+      - Heading: "Monte Carlo Risk Analysis"
+      - Summary line with breach probability, AAL, P50/P90/P95/CVaR95
+      - Consultant’s interpretation (LLM narrative) if provided
+      - Deterministic interpretation paragraph (fallback)
+      - Top Exposure Drivers as bullet points (if provided)
+      - Assumptions as bullet points (if provided)
+    """
+    from docx.shared import Pt
+    from docx.oxml import OxmlElement
+    from docx.text.paragraph import Paragraph
+
+    # Do not return early; we may still need to remove the placeholder even if MC is unavailable
+    mc_valid = isinstance(mc, dict) and bool(mc)
+
+    def _new_para_after(prev_el, body_parent, style=None):
+        new_p = OxmlElement('w:p')
+        prev_el.addnext(new_p)
+        para = Paragraph(new_p, body_parent)
+        if style:
+            try:
+                para.style = style
+            except Exception:
+                pass
+        return para, new_p
+
+    def _append_para(doc_obj, style=None):
+        para = doc_obj.add_paragraph()
+        if style:
+            try:
+                para.style = style
+            except Exception:
+                pass
+        return para
+
+    # Locate anchor using tolerant regex (supports NBSP and underscores), scanning body and table cells
+    placeholder_element = None
+    body_parent = None
+    try:
+        import re as _re_norm
+    except Exception:
+        _re_norm = re
+
+    ANCHOR_PATTERNS = [
+        _re_norm.compile("\\{\\{\\s*monte[\\s_\\u00A0]*carlo[\\s_\\u00A0]*section\\s*\\}\\}", _re_norm.IGNORECASE),
+        _re_norm.compile("\\{\\{\\s*mc[\\s_\\u00A0]*section\\s*\\}\\}", _re_norm.IGNORECASE),
+    ]
+
+    def _iter_all_paragraphs(doc_obj):
+        for p in doc_obj.paragraphs:
+            yield p
+        for tbl in getattr(doc_obj, 'tables', []) or []:
+            for row in tbl.rows:
+                for cell in row.cells:
+                    for cp in cell.paragraphs:
+                        yield cp
+
+    for paragraph in _iter_all_paragraphs(doc):
+        txt = (paragraph.text or '').replace('\u00A0', ' ')
+        if any(pat.search(txt) for pat in ANCHOR_PATTERNS):
+            placeholder_element = paragraph._element
+            body_parent = paragraph._parent
+            break
+
+    # If MC data is unavailable, remove the placeholder if found and stop
+    if not mc_valid:
+        if placeholder_element is not None and body_parent is not None:
+            placeholder_element.getparent().remove(placeholder_element)
+        return
+
+    def _render(after_el=None, body_parent_ref=None):
+        # Heading
+        if after_el is not None and body_parent_ref is not None:
+            h_para, new_el = _new_para_after(after_el, body_parent_ref)
+        else:
+            h_para = _append_para(doc)
+            new_el = None
+        run = h_para.add_run("Monte Carlo Risk Analysis")
+        run.bold = True
+        run.font.size = Pt(13)
+
+        # Summary line
+        br = float(mc.get('breach_probability_pct', 0.0))
+        aal = float(mc.get('aal_gbp', 0.0))
+        p50 = float(mc.get('p50_gbp', 0.0))
+        p90 = float(mc.get('p90_gbp', 0.0))
+        p95 = float(mc.get('p95_gbp', 0.0))
+        cvar95 = float(mc.get('cvar95_gbp', 0.0))
+        summary_text = (
+            f"Estimated annual breach probability: {br:.1f}% | AAL: £{aal:,.0f} | "
+            f"P50: £{p50:,.0f} | P90: £{p90:,.0f} | P95: £{p95:,.0f} | CVaR95: £{cvar95:,.0f}"
+        )
+        if after_el is not None and body_parent_ref is not None:
+            s_para, new_el = _new_para_after(new_el or after_el, body_parent_ref)
+        else:
+            s_para = _append_para(doc)
+        s_para.add_run(summary_text)
+
+        # Consultant’s interpretation (LLM) and deterministic fallback
+        if isinstance(mc_text, str) and mc_text.strip():
+            if after_el is not None and body_parent_ref is not None:
+                ci_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                ci_head = _append_para(doc)
+            ci_run = ci_head.add_run("Consultant’s interpretation")
+            ci_run.bold = True
+            ci_run.font.size = Pt(11)
+            if after_el is not None and body_parent_ref is not None:
+                ci_para, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                ci_para = _append_para(doc)
+            ci_para.add_run(str(mc_text))
+
+        expl = mc.get('explanation')
+        if expl:
+            if after_el is not None and body_parent_ref is not None:
+                i_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                i_head = _append_para(doc)
+            i_run = i_head.add_run("What these numbers mean")
+            i_run.bold = True
+            i_run.font.size = Pt(11)
+            if after_el is not None and body_parent_ref is not None:
+                i_para, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                i_para = _append_para(doc)
+            i_para.add_run(str(expl))
+
+        # Top Exposure Drivers (if any)
+        drivers = mc.get('drivers') or []
+        if drivers:
+            if after_el is not None and body_parent_ref is not None:
+                d_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                d_head = _append_para(doc)
+            d_run = d_head.add_run("Top Exposure Drivers")
+            d_run.bold = True
+            d_run.font.size = Pt(11)
+            for d in drivers[:3]:
+                if after_el is not None and body_parent_ref is not None:
+                    d_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                else:
+                    d_para = _append_para(doc, style='List Bullet')
+                d_para.add_run(str(d))
+
+        # Optional assumptions
+        assumptions = mc.get('assumptions', []) or []
+        if assumptions:
+            if after_el is not None and body_parent_ref is not None:
+                a_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                a_head = _append_para(doc)
+            a_run = a_head.add_run("Assumptions")
+            a_run.bold = True
+            a_run.font.size = Pt(11)
+            for a in assumptions:
+                if after_el is not None and body_parent_ref is not None:
+                    b_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                else:
+                    b_para = _append_para(doc, style='List Bullet')
+                b_para.add_run(str(a))
+
+    # Consultant’s interpretation (LLM) and deterministic fallback
+    if isinstance(mc_text, str) and mc_text.strip():
+        if after_el is not None and body_parent_ref is not None:
+            ci_head, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            ci_head = _append_para(doc)
+        ci_run = ci_head.add_run("Consultant’s interpretation")
+        ci_run.bold = True
+        ci_run.font.size = Pt(11)
+        if after_el is not None and body_parent_ref is not None:
+            ci_para, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            ci_para = _append_para(doc)
+        ci_para.add_run(str(mc_text))
+
+    expl = mc.get('explanation')
+    if expl:
+        if after_el is not None and body_parent_ref is not None:
+            i_head, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            i_head = _append_para(doc)
+        i_run = i_head.add_run("What these numbers mean")
+        i_run.bold = True
+        i_run.font.size = Pt(11)
+        if after_el is not None and body_parent_ref is not None:
+            i_para, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            i_para = _append_para(doc)
+        i_para.add_run(str(expl))
+
+    # Top Exposure Drivers (if any)
+    drivers = mc.get('drivers') or []
+    if drivers:
+        if after_el is not None and body_parent_ref is not None:
+            d_head, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            d_head = _append_para(doc)
+        d_run = d_head.add_run("Top Exposure Drivers")
+        d_run.bold = True
+        d_run.font.size = Pt(11)
+        for d in drivers[:3]:
+            if after_el is not None and body_parent_ref is not None:
+                d_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+            else:
+                d_para = _append_para(doc, style='List Bullet')
+            d_para.add_run(str(d))
+
+    # Optional assumptions
+    assumptions = mc.get('assumptions', []) or []
+    if assumptions:
+        if after_el is not None and body_parent_ref is not None:
+            a_head, new_el = _new_para_after(new_el, body_parent_ref)
+        else:
+            a_head = _append_para(doc)
+        a_run = a_head.add_run("Assumptions")
+        a_run.bold = True
+        a_run.font.size = Pt(11)
+        for a in assumptions:
+            if after_el is not None and body_parent_ref is not None:
+                b_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+            else:
+                b_para = _append_para(doc, style='List Bullet')
+            b_para.add_run(str(a))
+
+    if placeholder_element is not None and body_parent is not None:
+        _render(after_el=placeholder_element, body_parent_ref=body_parent)
+        placeholder_element.getparent().remove(placeholder_element)
+    else:
+        _render(after_el=None, body_parent_ref=None)
+
+
+def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_interpretation: str = "", mc_data=None) -> bytes:
     """
     Cybersecurity Maturity Assessment Word export: renders a Word document using planet_it_maturity_assessment_template.docx.
     Derives domains_list and roadmap_list from report_data defensively.
@@ -835,6 +1072,18 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         except OSError:
             pass
     maturity_gauge_image = InlineImage(doc, gauge_buffer, width=Inches(2.5))
+    # --- Monte Carlo risk simulation (document context only) ---
+    # Prefer MC data computed upstream (app.py); fall back to local compute
+    mc = mc_data if isinstance(mc_data, dict) and mc_data else None
+    if mc is None:
+        try:
+            mc_iters = int(get_config("MC_ITERATIONS", 5000))
+        except Exception:
+            mc_iters = 5000
+        try:
+            mc = run_monte_carlo(client_inputs, report_data, iterations=mc_iters)
+        except Exception:
+            mc = None
 
     # --- Domain rating summary (map 1–3 to 0–100 and categorise) ---
     domain_ratings = []
@@ -954,6 +1203,8 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
     context = {
         # Keep {{ threat_scenarios }} as a literal placeholder for post-render injection
         "threat_scenarios": "{{ threat_scenarios }}",
+        # Keep {{ monte_carlo_section }} as a literal placeholder for post-render injection
+        "monte_carlo_section": "{{ monte_carlo_section }}",
         "customer_name": client_inputs.get("customer_name", "Customer"),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
         "industry": client_inputs.get("industry", "Unknown"),
@@ -982,6 +1233,17 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
         "domain_ratings_bullets": domain_ratings_bullets,
         "maturity_score": f"{overall_percent}/100",
         "maturity_score_category": overall_category,
+        # Monte Carlo outputs (optional; populated if template tags exist)
+        "mc_breach_probability_pct": (round(mc.get("breach_probability_pct", 0.0), 1) if mc else 0.0),
+        "mc_aal_gbp": (mc.get("aal_gbp", 0.0) if mc else 0.0),
+        "mc_p50_gbp": (mc.get("p50_gbp", 0.0) if mc else 0.0),
+        "mc_p90_gbp": (mc.get("p90_gbp", 0.0) if mc else 0.0),
+        "mc_p95_gbp": (mc.get("p95_gbp", 0.0) if mc else 0.0),
+        "mc_cvar95_gbp": (mc.get("cvar95_gbp", 0.0) if mc else 0.0),
+        "mc_summary": (mc.get("summary", "") if mc else ""),
+        "mc_explanation": (mc.get("explanation", "") if mc else ""),
+        "mc_drivers_bullets": ("\n".join([f"- {d}" for d in mc.get("drivers", [])]) if mc else ""),
+        "mc_assumptions_bullets": ("\n".join([f"- {a}" for a in mc.get("assumptions", [])]) if mc else ""),
         "pentest_status": client_inputs.get("pentest_status", "Unknown"),
         "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
         "remote_access": client_inputs.get("remote_access", "Unknown"),
@@ -1057,6 +1319,15 @@ def create_maturity_docx(client_inputs: dict, report_data) -> bytes:
     context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
     context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
     doc.render(_xml_escape_dict(context))
+    # Post-render: insert Monte Carlo section (if available)
+    try:
+        _inject_monte_carlo_section_after_render(doc, mc, mc_consultative_interpretation)
+    except Exception:
+        # Fail-open: ensure the placeholder is removed if present
+        try:
+            _inject_monte_carlo_section_after_render(doc, {}, "")
+        except Exception:
+            pass
 
     # Post-render: inject formatted threat scenarios with proper Word styling
     threat_scenarios_data_for_inject = getattr(report_data, "threat_scenarios", None)

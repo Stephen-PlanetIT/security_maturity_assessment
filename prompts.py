@@ -520,3 +520,34 @@ Strictly avoid repeated connective phrases across domains. Vary sentence length 
 """ + "\n\n" + actions_instruction
 
 
+def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
+    """Build a short ROLE 2 prompt that produces a consultative, customer‑focused interpretation of Monte Carlo stats.
+    The LLM must:
+    - Use British English and probabilistic language; avoid guarantees.
+    - Explain AAL, P50/P90/P95, and CVaR95 in plain language without formulas.
+    - Tie implications to the client’s Crown Jewels, RTO, insurance/regulatory context.
+    - Provide 1–2 cohesive paragraphs (no bullet points).
+    """
+    customer = client_inputs.get('customer_name', 'the client')
+    industry = client_inputs.get('industry', 'their industry')
+    crown = client_inputs.get('critical_infra', 'critical systems')
+    rto = client_inputs.get('rto', 'Unknown')
+    insurance = client_inputs.get('insurance', 'Unknown')
+    br = f"{float(mc.get('breach_probability_pct', 0.0)):.1f}%"
+    aal = f"£{float(mc.get('aal_gbp', 0.0)):,.0f}"
+    p50 = f"£{float(mc.get('p50_gbp', 0.0)):,.0f}"
+    p90 = f"£{float(mc.get('p90_gbp', 0.0)):,.0f}"
+    p95 = f"£{float(mc.get('p95_gbp', 0.0)):,.0f}"
+    cvar = f"£{float(mc.get('cvar95_gbp', 0.0)):,.0f}"
+    return (
+        "Act as ROLE 2 (Virtual CISO). Write a concise, consultative interpretation of the Monte Carlo risk results.\n\n"
+        f"CONTEXT — CLIENT: {customer} ({industry}) | Crown Jewels: {crown} | RTO: {rto} | Insurance: {insurance}\n"
+        f"CONTEXT — MONTE CARLO: Breach probability: {br} | AAL: {aal} | P50: {p50} | P90: {p90} | P95: {p95} | CVaR95: {cvar}\n\n"
+        "REQUIREMENTS:\n"
+        "- Use British English.\n"
+        "- Avoid formulas and guarantees; use probabilistic, risk‑based language.\n"
+        "- Provide 1–2 paragraphs (no bullet points) that explain what these figures mean in business terms, tie them to downtime tolerance and the client’s assets, and outline the consequence of inaction.\n"
+        "- Do not invent numbers; only interpret the figures provided.\n"
+    )
+
+

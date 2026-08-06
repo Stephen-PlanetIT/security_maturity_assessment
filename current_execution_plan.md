@@ -1,464 +1,406 @@
-Objective: Introduce a configurable, multi-stage quality pipeline that analyses and rewrites LLM outputs (maturity reports and threat reports) to reduce AI-style phrasing, repetition, overclaiming, and commercial bias; injects domain-specific writing personas; and gates exports behind a quality score threshold.
+Objective: Restore Monte Carlo section rendering in the Maturity DOCX and ensure the humanisation pass performs inline edits without suggestion blocks.
 
-Action 1:
+Action [1]:
+
+    FILE: export.py
+
+    SEARCH: def _inject_monte_carlo_section_after_render(doc, mc, mc_text: str = ""):
+        """
+        Insert a formatted Monte Carlo section at the {{ monte_carlo_section }} anchor, if present; otherwise append at end.
+        Renders:
+          - Heading: "Monte Carlo Risk Analysis"
+          - Summary line with breach probability, AAL, P50/P90/P95/CVaR95
+          - Consultant’s interpretation (LLM narrative) if provided
+          - Deterministic interpretation paragraph (fallback)
+          - Top Exposure Drivers as bullet points (if provided)
+          - Assumptions as bullet points (if provided)
+        """
+        from docx.shared import Pt
+        from docx.oxml import OxmlElement
+        from docx.text.paragraph import Paragraph
+
+        # Do not return early; we may still need to remove the placeholder even if MC is unavailable
+        mc_valid = isinstance(mc, dict) and bool(mc)
+
+        def _new_para_after(prev_el, body_parent, style=None):
+            new_p = OxmlElement('w:p')
+            prev_el.addnext(new_p)
+            para = Paragraph(new_p, body_parent)
+            if style:
+                try:
+                    para.style = style
+                except Exception:
+                    pass
+            return para, new_p
+
+        def _append_para(doc_obj, style=None):
+            para = doc_obj.add_paragraph()
+            if style:
+                try:
+                    para.style = style
+                except Exception:
+                    pass
+            return para
+
+        # Locate anchor using tolerant regex (supports NBSP and underscores), scanning body and table cells
+        placeholder_element = None
+        body_parent = None
+        try:
+            import re as _re_norm
+        except Exception:
+            _re_norm = re
+
+        ANCHOR_PATTERNS = [
+            _re_norm.compile("\\{\\{\\s*monte[\\s_\\u00A0]*carlo[\\s_\\u00A0]*section\\s*\\}\}", _re_norm.IGNORECASE),
+            _re_norm.compile("\\{\\{\\s*mc[\\s_\\u00A0]*section\\s*\\}\}", _re_norm.IGNORECASE),
+        ]
+
+        def _iter_all_paragraphs(doc_obj):
+            for p in doc_obj.paragraphs:
+                yield p
+            for tbl in getattr(doc_obj, 'tables', []) or []:
+                for row in tbl.rows:
+                    for cell in row.cells:
+                        for cp in cell.paragraphs:
+                            yield cp
+
+        for paragraph in _iter_all_paragraphs(doc):
+            txt = (paragraph.text or '').replace('\u00A0', ' ')
+            if any(pat.search(txt) for pat in ANCHOR_PATTERNS):
+                placeholder_element = paragraph._element
+                body_parent = paragraph._parent
+                break
+
+        # If MC data is unavailable, remove the placeholder if found and stop
+        if not mc_valid:
+            if placeholder_element is not None and body_parent is not None:
+                placeholder_element.getparent().remove(placeholder_element)
+            return
+
+        def _render(after_el=None, body_parent_ref=None):
+            # Heading
+            if after_el is not None and body_parent_ref is not None:
+                h_para, new_el = _new_para_after(after_el, body_parent_ref)
+            else:
+                h_para = _append_para(doc)
+                new_el = None
+            run = h_para.add_run("Monte Carlo Risk Analysis")
+            run.bold = True
+            run.font.size = Pt(13)
+
+            # Summary line
+            br = float(mc.get('breach_probability_pct', 0.0))
+            aal = float(mc.get('aal_gbp', 0.0))
+            p50 = float(mc.get('p50_gbp', 0.0))
+            p90 = float(mc.get('p90_gbp', 0.0))
+            p95 = float(mc.get('p95_gbp', 0.0))
+            cvar95 = float(mc.get('cvar95_gbp', 0.0))
+            summary_text = (
+                f"Estimated annual breach probability: {br:.1f}% | AAL: £{aal:,.0f} | "
+                f"P50: £{p50:,.0f} | P90: £{p90:,.0f} | P95: £{p95:,.0f} | CVaR95: £{cvar95:,.0f}"
+            )
+            if after_el is not None and body_parent_ref is not None:
+                s_para, new_el = _new_para_after(new_el or after_el, body_parent_ref)
+            else:
+                s_para = _append_para(doc)
+            s_para.add_run(summary_text)
+
+        # Consultant’s interpretation (LLM) and deterministic fallback
+        if isinstance(mc_text, str) and mc_text.strip():
+            if after_el is not None and body_parent_ref is not None:
+                ci_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                ci_head = _append_para(doc)
+            ci_run = ci_head.add_run("Consultant’s interpretation")
+            ci_run.bold = True
+            ci_run.font.size = Pt(11)
+            if after_el is not None and body_parent_ref is not None:
+                ci_para, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                ci_para = _append_para(doc)
+            ci_para.add_run(str(mc_text))
+
+        expl = mc.get('explanation')
+        if expl:
+            if after_el is not None and body_parent_ref is not None:
+                i_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                i_head = _append_para(doc)
+            i_run = i_head.add_run("What these numbers mean")
+            i_run.bold = True
+            i_run.font.size = Pt(11)
+            if after_el is not None and body_parent_ref is not None:
+                i_para, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                i_para = _append_para(doc)
+            i_para.add_run(str(expl))
+
+        # Top Exposure Drivers (if any)
+        drivers = mc.get('drivers') or []
+        if drivers:
+            if after_el is not None and body_parent_ref is not None:
+                d_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                d_head = _append_para(doc)
+            d_run = d_head.add_run("Top Exposure Drivers")
+            d_run.bold = True
+            d_run.font.size = Pt(11)
+            for d in drivers[:3]:
+                if after_el is not None and body_parent_ref is not None:
+                    d_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                else:
+                    d_para = _append_para(doc, style='List Bullet')
+                d_para.add_run(str(d))
+
+        # Optional assumptions
+        assumptions = mc.get('assumptions', []) or []
+        if assumptions:
+            if after_el is not None and body_parent_ref is not None:
+                a_head, new_el = _new_para_after(new_el, body_parent_ref)
+            else:
+                a_head = _append_para(doc)
+            a_run = a_head.add_run("Assumptions")
+            a_run.bold = True
+            a_run.font.size = Pt(11)
+            for a in assumptions:
+                if after_el is not None and body_parent_ref is not None:
+                    b_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                else:
+                    b_para = _append_para(doc, style='List Bullet')
+                b_para.add_run(str(a))
+
+        if placeholder_element is not None and body_parent is not None:
+            _render(after_el=placeholder_element, body_parent_ref=body_parent)
+            placeholder_element.getparent().remove(placeholder_element)
+        else:
+            _render(after_el=None, body_parent_ref=None)
+
+    REPLACE: def _inject_monte_carlo_section_after_render(doc, mc, mc_text: str = ""):
+        """
+        Insert a formatted Monte Carlo section at the {{ monte_carlo_section }} anchor, if present; otherwise append at end.
+        Renders:
+          - Heading: "Monte Carlo Risk Analysis"
+          - Summary line with breach probability, AAL, P50/P90/P95/CVaR95
+          - Consultant’s interpretation (LLM narrative) if provided
+          - Deterministic interpretation paragraph (fallback)
+          - Top Exposure Drivers as bullet points (if provided)
+          - Assumptions as bullet points (if provided)
+        """
+        from docx.shared import Pt
+        from docx.oxml import OxmlElement
+        from docx.text.paragraph import Paragraph
+
+        # Do not return early; we may still need to remove the placeholder even if MC is unavailable
+        mc_valid = isinstance(mc, dict) and bool(mc)
+
+        def _new_para_after(prev_el, body_parent, style=None):
+            new_p = OxmlElement('w:p')
+            prev_el.addnext(new_p)
+            para = Paragraph(new_p, body_parent)
+            if style:
+                try:
+                    para.style = style
+                except Exception:
+                    pass
+            return para, new_p
+
+        def _append_para(doc_obj, style=None):
+            para = doc_obj.add_paragraph()
+            if style:
+                try:
+                    para.style = style
+                except Exception:
+                    pass
+            return para
+
+        # Locate anchor using tolerant regex (supports NBSP and underscores), scanning body and table cells
+        placeholder_element = None
+        body_parent = None
+        try:
+            import re as _re_norm
+        except Exception:
+            _re_norm = re
+
+        ANCHOR_PATTERNS = [
+            _re_norm.compile("\\{\\{\\s*monte[\\s_\\u00A0]*carlo[\\s_\\u00A0]*section\\s*\\}\}", _re_norm.IGNORECASE),
+            _re_norm.compile("\\{\\{\\s*mc[\\s_\\u00A0]*section\\s*\\}\}", _re_norm.IGNORECASE),
+        ]
+
+        def _iter_all_paragraphs(doc_obj):
+            for p in doc_obj.paragraphs:
+                yield p
+            for tbl in getattr(doc_obj, 'tables', []) or []:
+                for row in tbl.rows:
+                    for cell in row.cells:
+                        for cp in cell.paragraphs:
+                            yield cp
+
+        for paragraph in _iter_all_paragraphs(doc):
+            txt = (paragraph.text or '').replace('\u00A0', ' ')
+            if any(pat.search(txt) for pat in ANCHOR_PATTERNS):
+                placeholder_element = paragraph._element
+                body_parent = paragraph._parent
+                break
+
+        # If MC data is unavailable, remove the placeholder if found and stop
+        if not mc_valid:
+            if placeholder_element is not None and body_parent is not None:
+                placeholder_element.getparent().remove(placeholder_element)
+            return
+
+        def _render(after_el=None, body_parent_ref=None):
+            # Heading
+            if after_el is not None and body_parent_ref is not None:
+                h_para, new_el = _new_para_after(after_el, body_parent_ref)
+            else:
+                h_para = _append_para(doc)
+                new_el = None
+            run = h_para.add_run("Monte Carlo Risk Analysis")
+            run.bold = True
+            run.font.size = Pt(13)
+
+            # Summary line
+            br = float(mc.get('breach_probability_pct', 0.0))
+            aal = float(mc.get('aal_gbp', 0.0))
+            p50 = float(mc.get('p50_gbp', 0.0))
+            p90 = float(mc.get('p90_gbp', 0.0))
+            p95 = float(mc.get('p95_gbp', 0.0))
+            cvar95 = float(mc.get('cvar95_gbp', 0.0))
+            summary_text = (
+                f"Estimated annual breach probability: {br:.1f}% | AAL: £{aal:,.0f} | "
+                f"P50: £{p50:,.0f} | P90: £{p90:,.0f} | P95: £{p95:,.0f} | CVaR95: £{cvar95:,.0f}"
+            )
+            if after_el is not None and body_parent_ref is not None:
+                s_para, new_el = _new_para_after(new_el or after_el, body_parent_ref)
+            else:
+                s_para = _append_para(doc)
+            s_para.add_run(summary_text)
+
+            # Consultant’s interpretation (LLM) and deterministic fallback
+            if isinstance(mc_text, str) and mc_text.strip():
+                if after_el is not None and body_parent_ref is not None:
+                    ci_head, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    ci_head = _append_para(doc)
+                ci_run = ci_head.add_run("Consultant’s interpretation")
+                ci_run.bold = True
+                ci_run.font.size = Pt(11)
+                if after_el is not None and body_parent_ref is not None:
+                    ci_para, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    ci_para = _append_para(doc)
+                ci_para.add_run(str(mc_text))
+
+            expl = mc.get('explanation')
+            if expl:
+                if after_el is not None and body_parent_ref is not None:
+                    i_head, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    i_head = _append_para(doc)
+                i_run = i_head.add_run("What these numbers mean")
+                i_run.bold = True
+                i_run.font.size = Pt(11)
+                if after_el is not None and body_parent_ref is not None:
+                    i_para, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    i_para = _append_para(doc)
+                i_para.add_run(str(expl))
+
+            # Top Exposure Drivers (if any)
+            drivers = mc.get('drivers') or []
+            if drivers:
+                if after_el is not None and body_parent_ref is not None:
+                    d_head, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    d_head = _append_para(doc)
+                d_run = d_head.add_run("Top Exposure Drivers")
+                d_run.bold = True
+                d_run.font.size = Pt(11)
+                for d in drivers[:3]:
+                    if after_el is not None and body_parent_ref is not None:
+                        d_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                    else:
+                        d_para = _append_para(doc, style='List Bullet')
+                    d_para.add_run(str(d))
+
+            # Optional assumptions
+            assumptions = mc.get('assumptions', []) or []
+            if assumptions:
+                if after_el is not None and body_parent_ref is not None:
+                    a_head, new_el = _new_para_after(new_el, body_parent_ref)
+                else:
+                    a_head = _append_para(doc)
+                a_run = a_head.add_run("Assumptions")
+                a_run.bold = True
+                a_run.font.size = Pt(11)
+                for a in assumptions:
+                    if after_el is not None and body_parent_ref is not None:
+                        b_para, new_el = _new_para_after(new_el, body_parent_ref, style='List Bullet')
+                    else:
+                        b_para = _append_para(doc, style='List Bullet')
+                    b_para.add_run(str(a))
+
+        if placeholder_element is not None and body_parent is not None:
+            _render(after_el=placeholder_element, body_parent_ref=body_parent)
+            placeholder_element.getparent().remove(placeholder_element)
+        else:
+            _render(after_el=None, body_parent_ref=None)
+
+    VERIFICATION: python -c "import export; print('OK')"
+
+Action [2]:
 
     FILE: quality_pipeline.py
 
-    SEARCH: (file does not exist)
+    SEARCH: def humanise_text_with_llm(section_text: str) -> str:
+        if not stage_enabled("HUMANISATION_ENABLED", "0") or not section_text:
+            return section_text
+        try:
+            # Import inside function to avoid hard dependency/cycles
+            from core import LLMEngine
+            from config import get_config, ConfigKey  # type: ignore
+            from prompts import SYSTEM_PERSONA  # type: ignore
+            client = LLMEngine.get_client()
+            deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+            prompt = (
+                "Review this report as a senior cybersecurity consultant. "
+                "Identify: - repetitive wording - AI phrasing - overclaiming - excessive vendor references - generic observations. "
+                "Rewrite affected sections only. Preserve technical meaning.\n\n" + section_text
+            )
+            improved = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2)
+            return improved or section_text
+        except Exception:
+            # Fail closed to original text if LLM unavailable
+            return section_text
 
-    REPLACE: """
-    quality_pipeline.py — Quality & Humanisation Pipeline
+    REPLACE: def humanise_text_with_llm(section_text: str) -> str:
+        if not stage_enabled("HUMANISATION_ENABLED", "0") or not section_text:
+            return section_text
+        try:
+            # Import inside function to avoid hard dependency/cycles
+            from core import LLMEngine
+            from config import get_config, ConfigKey  # type: ignore
+            from prompts import SYSTEM_PERSONA  # type: ignore
+            client = LLMEngine.get_client()
+            deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+            prompt = (
+                "Rewrite the following text directly, applying light human edits to tone, clarity, and repetition. "
+                "Do not add headings, labels, or commentary. Return only the revised text — no ‘Suggestion’, ‘Before/After’, bullets of edits, or code blocks. "
+                "Preserve technical meaning and use British English.\n\nTEXT START\n" + section_text + "\nTEXT END"
+            )
+            improved = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2)
+            if not improved:
+                return section_text
+            # Defensive sanitiser: strip any suggestion-style artefacts if the model ignores instructions
+            cleaned = re.sub(r"(?im)^(?:suggest(?:ion|ed)\s*(?:edits?)?|before|after|change|replace)\s*[:：].*$", "", improved)
+            cleaned = re.sub(r"(?s)```.*?```", "", cleaned)
+            cleaned = re.sub(r"(?im)^\s*\*\s*(?:suggestion|edit|note)\s*[:：].*$", "", cleaned)
+            cleaned = cleaned.strip()
+            return cleaned if cleaned else section_text
+        except Exception:
+            # Fail closed to original text if LLM unavailable
+            return section_text
 
-    Stages implemented (configurable via env using config.get_config):
-      - Phrase Frequency Analysis & Repetition Rewriter
-      - Overclaim Detector & Softener
-      - Vendor Phrase Governor (commercial balance)
-      - AI Rhythm Detector (repeated openings / transitions)
-      - Quality Scoring (human_authenticity, repetition, commercial_balance, executive_readability, technical_accuracy placeholder)
+    VERIFICATION: python -c "import quality_pipeline, sys; print(quality_pipeline.humanise_text_with_llm('Suggestion: Replace this sentence with clearer prose.'))"
 
-    Thresholds (env with sensible defaults):
-      QUALITY_GATE_ENABLED = '1' | '0' (default '1')
-      QUALITY_MIN_HUMAN_AUTHENTICITY = 8
-      QUALITY_MIN_REPETITION = 8
-      QUALITY_MIN_COMMERCIAL_BALANCE = 8
-      QUALITY_MIN_EXEC_READABILITY = 8
-    """
-
-    import re
-    from typing import Dict, List, Tuple, Any
-    from config import get_config
-
-    # --- Phrase catalogue (expandable) ---
-    PHRASES = [
-        "strong foundation",
-        "solid foundation",
-        "cross-domain visibility",
-        "future-state",
-        "further maturity",
-        "Planet IT can support",
-        "where selected",
-        "where appropriate",
-        "This provides",
-        "Further maturity",
-    ]
-
-    REPETITION_ALTERNATIVES = {
-        "strong foundation": ["useful baseline", "established control set", "credible starting position", "existing arrangements"],
-        "solid foundation": ["solid baseline", "reliable groundwork", "credible starting position", "established controls"],
-        "cross-domain visibility": ["cross‑stack telemetry", "estate‑wide visibility", "end‑to‑end observability", "broader situational awareness"],
-        "further maturity": ["next stage of improvement", "continued progression", "subsequent optimisation", "incremental advancement"],
-        "This provides": ["This yields", "This enables", "This affords", "In practice, this delivers"],
-        "Planet IT can support": ["Planet IT can assist", "Planet IT can facilitate", "Planet IT can advise", "Support can be provided via Planet IT"],
-        "where selected": ["if implemented", "when in place", "where deployed", "once adopted"],
-        "where appropriate": ["where justified", "as suitable", "when proportionate", "where it makes sense"],
-    }
-
-    OVERCLAIM_PATTERNS = {
-        "prevention": re.compile(r"\b(prevents?|stops?|eliminates?|ensures?|guarantees?|neutralises?)\b", re.IGNORECASE),
-        "absolute": re.compile(r"\b(fully secure|fully protected|cannot be compromised|guaranteed security)\b", re.IGNORECASE),
-    }
-
-    OVERCLAIM_REWRITES = {
-        "prevents": "reduces likelihood of",
-        "stops": "disrupts",
-        "eliminates": "reduces exposure to",
-        "ensures": "supports",
-        "guarantees": "cannot guarantee; it aims to",
-        "neutralises": "contains and mitigates",
-        "fully secure": "substantially hardened",
-        "fully protected": "well protected",
-        "cannot be compromised": "is significantly harder to compromise",
-        "guaranteed security": "risk reduction objectives",
-    }
-
-    VENDOR_PHRASES = [
-        "Planet IT can support",
-        "Planet IT can assist",
-        "Planet IT can facilitate",
-    ]
-
-    def quality_gate_enabled() -> bool:
-        val = get_config("QUALITY_GATE_ENABLED", "1")
-        return str(val).strip() == "1"
-
-    def get_quality_thresholds() -> Dict[str, int]:
-        return {
-            "human_authenticity": int(get_config("QUALITY_MIN_HUMAN_AUTHENTICITY", 8)),
-            "repetition": int(get_config("QUALITY_MIN_REPETITION", 8)),
-            "commercial_balance": int(get_config("QUALITY_MIN_COMMERCIAL_BALANCE", 8)),
-            "executive_readability": int(get_config("QUALITY_MIN_EXEC_READABILITY", 8)),
-        }
-
-    # -------- Feature 1: Phrase Frequency Analysis --------
-    def analyse_phrase_frequency(text: str) -> Dict[str, Dict[str, Any]]:
-        """Return a frequency map { phrase: {count:int, severity:str} }.
-        Severity rules: >4 in document => high; >2 in any notional section (paragraph) => medium/high.
-        """
-        if not isinstance(text, str) or not text:
-            return {}
-        lower = text.lower()
-        para_splits = [p.strip() for p in re.split(r"\n{2,}", lower) if p.strip()]
-        result: Dict[str, Dict[str, Any]] = {}
-        for phrase in PHRASES:
-            p = phrase.lower()
-            count = len(re.findall(re.escape(p), lower))
-            per_section_exceeds = any(para.count(p) > 2 for para in para_splits)
-            severity = "low"
-            if count > 4 or per_section_exceeds and count > 3:
-                severity = "high"
-            elif count > 2 or per_section_exceeds:
-                severity = "medium"
-            if count > 0:
-                result[phrase] = {"count": count, "severity": severity}
-        return result
-
-    # -------- Feature 2: Repetition Rewriter --------
-    def _cycle_alternatives(phrase: str) -> List[str]:
-        alts = REPETITION_ALTERNATIVES.get(phrase, [])
-        if not alts:
-            return []
-        return alts
-
-    def rewrite_repetitions(text: str) -> str:
-        if not isinstance(text, str) or not text:
-            return text
-        # Work paragraph by paragraph to enforce per-section limits
-        paragraphs = re.split(r"(\n{2,})", text)
-        out: List[str] = []
-        for i in range(0, len(paragraphs), 2):
-            para = paragraphs[i]
-            sep = paragraphs[i+1] if i+1 < len(paragraphs) else ""
-            working = para
-            for phrase in PHRASES:
-                p_l = phrase.lower()
-                # Count occurrences (case-insensitive)
-                matches = list(re.finditer(re.escape(phrase), working, flags=re.IGNORECASE))
-                if not matches:
-                    continue
-                limit = 2  # per section
-                if len(matches) > limit:
-                    alts = _cycle_alternatives(phrase)
-                    alt_idx = 0
-                    # Replace occurrences beyond the limit
-                    def repl(m):
-                        nonlocal alt_idx
-                        if m is None:
-                            return ""
-                        alt_idx += 1
-                        if alt_idx <= limit:
-                            return m.group(0)
-                        if alts:
-                            return alts[(alt_idx - limit - 1) % len(alts)]
-                        return m.group(0)
-                    working = re.sub(re.escape(phrase), repl, working, flags=re.IGNORECASE)
-            out.append(working)
-            out.append(sep)
-        return "".join(out)
-
-    # -------- Feature 3: Overclaim Detector --------
-    def detect_overclaims(text: str) -> Tuple[str, Dict[str, int]]:
-        if not isinstance(text, str) or not text:
-            return text, {}
-        flags = {"prevention": 0, "absolute": 0}
-        # Token-level replacement preserving case where possible
-        def softener(match: re.Match) -> str:
-            token = match.group(0)
-            key = token.lower()
-            flags["prevention"] += 1
-            return OVERCLAIM_REWRITES.get(key, OVERCLAIM_REWRITES.get(key.rstrip('s'), token))
-
-        def absolute_softener(match: re.Match) -> str:
-            token = match.group(0)
-            flags["absolute"] += 1
-            return OVERCLAIM_REWRITES.get(token.lower(), token)
-
-        text2 = OVERCLAIM_PATTERNS["prevention"].sub(softener, text)
-        text3 = OVERCLAIM_PATTERNS["absolute"].sub(absolute_softener, text2)
-        return text3, flags
-
-    # -------- Feature 6: Commercial Bias Governor --------
-    def govern_vendor_bias(text: str) -> str:
-        if not isinstance(text, str) or not text:
-            return text
-        # Limit to max 1 occurrence per paragraph/section
-        paragraphs = re.split(r"(\n{2,})", text)
-        out: List[str] = []
-        for i in range(0, len(paragraphs), 2):
-            para = paragraphs[i]
-            sep = paragraphs[i+1] if i+1 < len(paragraphs) else ""
-            for v in VENDOR_PHRASES:
-                # Keep first occurrence, vary/remove the rest
-                occurrences = list(re.finditer(re.escape(v), para))
-                if len(occurrences) > 1:
-                    # Replace extras with variants cycling
-                    alts = [x for x in REPETITION_ALTERNATIVES.get("Planet IT can support", []) if x != v]
-                    idx = 0
-                    def repl(m):
-                        nonlocal idx
-                        idx += 1
-                        if idx == 1:
-                            return m.group(0)
-                        if alts:
-                            return alts[(idx-2) % len(alts)]
-                        return "Support can be provided where appropriate"
-                    para = re.sub(re.escape(v), repl, para)
-            out.append(para)
-            out.append(sep)
-        return "".join(out)
-
-    # -------- Feature 8: AI Rhythm Detector --------
-    def analyse_paragraph_patterns(text: str) -> Dict[str, Any]:
-        if not isinstance(text, str) or not text:
-            return {}
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
-        starts = {}
-        for l in lines:
-            token = l.split(" ")[0].lower()
-            starts[token] = starts.get(token, 0) + 1
-        flags = {}
-        for k, c in starts.items():
-            if c >= 3 and k in {"this", "further"}:
-                flags[k] = c
-        return {"repeated_openers": starts, "flags": flags}
-
-    # -------- Feature 10: Quality Scoring --------
-    def score_report(texts: Dict[str, str]) -> Dict[str, int]:
-        """Heuristic scoring 0–10 scales based on repetition, vendor frequency, and paragraph variety.
-        texts: mapping of logical sections to text.
-        """
-        full = "\n\n".join([v for v in texts.values() if isinstance(v, str)])
-        freq = analyse_phrase_frequency(full)
-        # Repetition score: inversely proportional to high/medium counts
-        rep_penalty = sum(1 for v in freq.values() if v.get("severity") in ("medium", "high"))
-        repetition = max(0, 10 - rep_penalty)
-
-        # Commercial balance: count vendor phrases
-        vendor_count = sum(len(re.findall(re.escape(v), full)) for v in VENDOR_PHRASES)
-        commercial_balance = max(0, 10 - max(0, vendor_count - 3))
-
-        # Human authenticity: penalise repeated openers and overclaims
-        _, oc_flags = detect_overclaims(full)
-        rhythm = analyse_paragraph_patterns(full)
-        opener_penalty = sum(1 for k, c in rhythm.get("flags", {}).items() if c >= 3)
-        human_authenticity = max(0, 10 - opener_penalty - oc_flags.get("prevention", 0) // 5)
-
-        # Exec readability: paragraph length and variety heuristic
-        paras = [p for p in re.split(r"\n{2,}", texts.get("executive_summary", "")) if p.strip()]
-        too_short = sum(1 for p in paras if len(p.split()) < 40)
-        too_long = sum(1 for p in paras if len(p.split()) > 220)
-        executive_readability = max(0, 10 - (too_short + too_long))
-
-        # Technical accuracy placeholder (left at 9; future: linting)
-        technical_accuracy = 9
-        return {
-            "human_authenticity": int(human_authenticity),
-            "repetition": int(repetition),
-            "commercial_balance": int(commercial_balance),
-            "technical_accuracy": int(technical_accuracy),
-            "executive_readability": int(executive_readability),
-        }
-
-    # -------- Processing entry points --------
-    def _rewrite_text_block(text: str) -> str:
-        if not text:
-            return text
-        t, _ = detect_overclaims(text)
-        t = rewrite_repetitions(t)
-        t = govern_vendor_bias(t)
-        return t
-
-    def process_maturity_report(client_inputs: dict, report_data: Any) -> Tuple[Any, Dict[str, Any]]:
-        """Rewrite key narrative fields, compute quality, and return (report_data, quality_summary).
-        Keys inspected: executive_summary, domain_assessments[*] narrative fields, optional block fields.
-        """
-        # Executive summary
-        if hasattr(report_data, "executive_summary"):
-            report_data.executive_summary = _rewrite_text_block(getattr(report_data, "executive_summary", ""))
-
-        # Domain narratives
-        for item in getattr(report_data, "domain_assessments", []) or []:
-            for field in [
-                "current_state_analysis",
-                "business_impact_narrative",
-                "remediation_rationale",
-                "shared_responsibility",
-            ]:
-                if hasattr(item, field):
-                    setattr(item, field, _rewrite_text_block(getattr(item, field)))
-
-        # Executive summary action blocks
-        for blk in getattr(report_data, "executive_summary_action_blocks", []) or []:
-            if hasattr(blk, "finding"):
-                blk.finding = _rewrite_text_block(getattr(blk, "finding", ""))
-            if hasattr(blk, "risk"):
-                blk.risk = _rewrite_text_block(getattr(blk, "risk", ""))
-            if hasattr(blk, "remediation_actions") and isinstance(blk.remediation_actions, list):
-                blk.remediation_actions = [govern_vendor_bias(x) for x in blk.remediation_actions]
-
-        texts = {
-            "executive_summary": getattr(report_data, "executive_summary", ""),
-        }
-        quality = score_report(texts)
-        # Gate pass flag
-        thr = get_quality_thresholds()
-        quality["passed"] = (
-            quality.get("human_authenticity", 0) >= thr.get("human_authenticity", 8)
-            and quality.get("repetition", 0) >= thr.get("repetition", 8)
-            and quality.get("commercial_balance", 0) >= thr.get("commercial_balance", 8)
-            and quality.get("executive_readability", 0) >= thr.get("executive_readability", 8)
-        )
-        return report_data, quality
-
-    def process_threat_report(inputs: dict, scenario_obj: Any, mdr_case: str, recs: List[str]) -> Tuple[Any, str, List[str], Dict[str, Any]]:
-        # Narrative and MDR case
-        if hasattr(scenario_obj, "narrative"):
-            scenario_obj.narrative = _rewrite_text_block(getattr(scenario_obj, "narrative", ""))
-        mdr_case = _rewrite_text_block(mdr_case)
-        # Recommendations: minimise vendor spam
-        recs2 = [govern_vendor_bias(x) for x in recs]
-        texts = {
-            "narrative": getattr(scenario_obj, "narrative", ""),
-            "mdr_case": mdr_case,
-        }
-        quality = score_report(texts)
-        thr = get_quality_thresholds()
-        quality["passed"] = (
-            quality.get("human_authenticity", 0) >= thr.get("human_authenticity", 8)
-            and quality.get("repetition", 0) >= thr.get("repetition", 8)
-            and quality.get("commercial_balance", 0) >= thr.get("commercial_balance", 8)
-            and quality.get("executive_readability", 0) >= thr.get("executive_readability", 8)
-        )
-        return scenario_obj, mdr_case, recs2, quality
-
-    if __name__ == "__main__":
-        demo = """This provides an example. This provides useful context. This provides additional detail. Further maturity is expected. Planet IT can support these changes. Planet IT can support governance as well."""
-        print(analyse_phrase_frequency(demo))
-        print(detect_overclaims("MDR ensures the environment is fully secure and prevents attacks."))
-        print(analyse_paragraph_patterns(demo))
-        print(score_report({"executive_summary": demo}))
-
-    """
-
-    VERIFICATION: python -c "import quality_pipeline as q; assert callable(q.process_maturity_report); print('quality_pipeline: OK')"
-
-Action 2:
-
-    FILE: export.py
-
-    SEARCH:
-from data import format_governance_narrative
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch, Arc
-import matplotlib.patheffects as pe
-import numpy as np
-import os
-import tempfile
-
-    REPLACE:
-from data import format_governance_narrative
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch, Arc
-import matplotlib.patheffects as pe
-import numpy as np
-import os
-import tempfile
-from config import get_config
-try:
-    from quality_pipeline import process_maturity_report, process_threat_report, get_quality_thresholds, quality_gate_enabled
-except Exception:  # Safe fallback if module unavailable
-    process_maturity_report = None
-    process_threat_report = None
-    get_quality_thresholds = None
-    quality_gate_enabled = None
-
-    VERIFICATION: python -c "python - <<'PY'\nimport importlib, sys\nimport export\nprint('imports patched OK')\nPY"
-
-Action 3:
-
-    FILE: export.py
-
-    SEARCH:
-    # 1) Radar chart image
-
-    REPLACE:
-    # --- QUALITY PIPELINE (Maturity Report) ---
-    try:
-        if process_maturity_report and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
-            report_data, _quality = process_maturity_report(client_inputs, report_data)
-            thr = get_quality_thresholds()() if callable(get_quality_thresholds) else {}
-            # Pass/fail handled inside; raise if present and fails
-            if isinstance(_quality, dict) and not _quality.get('passed', True):
-                raise RuntimeError("Quality gate failed: Report did not meet minimum thresholds for authenticity, repetition, commercial balance, or executive readability.")
-    except Exception:
-        # Fail open: continue export without blocking if pipeline errors
-        pass
-
-    # 1) Radar chart image
-
-    VERIFICATION: python -c "import inspect, export; import re; src=inspect.getsource(export.create_maturity_docx); assert 'QUALITY PIPELINE' in src; print('maturity hook present')"
-
-Action 4:
-
-    FILE: export.py
-
-    SEARCH:
-    # Structure the context variables mirroring the template structure
-
-    REPLACE:
-    # --- QUALITY PIPELINE (Threat Report DOCX) ---
-    try:
-        if process_threat_report and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
-            scenario_obj, mdr_case, recs, _quality = process_threat_report(client_inputs, scenario_obj, recs, mdr_case)
-    except Exception:
-        pass
-
-    # Structure the context variables mirroring the template structure
-
-    VERIFICATION: python -c "import inspect, export; src=inspect.getsource(export.create_threat_docx); assert 'QUALITY PIPELINE (Threat Report DOCX)' in src; print('threat docx hook present')"
-
-Action 5:
-
-    FILE: export.py
-
-    SEARCH:
-    pdf = ReportPDF()
-    pdf.add_page()
-
-    REPLACE:
-    pdf = ReportPDF()
-    # --- QUALITY PIPELINE (Threat Report PDF) ---
-    try:
-        if process_threat_report and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
-            scenario_obj, mdr_case, recs, _quality = process_threat_report(inputs, scenario_obj, recs, mdr_case)
-    except Exception:
-        pass
-    pdf.add_page()
-
-    VERIFICATION: python -c "import inspect, export; src=inspect.getsource(export.create_pdf); assert 'QUALITY PIPELINE (Threat Report PDF)' in src; print('threat pdf hook present')"
-
-Action 6:
-
-    FILE: prompts.py
-
-    SEARCH:
-    Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets.
-    """
-
-    REPLACE:
-    ### DOMAIN WRITING PROFILES (REQUIRED)
-    Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
-    - Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.
-    - Network Security: persona: Network Security Architect; focus on segmentation, traffic controls, and service resilience.
-    - Security Operations & Response (SecOps): persona: SOC Consultant; focus on detection engineering, triage discipline, and MTTR.
-    - Security Validation & Testing: persona: Security Assurance Consultant; focus on evidence, scoping, and test cadence.
-    - Governance, Risk & Compliance (GRC): persona: Governance Advisor; focus on policy, oversight, and regulatory exposure.
-    Strictly avoid repeated connective phrases across domains. Vary sentence length and cadence.
-
-    Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets.
-    """
-
-    VERIFICATION: python -c "from prompts import build_maturity_prompt; import inspect; src=inspect.getsource(build_maturity_prompt); assert 'DOMAIN WRITING PROFILES' in src; print('persona injection present')"
+[PLAN_COMPLETE: AWAITING EXECUTION]
