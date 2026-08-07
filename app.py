@@ -174,6 +174,27 @@ class CyberScenarioGenerator:
             safe_append("Security_Awareness_and_Training", "Hoxhunt",
                 "**Security Awareness Training:** A phishing simulation and training programme is recommended. Planet IT can advise on suitable platforms.")
 
+        # 7. AI Usage & Security (Governance & Shadow AI)
+        ai_usage_policy = inputs.get('ai_usage_policy', 'Unknown')
+        shadow_ai = inputs.get('shadow_ai_monitoring', 'Unknown')
+        approved_tools = str(inputs.get('approved_ai_tools', ''))
+        ai_dlp = str(inputs.get('ai_dlp_controls', ''))
+
+        if ai_usage_policy in ["None", "Unknown"]:
+            recs.append("**AI Governance (Policy):** Establish a formal AI acceptable use policy and governance framework to control data exposure, set guardrails, and define approved tooling.")
+        if shadow_ai in ["None", "Unknown", "Planned"]:
+            safe_append(
+                "AI_Governance_and_Security",
+                "Sophos AI Defense",
+                "**AI Governance (Shadow AI):** Enable shadow AI discovery and monitoring to identify unsanctioned AI usage and reduce sensitive data leakage risk."
+            )
+        # Copilot-specific baseline when Microsoft is present but DLP/CASB not configured
+        if ("copilot" in approved_tools.lower()) and ("purview" not in ai_dlp.lower() or "defender for cloud apps" not in ai_dlp.lower()):
+            if not is_banned("Microsoft"):
+                recs.append("**Microsoft Copilot Governance:** Implement Microsoft Purview DLP and Defender for Cloud Apps app governance to enforce policy on prompts and outputs, prevent oversharing, and retain audit trails.")
+            else:
+                recs.append("**AI Data Loss Controls:** Apply DLP and CASB/SSE controls to govern AI prompts and outputs, with full audit logging. Planet IT can advise on allowed alternatives.")
+
         # Managed service status acknowledgement (non-inflationary, advisory only)
         if isinstance(managed_status, str):
             if managed_status == "Planet IT Fully Managed (Active)":
@@ -303,6 +324,55 @@ try:
 except Exception:
     pass
 
+# --- DEV/TEST DATA INITIALISATION (Moved before sidebar) ---
+dev = st.session_state.get('use_test_data', False) or st.session_state.get('use_imported_profile', False)
+
+TEST_DATA = {
+    "customer_name": "Acme Corp",
+    "consultant_name": "Jane Doe",
+    "industry": "Technology",
+    "users": 500,
+    "critical_infra": "Patient Records Database",
+    "endpoints": 600,
+    "servers": 50,
+    "operating_systems": ["Windows 10", "Windows 11", "Windows Server"],
+    "mdr_provider": "Sophos MDR",
+    "endpoint": "Sophos",
+    "endpoint_posture": "EDR Deployed (Endpoint Detection & Response)",
+    "firewall": "Fortinet",
+    "remote_access": "Legacy VPN (Client-based)",
+    "saas_backup": "None (Relying on Microsoft/Google)",
+    "identity": "Microsoft Entra ID (Azure AD)",
+    "m365_license": "M365 Business Premium",
+    "email": "Mimecast",
+    "cloud_env": ["AWS"],
+    "in_house_team": "No",
+    "pentest_status": "Annual",
+    "vuln_scanning": "Monthly Authenticated",
+    "public_web_apps": False,
+    "compliance": ["ISO 27001", "Cyber Essentials"],
+    "physical_locations": 3,
+    "advanced_controls": [],
+    "proactive_tools": [],
+    "validation_notes": "",
+    "context_notes": "",
+    "mfa_status": "Privileged Accounts Only",
+    "patching": "Manual / Ad-hoc",
+    "backups": "On-Premise Only",
+    "insurance": "None",
+    "rto": "12-24 Hours",
+    "ir_readiness": "No Formal Plan",
+    "ir_retainer": "None",
+    "managed_service_status": "None (No managed service in place)",
+    "co_managed_units": 0,
+    "partnership_type": "Fully Managed",
+    "ai_usage_policy": "None",
+    "approved_ai_tools": [],
+    "shadow_ai_monitoring": "None",
+    "ai_dlp_controls": [],
+    "banned_vendors": [],
+}
+
 # --- SIDEBAR & ENGINE CONFIGURATION ---
 with st.sidebar:
     st.markdown("## 🛡️ Advisory Engine")
@@ -310,6 +380,37 @@ with st.sidebar:
     # Engine is strictly Azure (Ollama support removed per July 2026 hardening)
     st.session_state['ai_engine'] = "azure"
     
+    st.markdown("### 🤖 AI Usage & Governance")
+    ai_policy_opts = ["Select AI Usage Policy...", "None", "Informal guidance", "Formalised policy enforced"]
+    ai_usage_policy = st.selectbox(
+        "AI Usage Policy",
+        ai_policy_opts,
+        index=(ai_policy_opts.index(TEST_DATA.get('ai_usage_policy', 'None')) if dev else 0),
+        help="State of AI acceptable use policy and governance."
+    )
+
+    approved_ai_tools = st.multiselect(
+        "Approved Company AI Tools",
+        ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"],
+        default=(TEST_DATA.get('approved_ai_tools', []) if dev else []),
+        help="Approved AI assistants or models in use."
+    )
+
+    shadow_ai_opts = ["Select Shadow AI Monitoring...", "None", "Planned", "Enabled"]
+    shadow_ai_monitoring = st.selectbox(
+        "Shadow AI Monitoring",
+        shadow_ai_opts,
+        index=(shadow_ai_opts.index(TEST_DATA.get('shadow_ai_monitoring', 'None')) if dev else 0),
+        help="Discovery and control of unsanctioned AI usage."
+    )
+
+    ai_dlp_controls = st.multiselect(
+        "AI Data Loss Controls",
+        ["Microsoft Purview DLP", "Defender for Cloud Apps (CASB)", "CASB/SSE (Netskope)", "Proxy controls", "None"],
+        default=(TEST_DATA.get('ai_dlp_controls', []) if dev else []),
+        help="Controls applied to prompts/responses and AI interactions."
+    )
+
     st.divider()
     
     workflow = st.radio(
@@ -375,50 +476,7 @@ with st.expander("Profile: Export / Import", expanded=False):
             except Exception as e:
                 st.error(f"Failed to import profile: {e}")
 
-# --- DEV FLAG (computed early; UI moved to bottom) ---
-dev = st.session_state.get('use_test_data', False) or st.session_state.get('use_imported_profile', False)
-
-TEST_DATA = {
-    "customer_name": "Acme Corp",
-    "consultant_name": "Jane Doe",
-    "industry": "Technology",
-    "users": 500,
-    "critical_infra": "Patient Records Database",
-    "endpoints": 600,
-    "servers": 50,
-    "operating_systems": ["Windows 10", "Windows 11", "Windows Server"],
-    "mdr_provider": "Sophos MDR",
-    "endpoint": "Sophos",
-    "endpoint_posture": "EDR Deployed (Endpoint Detection & Response)",
-    "firewall": "Fortinet",
-    "remote_access": "Legacy VPN (Client-based)",
-    "saas_backup": "None (Relying on Microsoft/Google)",
-    "identity": "Microsoft Entra ID (Azure AD)",
-    "m365_license": "M365 Business Premium",
-    "email": "Mimecast",
-    "cloud_env": ["AWS"],
-    "in_house_team": "No",
-    "pentest_status": "Annual",
-    "vuln_scanning": "Monthly Authenticated",
-    "public_web_apps": False,
-    "compliance": ["ISO 27001", "Cyber Essentials"],
-    "physical_locations": 3,
-    "advanced_controls": [],
-    "proactive_tools": [],
-    "validation_notes": "",
-    "context_notes": "",
-    "mfa_status": "Privileged Accounts Only",
-    "patching": "Manual / Ad-hoc",
-    "backups": "On-Premise Only",
-    "insurance": "None",
-    "rto": "12-24 Hours",
-    "ir_readiness": "No Formal Plan",
-    "ir_retainer": "None",
-    "managed_service_status": "None (No managed service in place)",
-    "co_managed_units": 0,
-    "partnership_type": "Fully Managed",
-    "banned_vendors": [],
-}
+# --- DEV/TEST DATA INIT MOVED ABOVE SIDEBAR ---
 
 # Apply imported profile override for UI defaults
 if st.session_state.get('use_imported_profile') and st.session_state.get('_imported_profile'):
@@ -718,6 +776,10 @@ client_inputs = {
     "advanced_controls": ", ".join(advanced_controls) if advanced_controls else "None",
     "proactive_tools": ", ".join(proactive_tools) if proactive_tools else "None",
     "ir_retainer": _norm(ir_retainer, "None"),
+    "ai_usage_policy": _norm(ai_usage_policy),
+    "approved_ai_tools": ", ".join(approved_ai_tools) if approved_ai_tools else "None",
+    "shadow_ai_monitoring": _norm(shadow_ai_monitoring),
+    "ai_dlp_controls": ", ".join(ai_dlp_controls) if ai_dlp_controls else "None",
     "banned_vendors": banned_vendors,
     "managed_service_status": _norm(st.session_state.get('managed_service_status', 'None'), "None"),
     "co_managed_units": st.session_state.get('co_managed_units', 0),

@@ -144,7 +144,8 @@ ASSESSMENT_DOMAINS = [
     "Security Validation & Testing",
     "Governance, Risk & Compliance (GRC)",
     "Operational Resilience & Backup",
-    "Supply Chain & Third-Party Risk"
+    "Supply Chain & Third-Party Risk",
+    "AI Governance & Security"
 ]
 
 def _build_solution_map():

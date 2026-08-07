@@ -118,6 +118,7 @@ class RadarChartData(BaseModel):
     testing: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Penetration Testing cadence is 'None' or Vulnerability Scanning is 'None'.")
     culture: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Security Training is 'None'.")
     grc: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
+    ai: int = Field(description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if there is no AI usage policy, no monitoring for company AI/shadow AI, or evidence of uncontrolled AI use in context.")
 
 class MonetaryCostGBP(BaseModel):
     amount_gbp: float = Field(description="GBP amount, must be non-negative.")
@@ -183,9 +184,9 @@ class MaturityReport(BaseModel):
     
     # --- LOCKED DOMAIN LENGTH ---
     domain_assessments: List[DomainAssessment] = Field(
-        description="You MUST generate an assessment loop for ALL 9 security domains. Do not skip, merge, or omit. This array must contain exactly 9 items.",
-        min_items=9,
-        max_items=9
+        description="You MUST generate an assessment loop for ALL 10 security domains. Do not skip, merge, or omit. This array must contain exactly 10 items.",
+        min_items=10,
+        max_items=10
     )
     
     # --- LOCKED ROADMAP LENGTH ---
@@ -380,6 +381,10 @@ You MUST NOT recommend, mention, or suggest any of these banned vendors in any s
     - Elite IR Retainer: {client_inputs.get('ir_retainer', 'None')}
     - Cyber Insurance Status: {client_inputs.get('insurance', 'Unknown')}
     - Downtime Tolerance (RTO): {client_inputs.get('rto', 'Unknown')}
+    - AI Usage Policy: {client_inputs.get('ai_usage_policy', 'Unknown')}
+    - Approved Company AI Tools: {client_inputs.get('approved_ai_tools', 'None')}
+    - Shadow AI Monitoring: {client_inputs.get('shadow_ai_monitoring', 'Unknown')}
+    - AI Data Loss Controls: {client_inputs.get('ai_dlp_controls', 'None')}
 
     VALIDATION & TESTING CONTEXT: Pentest Frequency: {client_inputs.get('pentest_status', 'Unknown')} | Vuln Scanning: {client_inputs.get('vuln_scanning', 'Unknown')} | Notes: {client_inputs.get('validation_notes', 'None')}
 
@@ -585,6 +590,7 @@ Use domain-specific personas to vary vocabulary, sentence structure, and emphasi
 - Security Operations & Response (SecOps): persona: SOC Consultant; focus on detection engineering, triage discipline, and MTTR.
 - Security Validation & Testing: persona: Security Assurance Consultant; focus on evidence, scoping, and test cadence.
 - Governance, Risk & Compliance (GRC): persona: Governance Advisor; focus on policy, oversight, and regulatory exposure.
+- AI Governance & Security: persona: AI Risk & Security Lead; focus on AI acceptable use, shadow AI discovery, model/data risk, and monitoring.
 Strictly avoid repeated connective phrases across domains. Vary sentence length and cadence.
 """ + "\n\n" + actions_instruction
 

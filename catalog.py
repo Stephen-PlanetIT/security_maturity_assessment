@@ -271,5 +271,48 @@ PLANET_IT_PORTFOLIO = {
             "core_features": ["IR plan development", "DR runbooks with RTO/RPO mapping", "Quarterly testing schedule"],
             "planet_it_value_add": "Structured workshops to build or refresh IR and DR plans aligned to business RTO/RPO, with deliverables integrated into the client's governance model."
         }
+    ],
+    "AI_Governance_and_Security": [
+        {
+            "vendor": "Sophos AI Defense",
+            "category": "AI Governance & Security",
+            "tier": "All Sizes",
+            "recommended_for_domains": ["AI Governance & Security"],
+            "trigger_conditions": ["Use of AI assistants (Copilot, ChatGPT, Gemini)", "No AI usage policy", "Shadow AI observed"],
+            "core_features": [
+                "Shadow AI discovery and control",
+                "Prompt and response content inspection",
+                "Data loss controls for AI interactions",
+                "Audit logging and governance reporting"
+            ],
+            "planet_it_value_add": "Planet IT designs and implements an AI governance baseline with shadow AI discovery, policy enforcement, and monitoring integrated into the wider security operations model. This reduces the risk of sensitive data leakage through generative AI and aligns usage to acceptable use policies."
+        },
+        {
+            "vendor": "Microsoft Purview (Information Protection & Insider Risk)",
+            "category": "Data Loss Prevention & Insider Risk (AI)",
+            "tier": "SME to Enterprise",
+            "recommended_for_domains": ["AI Governance & Security"],
+            "trigger_conditions": ["Microsoft 365 E5/Business Premium", "Copilot rollout", "Need prompt/response DLP"],
+            "core_features": ["DLP for prompts/outputs", "Insider Risk analytics", "Audit & eDiscovery"],
+            "planet_it_value_add": "Policy design and deployment for AI interactions in M365 with Purview DLP and Insider Risk controls; evidence capture aligned to regulatory needs."
+        },
+        {
+            "vendor": "Microsoft Defender for Cloud Apps",
+            "category": "CASB / App Governance",
+            "tier": "SME to Enterprise",
+            "recommended_for_domains": ["AI Governance & Security"],
+            "trigger_conditions": ["Unmanaged SaaS AI usage", "Shadow AI observed", "Need app governance"],
+            "core_features": ["App governance for AI", "Session control & policies", "Shadow IT discovery"],
+            "planet_it_value_add": "Discovery and control of AI SaaS applications with conditional access session controls to enforce acceptable use policies."
+        },
+        {
+            "vendor": "Netskope SSE",
+            "category": "CASB/SSE (Vendor‑Agnostic)",
+            "tier": "Mid‑Market to Enterprise",
+            "recommended_for_domains": ["AI Governance & Security"],
+            "trigger_conditions": ["Multi‑vendor estate", "Vendor bans on Microsoft", "Advanced CASB/SSE required"],
+            "core_features": ["Cloud DLP", "Inline controls for AI services", "Shadow IT discovery"],
+            "planet_it_value_add": "Vendor‑agnostic CASB/SSE posture to govern generative AI usage across SaaS and web, integrated into operations."
+        }
     ]
 }

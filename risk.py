@@ -44,6 +44,7 @@ _DOMAIN_WEIGHTS: Dict[str, float] = {
     "testing": 0.03,
     "culture": 0.09,
     "grc": 0.12,
+    "ai": 0.03,
 }
 
 
@@ -137,6 +138,13 @@ def run_monte_carlo(client_inputs: Dict[str, Any], report_data: Any, *, iteratio
         base_rate = float(get_config("MC_BASE_EVENT_RATE", 0.15))  # 15% annual baseline, apportioned by weights
     except Exception:
         base_rate = 0.15
+    # Optional AI governance driver (feature‑flagged)
+    try:
+        ai_flag = str(get_config("MC_AI_DRIVER_ENABLED", "false")).strip().lower() in ("1","true","yes","on")
+        ai_factor = float(get_config("MC_AI_DRIVER_FACTOR", 1.10))
+    except Exception:
+        ai_flag = False
+        ai_factor = 1.10
 
     if seed is None:
         try:
@@ -165,6 +173,14 @@ def run_monte_carlo(client_inputs: Dict[str, Any], report_data: Any, *, iteratio
             "explanation": "",
             "drivers": [],
         }
+
+    # Optional AI governance driver: if enabled and AI score is 1, slightly increase base event rate
+    if 'ai' in scores:
+        try:
+            if ai_flag and float(scores.get('ai', 3.0)) <= 1.0:
+                base_rate = base_rate * ai_factor
+        except Exception:
+            pass
 
     # Build per‑domain probabilities
     probs: Dict[str, float] = {}

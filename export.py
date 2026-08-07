@@ -30,13 +30,14 @@ except Exception:  # Safe fallback if module unavailable
 MATURITY_WEIGHTS = {
     "iam": 0.17,
     "endpoint": 0.17,
-    "network": 0.11,
-    "email": 0.05,
+    "network": 0.10,
+    "email": 0.04,
     "cloud": 0.13,
     "secops": 0.13,
-    "testing": 0.03,
+    "testing": 0.02,
     "culture": 0.09,
     "grc": 0.12,
+    "ai": 0.03,
 }
 
 GAUGE_BANDS = [
