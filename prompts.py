@@ -25,7 +25,7 @@ class ThreatScenarioOutline(BaseModel):
     timeline: List[str] = Field(description="Structured timeline steps for the threat scenario.", min_items=4, max_items=8)
     threat_events: List[ThreatEvent] = Field(description="Threat events composing the outline.", min_items=1)
     impact: Optional[str] = Field(default=None, description="Concise narrative of impact aligned to pillar scoring.")
-    mitigations: Optional[List[str]] = Field(default=None, description="Mitigations for the threat scenario outline.", max_items=6)
+    mitigations: Optional[List[str]] = Field(default=None, description="Mitigations for the threat scenario outline.", min_items=0, max_items=6)
 
 class PillarScore(BaseModel):
     pillar_1: int = Field(ge=1, le=3, description="Pillar 1 score (Reactive).")
@@ -167,7 +167,7 @@ class MaturityReport(BaseModel):
     monetary_cost_of_inaction: Optional[MonetaryCostGBP] = Field(description="Monetary cost estimate for inaction (GBP). Grounded in credible baselines; see MonetaryCostGBP for details.")
     # Governance fields (deduplicated and aligned with PLAN requirements)
     partnership_details: Optional[str] = Field(description="Optional governance narrative or details for partnership engagement.")
-    partnership_links: Optional[List[str]] = Field(default=None, description="Optional list of governance resource URLs or documents.")
+    partnership_links: Optional[List[str]] = Field(default=None, description="Optional list of governance resource URLs or documents.", min_items=1, max_items=5)
     threat_intelligence_context: Optional[str] = Field(default=None, description="Threat intelligence context relevant to the governance narrative.")
     cost_of_inaction_summary: Optional[str] = Field(default=None, description="Short GBP cost-of-inaction narrative derived from MonetaryCostGBP or explicit input.")
     compliance_alignment: Optional[List[ComplianceSection]] = Field(description="Structured alignment of compliance standards and identified gaps with remediation plans.", min_items=1, max_items=3)
@@ -201,7 +201,9 @@ class MaturityReport(BaseModel):
     consultant_discovery_guide: List[str] = Field(description="Provocative questions for the discovery phase.", min_items=5, max_items=10)
     threat_scenarios: Optional[List[ThreatScenarioItem]] = Field(
         default=None,
-        description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation."
+        description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation.",
+        min_items=1,
+        max_items=3
     )
 
 # ==========================================

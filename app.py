@@ -380,36 +380,7 @@ with st.sidebar:
     # Engine is strictly Azure (Ollama support removed per July 2026 hardening)
     st.session_state['ai_engine'] = "azure"
     
-    st.markdown("### 🤖 AI Usage & Governance")
-    ai_policy_opts = ["Select AI Usage Policy...", "None", "Informal guidance", "Formalised policy enforced"]
-    ai_usage_policy = st.selectbox(
-        "AI Usage Policy",
-        ai_policy_opts,
-        index=(ai_policy_opts.index(TEST_DATA.get('ai_usage_policy', 'None')) if dev else 0),
-        help="State of AI acceptable use policy and governance."
-    )
-
-    approved_ai_tools = st.multiselect(
-        "Approved Company AI Tools",
-        ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"],
-        default=(TEST_DATA.get('approved_ai_tools', []) if dev else []),
-        help="Approved AI assistants or models in use."
-    )
-
-    shadow_ai_opts = ["Select Shadow AI Monitoring...", "None", "Planned", "Enabled"]
-    shadow_ai_monitoring = st.selectbox(
-        "Shadow AI Monitoring",
-        shadow_ai_opts,
-        index=(shadow_ai_opts.index(TEST_DATA.get('shadow_ai_monitoring', 'None')) if dev else 0),
-        help="Discovery and control of unsanctioned AI usage."
-    )
-
-    ai_dlp_controls = st.multiselect(
-        "AI Data Loss Controls",
-        ["Microsoft Purview DLP", "Defender for Cloud Apps (CASB)", "CASB/SSE (Netskope)", "Proxy controls", "None"],
-        default=(TEST_DATA.get('ai_dlp_controls', []) if dev else []),
-        help="Controls applied to prompts/responses and AI interactions."
-    )
+    
 
     st.divider()
     
@@ -691,6 +662,39 @@ with op_col2:
     
     ir_retainer_options = ["Select Elite IR Retainer / DFIR Provider...", "None", "Sophos MDR Plus / Incident Response", "Microsoft DART", "CrowdStrike Falcon Complete IR", "Mandiant / Google IR", "Unit 42 (Palo Alto)", "Kroll Cyber Risk", "Secureworks IR", "Rapid7 IR", "Other"]
     ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", ir_retainer_options, index=(ir_retainer_options.index(TEST_DATA['ir_retainer']) if dev else 0), help="Example: None")
+
+st.divider()
+
+st.markdown("### 🤖 AI Usage & Governance")
+ai_policy_opts = ["Select AI Usage Policy...", "None", "Informal guidance", "Formalised policy enforced"]
+ai_usage_policy = st.selectbox(
+    "AI Usage Policy",
+    ai_policy_opts,
+    index=(ai_policy_opts.index(TEST_DATA.get('ai_usage_policy', 'None')) if dev else 0),
+    help="State of AI acceptable use policy and governance."
+)
+
+approved_ai_tools = st.multiselect(
+    "Approved Company AI Tools",
+    ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"],
+    default=(TEST_DATA.get('approved_ai_tools', []) if dev else []),
+    help="Approved AI assistants or models in use."
+)
+
+shadow_ai_opts = ["Select Shadow AI Monitoring...", "None", "Planned", "Enabled"]
+shadow_ai_monitoring = st.selectbox(
+    "Shadow AI Monitoring",
+    shadow_ai_opts,
+    index=(shadow_ai_opts.index(TEST_DATA.get('shadow_ai_monitoring', 'None')) if dev else 0),
+    help="Discovery and control of unsanctioned AI usage."
+)
+
+ai_dlp_controls = st.multiselect(
+    "AI Data Loss Controls",
+    ["Microsoft Purview DLP", "Defender for Cloud Apps (CASB)", "CASB/SSE (Netskope)", "Proxy controls", "None"],
+    default=(TEST_DATA.get('ai_dlp_controls', []) if dev else []),
+    help="Controls applied to prompts/responses and AI interactions."
+)
 
 st.divider()
 
