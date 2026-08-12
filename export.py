@@ -15,7 +15,7 @@ import matplotlib.patheffects as pe
 import numpy as np
 import os
 import tempfile
-from config import get_config
+from config import get_config, ConfigKey
 from risk import run_monte_carlo
 try:
     from quality_pipeline import process_maturity_report, process_threat_report, get_quality_thresholds, quality_gate_enabled
@@ -1270,7 +1270,7 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                 from core import LLMEngine
                 from prompts import build_mc_interpretation_prompt, SYSTEM_PERSONA
                 client = LLMEngine.get_client()
-                deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+                deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
                 prompt = build_mc_interpretation_prompt(client_inputs, mc)
                 mc_text = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2) or ""
             except Exception:

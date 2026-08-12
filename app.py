@@ -16,7 +16,9 @@ from risk import run_monte_carlo
 _SANITISE_REPLACEMENTS = [
     (_re.compile(r'["]{3,}'), '"'),
     (_re.compile(r"'{3,}"), "'"),
-    (_re.compile(r'`{3,}'), '`'),
+    (_re.compile(r'(?:\r?\n){3,}'), '\n\n'),
+    (_re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), ''),
+    (_re.compile(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F]'), ''),
     (_re.compile(r'(?:\r?\n){3,}'), '\n\n'),
 ]
 
@@ -426,24 +428,37 @@ with st.expander("Profile: Export / Import", expanded=False):
         else:
             st.info("Provide inputs to enable export.")
     with col_e2:
-        uploaded = st.file_uploader("Import options (.json)", type=["json"])
+        # Guard against infinite rerun loops by hashing the uploaded content and skipping
+        # re-processing when the same file persists in the uploader across reruns.
+        uploaded = st.file_uploader("Import options (.json)", type=["json"], key="profile_import_json")
         if uploaded is not None:
             try:
-                raw = uploaded.read()
-                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
-                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
-                if not isinstance(profile, dict):
-                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
+                import hashlib as _hashlib
+                try:
+                    _h = _hashlib.sha256(raw).hexdigest() if isinstance(raw, (bytes, bytearray)) else _hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
+                except Exception:
+                    _h = f"{getattr(uploaded, 'name', 'unknown')}:{len(raw) if hasattr(raw, '__len__') else 0}"
+
+                # If this exact file has already been applied in the current session, avoid re-import and rerun loops
+                if st.session_state.get('_last_import_hash') == _h:
+                    st.info("Profile already applied.")
                 else:
-                    # Minimal validation: ensure required fields exist
-                    required_keys = ["customer_name", "industry", "users"]
-                    if not all(k in profile for k in required_keys):
-                        st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
-                    st.session_state['_imported_profile'] = profile
-                    st.session_state['use_imported_profile'] = True
-                    st.session_state['use_test_data'] = False
-                    st.success("Profile imported. Applying to UI...")
-                    st.rerun()
+                    data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                    profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                    if not isinstance(profile, dict):
+                        st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                    else:
+                        # Minimal validation: ensure required fields exist
+                        required_keys = ["customer_name", "industry", "users"]
+                        if not all(k in profile for k in required_keys):
+                            st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
+                        st.session_state['_imported_profile'] = profile
+                        st.session_state['use_imported_profile'] = True
+                        st.session_state['use_test_data'] = False
+                        st.session_state['_last_import_hash'] = _h
+                        st.success("Profile imported. Applying to UI...")
+                        st.rerun()
             except Exception as e:
                 st.error(f"Failed to import profile: {e}")
 

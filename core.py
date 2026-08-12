@@ -39,11 +39,26 @@ class LLMEngine:
         When streaming, max_completion_tokens is omitted as the streaming
         protocol handles token limits differently.
         """
+        try:
+            temp_raw = get_config("AZURE_TEMPERATURE", 0.6)
+            temperature = float(temp_raw)
+            if temperature < 0.0 or temperature > 1.0:
+                temperature = 0.6
+        except Exception:
+            temperature = 0.6
+
         extra_params = {
-            "temperature": 0.6
+            "temperature": temperature
         }
         if not streaming:
-            extra_params["max_completion_tokens"] = 8192
+            try:
+                mct_raw = get_config("AZURE_MAX_COMPLETION_TOKENS", 8192)
+                mct = int(mct_raw)
+                if mct <= 0 or mct > 8192:
+                    mct = 8192
+            except Exception:
+                mct = 8192
+            extra_params["max_completion_tokens"] = mct
         return extra_params
 
     @staticmethod
