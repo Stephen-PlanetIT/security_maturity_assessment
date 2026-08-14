@@ -3,6 +3,11 @@ import os
 import random
 import time
 import re as _re
+import secrets
+try:
+    import bcrypt  # password hashing
+except Exception:  # pragma: no cover
+    bcrypt = None
 from core import LLMEngine
 from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
 from data import FULLY_MANAGED_URL, CO_MANAGED_URL
@@ -291,6 +296,93 @@ def _display_cost_of_inaction_section():
     if rationale:
         st.write(rationale)
 
+# --- AUTHENTICATION GATE (username/password) ---
+def _to_bool(val) -> bool:
+    try:
+        return str(val).strip().lower() in ("1", "true", "yes", "y", "on")
+    except Exception:
+        return False
+
+def login_gate():
+    """Simple username/password gate with bcrypt hashing, brute‑force lockout, and idle TTL.
+    All configuration sourced from environment or Streamlit secrets via config.get_config.
+    Keys: AUTH_ENABLED, AUTH_METHOD='password', AUTH_USERNAME, AUTH_PASSWORD_HASH,
+          AUTH_SESSION_TTL_MIN (default: 60), AUTH_MAX_ATTEMPTS (default: 5), AUTH_COOLDOWN_SEC (default: 300)
+    """
+    from config import get_config
+    if not _to_bool(get_config("AUTH_ENABLED", "false")):
+        return
+    now = time.time()
+    try:
+        ttl_min = int(get_config("AUTH_SESSION_TTL_MIN", "60"))
+    except Exception:
+        ttl_min = 60
+    ttl_sec = max(60, ttl_min * 60)
+
+    lock_until = st.session_state.get("_auth_lock_until", 0)
+    if now < lock_until:
+        wait = int(lock_until - now)
+        st.error(f"Too many failed attempts. Please wait {wait} second{'s' if wait != 1 else ''} before retrying.")
+        st.stop()
+
+    issued_at = st.session_state.get("_auth_issued_at")
+    user = st.session_state.get("_auth_user")
+    if issued_at and user and (now - issued_at) < ttl_sec:
+        return
+
+    st.markdown("## 🔐 Sign in")
+    with st.form("login", clear_on_submit=False):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        submit = st.form_submit_button("Sign in", type="primary")
+
+    if submit:
+        expected_user = get_config("AUTH_USERNAME", "")
+        expected_hash = get_config("AUTH_PASSWORD_HASH", "")
+        try:
+            max_attempts = int(get_config("AUTH_MAX_ATTEMPTS", "5"))
+        except Exception:
+            max_attempts = 5
+        try:
+            cooldown = int(get_config("AUTH_COOLDOWN_SEC", "300"))
+        except Exception:
+            cooldown = 300
+
+        fails = int(st.session_state.get("_auth_fail_count", 0))
+        ok_user = secrets.compare_digest(str(u or ""), str(expected_user or ""))
+
+        if bcrypt is None:
+            st.error("Server missing bcrypt dependency. Ensure 'bcrypt' is installed.")
+            st.stop()
+
+        ok_pass = False
+        if isinstance(expected_hash, str) and expected_hash.startswith("$2"):
+            try:
+                ok_pass = bcrypt.checkpw((p or "").encode("utf-8"), expected_hash.encode("utf-8"))
+            except Exception:
+                ok_pass = False
+        else:
+            st.error("AUTH_PASSWORD_HASH invalid. Provide a bcrypt hash beginning with $2...")
+            st.stop()
+
+        if ok_user and ok_pass:
+            st.session_state["_auth_user"] = u
+            st.session_state["_auth_issued_at"] = now
+            st.session_state["_auth_fail_count"] = 0
+            st.success("Signed in successfully.")
+            st.rerun()
+        else:
+            fails += 1
+            st.session_state["_auth_fail_count"] = fails
+            if fails >= max_attempts:
+                st.session_state["_auth_lock_until"] = now + cooldown
+                st.error(f"Too many failed attempts. Locked for {cooldown} seconds.")
+            else:
+                remaining = max_attempts - fails
+                st.error(f"Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} remaining.")
+
+    st.stop()
+
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="Security Use Case Generator", layout="wide")
 
@@ -307,6 +399,8 @@ _CSP_META = (
 )
 st.markdown(_CSP_META, unsafe_allow_html=True)
 validate_platform_config() # Fails fast if keys are missing
+# Authentication gate (env-driven). If AUTH_ENABLED=true, blocks UI until sign-in.
+login_gate()
 # [PLANET BRANDING LOAD] Inject branding palette if provided (Azure/Env based)
 try:
     from config import get_planet_branding_palette

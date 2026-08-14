@@ -30,6 +30,15 @@ class ConfigKey:
     REFERENCE_SAMPLE_FILE = "REFERENCE_SAMPLE_FILE"
     REFERENCE_SAMPLE_TEXT = "REFERENCE_SAMPLE_TEXT"
 
+    # Application-level Authentication (env/secrets-driven)
+    AUTH_ENABLED = "AUTH_ENABLED"
+    AUTH_METHOD = "AUTH_METHOD"
+    AUTH_USERNAME = "AUTH_USERNAME"
+    AUTH_PASSWORD_HASH = "AUTH_PASSWORD_HASH"
+    AUTH_SESSION_TTL_MIN = "AUTH_SESSION_TTL_MIN"
+    AUTH_MAX_ATTEMPTS = "AUTH_MAX_ATTEMPTS"
+    AUTH_COOLDOWN_SEC = "AUTH_COOLDOWN_SEC"
+
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
     """
