@@ -669,14 +669,14 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         m365_licenses = st.multiselect(
             "Microsoft 365 Licensing",
             m365_license_options,
-            default=([TEST_DATA['m365_license']] if dev and TEST_DATA.get('m365_license') else []),
+            default=(_coerce_list([TEST_DATA.get('m365_license')], m365_license_options) if dev else []),
             help="Select all that apply. Example: M365 Business Premium"
         )
         m365_license_str = ", ".join(m365_licenses) if m365_licenses else "None / On-Prem Only"
         # Email security: prefer Mimecast or Barracuda; remove Sophos as a recommended option
         email_options = ["Select Email Security...", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Egress", "Other"]
         email = st.selectbox("Email Security", email_options, index=(_safe_index(email_options, TEST_DATA.get('email')) if dev else 0), help="Example: Mimecast")
-        cloud_env = st.multiselect("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"], default=(TEST_DATA['cloud_env'] if dev else []), help="Example: AWS")
+        cloud_env = st.multiselect("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"], default=(_coerce_list(TEST_DATA.get('cloud_env', []), ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"]) if dev else []), help="Example: AWS")
 
     st.divider()
     
@@ -689,7 +689,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     banned_vendors = st.multiselect(
         "Excluded Vendors",
         options=all_vendors,
-        default=(TEST_DATA.get('banned_vendors', []) if dev else []),
+        default=(_coerce_list(TEST_DATA.get('banned_vendors', []), all_vendors) if dev else []),
         help="Select vendors to exclude from all recommendations and LLM-generated content."
     )
     
@@ -716,7 +716,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         advanced_controls = st.multiselect(
             "Advanced Adaptive Controls (Pillar 3)", 
             ["Zero-Trust Architecture (ZTA)", "Network Microsegmentation", "SOAR / Automated Remediation", "User Behaviour Analytics (UBA)", "Automated DR Orchestration", "Deception Tech (Honeypots)"],
-            default=(TEST_DATA['advanced_controls'] if dev else [])
+            default=(_coerce_list(TEST_DATA.get('advanced_controls', []), ["Zero-Trust Architecture (ZTA)", "Network Microsegmentation", "SOAR / Automated Remediation", "User Behaviour Analytics (UBA)", "Automated DR Orchestration", "Deception Tech (Honeypots)"]) if dev else [])
         )
         proactive_tools_options = [
             "KnowBe4 Security Awareness",
@@ -731,7 +731,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         proactive_tools = st.multiselect(
             "Proactive Security Tools",
             proactive_tools_options,
-            default=(TEST_DATA.get('proactive_tools', []) if dev else []),
+            default=(_coerce_list(TEST_DATA.get('proactive_tools', []), proactive_tools_options) if dev else []),
             help="Select any training/BAS platforms already in use (e.g., KnowBe4, Hoxhunt)."
         )
         validation_notes = st.text_area("Validation Notes", value=(TEST_DATA['validation_notes'] if dev else ""), placeholder="e.g., Customer requires ISO 27001 alignment by Q4")
