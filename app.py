@@ -333,9 +333,9 @@ def login_gate():
         return
     now = time.time()
     try:
-        ttl_min = int(get_config("AUTH_SESSION_TTL_MIN", "60"))
+        ttl_min = int(get_config("AUTH_SESSION_TTL_MIN", "240"))
     except Exception:
-        ttl_min = 60
+        ttl_min = 240
     ttl_sec = max(60, ttl_min * 60)
 
     lock_until = st.session_state.get("_auth_lock_until", 0)
@@ -705,7 +705,13 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         vuln_scanning = st.selectbox("Vuln Scanning", vuln_options, index=(_safe_index(vuln_options, TEST_DATA.get('vuln_scanning')) if dev else 0), help="Example: Monthly Authenticated")
         public_web_apps = st.checkbox("Host Public Web Apps", value=(TEST_DATA['public_web_apps'] if dev else False))
     with col_ops2:
-        compliance = st.multiselect("Target Compliance", ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF", "UK DfE (2026) Cyber Security Standards"], default=(TEST_DATA['compliance'] if dev else []), help="Example: ISO 27001, Cyber Essentials")
+        compliance_options = ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF", "UK DfE (2026) Cyber Security Standards"]
+        compliance = st.multiselect(
+            "Target Compliance",
+            compliance_options,
+            default=(_coerce_list(TEST_DATA.get('compliance', []), compliance_options) if dev else []),
+            help="Example: ISO 27001, Cyber Essentials"
+        )
         physical_locations = st.number_input("Physical Locations", min_value=0, value=(TEST_DATA['physical_locations'] if dev else 0), help="Example: 3")
         advanced_controls = st.multiselect(
             "Advanced Adaptive Controls (Pillar 3)", 
