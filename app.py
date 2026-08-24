@@ -56,6 +56,18 @@ def _safe_get(item, key, default=None):
         return item.get(key, default)
     return getattr(item, key, default)
 
+def _coerce_list(value, options):
+    """Coerce imported profile values into a valid list constrained to options."""
+    try:
+        if isinstance(value, list):
+            return [v for v in value if v in options]
+        if isinstance(value, str):
+            parts = [p.strip() for p in value.split(",") if p.strip()]
+            return [p for p in parts if p in options]
+    except Exception:
+        pass
+    return []
+
 # --- VERSION TRACKER ---
 with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
     APP_VERSION = f.read().strip()
@@ -612,7 +624,8 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         st.subheader("Technology Stack")
         endpoints = st.number_input("Number of Endpoints", min_value=0, value=(TEST_DATA['endpoints'] if dev else 0), help="Example: 600")
         servers = st.number_input("Number of Servers", min_value=0, value=(TEST_DATA['servers'] if dev else 0), help="Example: 50")
-        operating_systems = st.multiselect("Operating Systems in Use", ["Windows 10", "Windows 11", "Windows Server", "macOS", "Linux", "ChromeOS"], default=(TEST_DATA['operating_systems'] if dev else []), help="Example: Windows 11, Windows Server")
+        _os_options = ["Windows 10", "Windows 11", "Windows Server", "macOS", "Linux", "ChromeOS"]
+        operating_systems = st.multiselect("Operating Systems in Use", _os_options, default=(_coerce_list(TEST_DATA.get('operating_systems', []), _os_options) if dev else []), help="Example: Windows 11, Windows Server")
         mdr_options = ["Select MDR / SOC Provider...", "None", "Sophos MDR", "Sophos MDR Plus", "Microsoft Defender Experts", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"]
         mdr_provider = st.selectbox("Current MDR / SOC Provider", mdr_options, index=(mdr_options.index(TEST_DATA['mdr_provider']) if dev else 0), help="Example: Sophos MDR")
         
