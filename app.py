@@ -838,12 +838,17 @@ st.markdown("### 🧮 Security Culture Calculator")
 
 calc_col1, calc_col2, calc_col3 = st.columns(3)
 
+# Persisted options for import/export compatibility
+_q1_opts = ["Never", "Annually", "Monthly / Quarterly"]
+_q2_opts = ["None", "Annual Compliance Video", "Continuous with active coaching"]
+_q3_opts = ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"]
+
 with calc_col1:
-    q1 = st.radio("1. Phishing Simulations", ["Never", "Annually", "Monthly / Quarterly"])
+    q1 = st.radio("1. Phishing Simulations", _q1_opts, index=(_safe_index(_q1_opts, TEST_DATA.get('culture_q1')) if dev else 0))
 with calc_col2:
-    q2 = st.radio("2. Security Training", ["None", "Annual Compliance Video", "Continuous with active coaching"])
+    q2 = st.radio("2. Security Training", _q2_opts, index=(_safe_index(_q2_opts, TEST_DATA.get('culture_q2')) if dev else 0))
 with calc_col3:
-    q3 = st.radio("3. Endpoint Privileges", ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"])
+    q3 = st.radio("3. Endpoint Privileges", _q3_opts, index=(_safe_index(_q3_opts, TEST_DATA.get('culture_q3')) if dev else 0))
 
 # Derive MFA score from the Operational Telemetry mfa_status field (avoids duplicate question)
 mfa_score_map = {"None": 0, "Privileged Accounts Only": 1, "Universal / Conditional Access": 3}
@@ -883,7 +888,12 @@ client_inputs = {
     "consultant_name": consultant_name, 
     "industry": _norm(industry), 
     "users": users, 
-    "savviness": savviness, 
+    "savviness": savviness,
+    "savviness_label": savviness_label,
+    "culture_score": culture_score,
+    "culture_q1": q1,
+    "culture_q2": q2,
+    "culture_q3": q3,
     "endpoints": endpoints, 
     "servers": servers, 
     "remote_access": _norm(remote_access),
