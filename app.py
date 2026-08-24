@@ -68,6 +68,13 @@ def _coerce_list(value, options):
         pass
     return []
 
+def _safe_index(options, value):
+    """Return index of value in options; 0 if missing or invalid."""
+    try:
+        return options.index(value) if value in options else 0
+    except Exception:
+        return 0
+
 # --- VERSION TRACKER ---
 with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
     APP_VERSION = f.read().strip()
@@ -616,7 +623,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
             "Mining & Natural Resources",
             "Other",
         ]
-        industry = st.selectbox("Industry", industry_options, index=(industry_options.index(TEST_DATA['industry']) if dev else 0), help="Example: Technology")
+        industry = st.selectbox("Industry", industry_options, index=(_safe_index(industry_options, TEST_DATA.get('industry')) if dev else 0), help="Example: Technology")
         users = st.number_input("Headcount", min_value=0, value=(TEST_DATA['users'] if dev else 0), help="Example: 500")
         critical_infra = st.text_input("Crown Jewels", value=(TEST_DATA['critical_infra'] if dev else ""), placeholder="e.g., Patient Records Database")
         
@@ -627,17 +634,17 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         _os_options = ["Windows 10", "Windows 11", "Windows Server", "macOS", "Linux", "ChromeOS"]
         operating_systems = st.multiselect("Operating Systems in Use", _os_options, default=(_coerce_list(TEST_DATA.get('operating_systems', []), _os_options) if dev else []), help="Example: Windows 11, Windows Server")
         mdr_options = ["Select MDR / SOC Provider...", "None", "Sophos MDR", "Sophos MDR Plus", "Microsoft Defender Experts", "CrowdStrike Falcon Complete", "Arctic Wolf", "Expel", "Red Canary", "Local Partner SOC", "Other"]
-        mdr_provider = st.selectbox("Current MDR / SOC Provider", mdr_options, index=(mdr_options.index(TEST_DATA['mdr_provider']) if dev else 0), help="Example: Sophos MDR")
+        mdr_provider = st.selectbox("Current MDR / SOC Provider", mdr_options, index=(_safe_index(mdr_options, TEST_DATA.get('mdr_provider')) if dev else 0), help="Example: Sophos MDR")
         
         endpoint_options = ["Select Endpoint Vendor...", "Sophos", "Microsoft Defender", "CrowdStrike", "SentinelOne", "Trend Micro", "Symantec", "N-able", "Other"]
-        endpoint = st.selectbox("Endpoint Security Vendor", endpoint_options, index=(endpoint_options.index(TEST_DATA['endpoint']) if dev else 0), help="Example: Sophos")
+        endpoint = st.selectbox("Endpoint Security Vendor", endpoint_options, index=(_safe_index(endpoint_options, TEST_DATA.get('endpoint')) if dev else 0), help="Example: Sophos")
         
         # --- NEW FIELD: ENDPOINT CAPABILITY ---
         endpoint_posture_options = ["Select Endpoint Capability...", "Legacy AV Only (Signatures/Heuristics)", "Next-Gen AV (NGAV / Deep Learning)", "EDR Deployed (Endpoint Detection & Response)", "XDR Deployed (Cross-Domain Telemetry)", "Full ZTNA / Device Control Enforced"]
-        endpoint_posture = st.selectbox("Endpoint Capability (Licensing)", endpoint_posture_options, index=(endpoint_posture_options.index(TEST_DATA['endpoint_posture']) if dev else 0), help="Example: EDR Deployed (Endpoint Detection & Response)")
+        endpoint_posture = st.selectbox("Endpoint Capability (Licensing)", endpoint_posture_options, index=(_safe_index(endpoint_posture_options, TEST_DATA.get('endpoint_posture')) if dev else 0), help="Example: EDR Deployed (Endpoint Detection & Response)")
         
         firewall_options = ["Select Firewall Vendor...", "Fortinet", "Palo Alto", "Cisco", "Sophos", "Check Point", "SonicWall", "Other"]
-        firewall = st.selectbox("Firewall Vendor", firewall_options, index=(firewall_options.index(TEST_DATA['firewall']) if dev else 0), help="Example: Fortinet")
+        firewall = st.selectbox("Firewall Vendor", firewall_options, index=(_safe_index(firewall_options, TEST_DATA.get('firewall')) if dev else 0), help="Example: Fortinet")
 
         remote_access_options = [
             "Select Remote Access Strategy...",
@@ -649,15 +656,15 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
             "Zero Trust Network Access (ZTNA) / SASE",
             "SD-WAN with Secure Access Overlay"
         ]
-        remote_access = st.selectbox("Remote Access Strategy", remote_access_options, index=(remote_access_options.index(TEST_DATA['remote_access']) if dev else 0), help="Example: Legacy VPN (Client-based)")
+        remote_access = st.selectbox("Remote Access Strategy", remote_access_options, index=(_safe_index(remote_access_options, TEST_DATA.get('remote_access')) if dev else 0), help="Example: Legacy VPN (Client-based)")
         
         saas_backup_options = ["Select SaaS Backup...", "None (Relying on Microsoft/Google)", "Basic Retention Policies Only", "Dedicated Third-Party SaaS Backup"]
-        saas_backup = st.selectbox("M365 / SaaS Backup", saas_backup_options, index=(saas_backup_options.index(TEST_DATA['saas_backup']) if dev else 0), help="Example: None (Relying on Microsoft/Google)")
+        saas_backup = st.selectbox("M365 / SaaS Backup", saas_backup_options, index=(_safe_index(saas_backup_options, TEST_DATA.get('saas_backup')) if dev else 0), help="Example: None (Relying on Microsoft/Google)")
         
     with col3:
         st.subheader("Cloud & Identity")
         identity_options = ["Select Identity Provider...", "Microsoft Entra ID (Azure AD)", "Okta", "On-Prem Active Directory", "None"]
-        identity = st.selectbox("Identity Provider", identity_options, index=(identity_options.index(TEST_DATA['identity']) if dev else 0), help="Example: Microsoft Entra ID (Azure AD)")
+        identity = st.selectbox("Identity Provider", identity_options, index=(_safe_index(identity_options, TEST_DATA.get('identity')) if dev else 0), help="Example: Microsoft Entra ID (Azure AD)")
         m365_license_options = ["None / On-Prem Only", "M365 Business Premium", "Microsoft 365 E5", "Office 365 E3 / M365 E3"]
         m365_licenses = st.multiselect(
             "Microsoft 365 Licensing",
@@ -668,7 +675,7 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         m365_license_str = ", ".join(m365_licenses) if m365_licenses else "None / On-Prem Only"
         # Email security: prefer Mimecast or Barracuda; remove Sophos as a recommended option
         email_options = ["Select Email Security...", "Mimecast", "Proofpoint", "Microsoft Defender", "Barracuda", "Egress", "Other"]
-        email = st.selectbox("Email Security", email_options, index=(email_options.index(TEST_DATA['email']) if dev else 0), help="Example: Mimecast")
+        email = st.selectbox("Email Security", email_options, index=(_safe_index(email_options, TEST_DATA.get('email')) if dev else 0), help="Example: Mimecast")
         cloud_env = st.multiselect("Cloud Infrastructure", ["AWS", "Microsoft Azure", "GCP", "Oracle Cloud", "None (Fully On-Prem)"], default=(TEST_DATA['cloud_env'] if dev else []), help="Example: AWS")
 
     st.divider()
@@ -691,11 +698,11 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
     col_ops1, col_ops2 = st.columns(2)
     with col_ops1:
         in_house_options = ["Select Internal SOC Team...", "No", "Yes (9-to-5)", "Yes (24/7)"]
-        in_house_team = st.selectbox("Internal SOC Team", in_house_options, index=(in_house_options.index(TEST_DATA['in_house_team']) if dev else 0), help="Example: No")
+        in_house_team = st.selectbox("Internal SOC Team", in_house_options, index=(_safe_index(in_house_options, TEST_DATA.get('in_house_team')) if dev else 0), help="Example: No")
         pentest_options = ["Select Penetration Testing Cadence...", "None", "Annual", "Bi-Annual", "Quarterly"]
-        pentest_status = st.selectbox("Penetration Testing", pentest_options, index=(pentest_options.index(TEST_DATA['pentest_status']) if dev else 0), help="Example: Annual")
+        pentest_status = st.selectbox("Penetration Testing", pentest_options, index=(_safe_index(pentest_options, TEST_DATA.get('pentest_status')) if dev else 0), help="Example: Annual")
         vuln_options = ["Select Vulnerability Scanning...", "None", "Monthly Authenticated", "Quarterly External", "Continuous"]
-        vuln_scanning = st.selectbox("Vuln Scanning", vuln_options, index=(vuln_options.index(TEST_DATA['vuln_scanning']) if dev else 0), help="Example: Monthly Authenticated")
+        vuln_scanning = st.selectbox("Vuln Scanning", vuln_options, index=(_safe_index(vuln_options, TEST_DATA.get('vuln_scanning')) if dev else 0), help="Example: Monthly Authenticated")
         public_web_apps = st.checkbox("Host Public Web Apps", value=(TEST_DATA['public_web_apps'] if dev else False))
     with col_ops2:
         compliance = st.multiselect("Target Compliance", ["ISO 27001", "Cyber Essentials", "Cyber Essentials Plus", "PCI DSS", "HIPAA", "NIST CSF", "UK DfE (2026) Cyber Security Standards"], default=(TEST_DATA['compliance'] if dev else []), help="Example: ISO 27001, Cyber Essentials")
@@ -748,7 +755,7 @@ managed_status_options = [
 managed_service_status = st.selectbox(
     "Current Managed Service Status",
     managed_status_options,
-    index=(managed_status_options.index(TEST_DATA['managed_service_status']) if dev else 0),
+    index=(_safe_index(managed_status_options, TEST_DATA.get('managed_service_status')) if dev else 0),
     help="Capture current support so recommendations and governance sections reflect reality."
 )
 co_units_val = 0
@@ -768,22 +775,22 @@ op_col1, op_col2 = st.columns(2)
     
 with op_col1:
     mfa_options = ["Select MFA Enforcement...", "None", "Privileged Accounts Only", "Universal / Conditional Access"]
-    mfa_status = st.selectbox("MFA Enforcement", mfa_options, index=(mfa_options.index(TEST_DATA['mfa_status']) if dev else 0), help="Example: Privileged Accounts Only")
+    mfa_status = st.selectbox("MFA Enforcement", mfa_options, index=(_safe_index(mfa_options, TEST_DATA.get('mfa_status')) if dev else 0), help="Example: Privileged Accounts Only")
     patching_options = ["Select Patch Management...", "Manual / Ad-hoc", "Automated (OS Only)", "Automated (OS & Third-Party)"]
-    patching = st.selectbox("Patch Management", patching_options, index=(patching_options.index(TEST_DATA['patching']) if dev else 0), help="Example: Manual / Ad-hoc")
+    patching = st.selectbox("Patch Management", patching_options, index=(_safe_index(patching_options, TEST_DATA.get('patching')) if dev else 0), help="Example: Manual / Ad-hoc")
     backup_options = ["Select Backup Strategy...", "No Formal Backups", "On-Premise Only", "Cloud/Offsite (Standard)", "Immutable / Air-Gapped"]
-    backups = st.selectbox("Backup Strategy", backup_options, index=(backup_options.index(TEST_DATA['backups']) if dev else 0), help="Example: On-Premise Only")
+    backups = st.selectbox("Backup Strategy", backup_options, index=(_safe_index(backup_options, TEST_DATA.get('backups')) if dev else 0), help="Example: On-Premise Only")
     
 with op_col2:
     insurance_options = ["Select Cyber Insurance Status...", "None", "Exploring Requirements", "Active Policy"]
-    insurance = st.selectbox("Cyber Insurance Status", insurance_options, index=(insurance_options.index(TEST_DATA['insurance']) if dev else 0), help="Example: None")
+    insurance = st.selectbox("Cyber Insurance Status", insurance_options, index=(_safe_index(insurance_options, TEST_DATA.get('insurance')) if dev else 0), help="Example: None")
     rto_options = ["Select Downtime Tolerance...", "< 4 Hours (Critical)", "12-24 Hours", "48+ Hours"]
-    rto = st.selectbox("Downtime Tolerance", rto_options, index=(rto_options.index(TEST_DATA['rto']) if dev else 0), help="Example: 12-24 Hours")
+    rto = st.selectbox("Downtime Tolerance", rto_options, index=(_safe_index(rto_options, TEST_DATA.get('rto')) if dev else 0), help="Example: 12-24 Hours")
     ir_readiness_options = ["Select Incident Response (IR) Readiness...", "No Formal Plan", "Documented IR Plan (Untested)", "Tested IR Plan with Active Retainer"]
-    ir_readiness = st.selectbox("Incident Response (IR) Readiness", ir_readiness_options, index=(ir_readiness_options.index(TEST_DATA['ir_readiness']) if dev else 0), help="Example: No Formal Plan")
+    ir_readiness = st.selectbox("Incident Response (IR) Readiness", ir_readiness_options, index=(_safe_index(ir_readiness_options, TEST_DATA.get('ir_readiness')) if dev else 0), help="Example: No Formal Plan")
     
     ir_retainer_options = ["Select Elite IR Retainer / DFIR Provider...", "None", "Sophos MDR Plus / Incident Response", "Microsoft DART", "CrowdStrike Falcon Complete IR", "Mandiant / Google IR", "Unit 42 (Palo Alto)", "Kroll Cyber Risk", "Secureworks IR", "Rapid7 IR", "Other"]
-    ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", ir_retainer_options, index=(ir_retainer_options.index(TEST_DATA['ir_retainer']) if dev else 0), help="Example: None")
+    ir_retainer = st.selectbox("Elite IR Retainer / DFIR Provider", ir_retainer_options, index=(_safe_index(ir_retainer_options, TEST_DATA.get('ir_retainer')) if dev else 0), help="Example: None")
 
 st.divider()
 
@@ -792,7 +799,7 @@ ai_policy_opts = ["Select AI Usage Policy...", "None", "Informal guidance", "For
 ai_usage_policy = st.selectbox(
     "AI Usage Policy",
     ai_policy_opts,
-    index=(ai_policy_opts.index(TEST_DATA.get('ai_usage_policy', 'None')) if dev else 0),
+    index=(_safe_index(ai_policy_opts, TEST_DATA.get('ai_usage_policy', 'None')) if dev else 0),
     help="State of AI acceptable use policy and governance."
 )
 
@@ -807,7 +814,7 @@ shadow_ai_opts = ["Select Shadow AI Monitoring...", "None", "Planned", "Enabled"
 shadow_ai_monitoring = st.selectbox(
     "Shadow AI Monitoring",
     shadow_ai_opts,
-    index=(shadow_ai_opts.index(TEST_DATA.get('shadow_ai_monitoring', 'None')) if dev else 0),
+    index=(_safe_index(shadow_ai_opts, TEST_DATA.get('shadow_ai_monitoring', 'None')) if dev else 0),
     help="Discovery and control of unsanctioned AI usage."
 )
 
