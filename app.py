@@ -333,9 +333,9 @@ def login_gate():
         return
     now = time.time()
     try:
-        ttl_min = int(get_config("AUTH_SESSION_TTL_MIN", "240"))
+        ttl_min = int(get_config("AUTH_SESSION_TTL_MIN", "480"))
     except Exception:
-        ttl_min = 240
+        ttl_min = 480
     ttl_sec = max(60, ttl_min * 60)
 
     lock_until = st.session_state.get("_auth_lock_until", 0)
