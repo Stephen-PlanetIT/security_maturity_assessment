@@ -30,12 +30,14 @@ if 'ai' not in radar_props:
     raise SystemExit("SCHEMA_FAIL: RadarChartData is missing 'ai' property (ref-resolved)")
 
 domains_schema = schema.get('properties', {}).get('domain_assessments', {})
-if domains_schema.get('minItems') != 10 or domains_schema.get('maxItems') != 10:
-    raise SystemExit("SCHEMA_FAIL: domain_assessments must have minItems=maxItems=10")
+min_items = domains_schema.get('minItems')
+max_items = domains_schema.get('maxItems')
+if min_items != 15 or max_items != 19:
+    raise SystemExit("SCHEMA_FAIL: domain_assessments must have minItems=15 and maxItems=19")
 
-# 2) Build a minimal, valid report instance (British English text) with 10 domains
+# 2) Build a minimal, valid report instance (British English text) with 15 standard domains
 sample_domains = []
-for i in range(10):
+for i in range(15):
     sample_domains.append(DomainAssessment(
         domain_name=f"Test Domain {i+1}",
         current_maturity_level="Pillar 2: Proactive Cybersecurity",
@@ -114,7 +116,21 @@ report = MaturityReport(
         ),
     ],
     radar_chart_data=RadarChartData(
-        iam=2, endpoint=2, network=2, email=2, cloud=2, secops=2, testing=2, culture=2, grc=2, ai=2
+        iam=2,
+        privileged_access=2,
+        endpoint=2,
+        network=2,
+        email=2,
+        cloud=2,
+        saas=2,
+        data_security=2,
+        secops=2,
+        testing=2,
+        supplier=2,
+        resilience=2,
+        culture=2,
+        grc=2,
+        ai=2,
     ),
     resiliency_matrix_mapping="Pillar 2: Proactive Cybersecurity",
     cost_of_inaction="Multi‑paragraph narrative on the operational and financial consequences of inaction.",

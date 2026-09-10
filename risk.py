@@ -35,15 +35,25 @@ from config import get_config
 
 _DOMAIN_WEIGHTS: Dict[str, float] = {
     # Aligns with export.MATURITY_WEIGHTS for coherence (sums ≈ 1.0)
-    "iam": 0.17,
-    "endpoint": 0.17,
-    "network": 0.10,
+    # Identity
+    "iam": 0.10,
+    "privileged_access": 0.07,
+    # Endpoint & Network
+    "endpoint": 0.10,
+    "network": 0.07,
+    # Messaging & Cloud
     "email": 0.04,
-    "cloud": 0.13,
-    "secops": 0.13,
-    "testing": 0.02,
-    "culture": 0.09,
-    "grc": 0.12,
+    "cloud": 0.09,
+    # SaaS & Data
+    "saas": 0.06,
+    "data_security": 0.07,
+    # Operations & Assurance
+    "secops": 0.12,
+    "testing": 0.04,
+    "supplier": 0.05,
+    "resilience": 0.07,
+    "culture": 0.05,
+    "grc": 0.04,
     "ai": 0.03,
 }
 

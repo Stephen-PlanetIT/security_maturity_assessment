@@ -43,17 +43,65 @@ Asset templates present in the repository:
 - `planet_it_threat_scenario_template.docx`
 - `planet_it_master_template.pptx` (currently unused)
 
-### Domain coverage
-The Planet IT Cyber Resiliency Matrix covers the following 9 domains:
-- Endpoint & Server Security
-- Email & Data Protection
-- Identity & Access Management (IAM)
-- Network & Cloud Perimeter
-- Security Operations & Response (SecOps)
+### Consultation evidence model (new)
+The consultation model now captures shared evidence groups to minimise duplication across domains:
+- Business Services, Critical Assets & Sensitive Data (CAP)
+- Business Service Resilience (service-specific RTO/RPO, dependency mapping, recovery priorities)
+- Information Protection & Data Governance (classification, external sharing, DLP, retention)
+- Identity Governance & Privileged Access (lifecycle, deprovisioning, access reviews, PIM/PAM, break‑glass, service/shared accounts, legacy auth)
+- SaaS, Application & Shadow IT Governance (inventory, critical platforms, SSO/MFA coverage, offboarding, recovery responsibility, shadow IT, OAuth app governance)
+- Asset, Configuration & Exposure Assurance (asset inventory, external attack surface, vulnerability remediation, secure configuration, change assurance, unsupported technology)
+- Monitoring, Telemetry & Response Coverage (coverage, log sources, retention, escalation, response authority, detection testing, reporting cadence)
+- Supplier Risk & Third‑Party Access (supplier assurance maturity and third‑party access model, MFA, review cadence, contractual requirements, notification, exit, concentration risk)
+- Recovery Assurance (restore testing, immutability, administrative separation, service recovery testing, evidence, ownership)
+- Incident Response Assurance (roles, business/technical authority, tabletop status, OOB comms, crisis comms, regulatory readiness, supplier coordination, lessons learned)
+
+Assurance Status:
+- Default and per‑section assurance statuses drive consultative wording: Confirmed, Reported (unverified), Requires supplier confirmation, Unknown (rendered as “Not established during consultation”), and Not applicable (neutral; not scored as weak).
+
+Unknown vs None:
+- Unknown means “not established during consultation”; None means “control absent”. Recommendations and scoring treat Unknown with reduced confidence, not as confirmed absence.
+
+Conditional modules appear only when relevant:
+- OT & IoT Security; Business Process & Payment Fraud; Application & API Security; Acquisition & Integration Assurance.
+
+Profile migration & compatibility:
+- Legacy profiles are migrated to include a minimal CAP using critical_infra; new structured sections are optional and backwards compatible. Import/export round‑trips preserve nested dictionaries and lists.
+
+### Domain coverage (updated)
+The Planet IT Cyber Resiliency Matrix now covers the following 15 standard domains:
+- Identity & Access Management
+- Privileged Access & Identity Governance
+- Endpoint & Device Security
+- Network & Remote Access Security
+- Email & Collaboration Security
+- Cloud & Infrastructure Security
+- SaaS & Application Governance
+- Data Security & Information Protection
+- Security Operations & Response
 - Security Validation & Testing
-- Governance, Risk & Compliance (GRC)
+- Supplier & Third-Party Security
 - Operational Resilience & Backup
-- Supply Chain & Third-Party Risk
+- Security Culture & Awareness
+- Governance, Risk & Compliance
+- AI Governance & Security
+
+Conditional domains (rendered only when applicable):
+- OT & IoT Security
+- Business Process & Payment Fraud
+- Application & API Security
+- Acquisition & Integration Assurance
+
+### Recommendation behaviour (capability‑led, evidence‑led)
+- Unknown evidence → recommend validation/assessment; do not auto‑procure.
+- Existing control with weak assurance → configuration review, coverage validation, testing, governance.
+- Confirmed absence → proportionate remediation.
+- Mature control → acknowledge; recommend maintenance or no further action.
+- Vendor suggestions respect the ban list and portfolio; Planet IT positioning remains consultative.
+
+### Evidence in prompts & exports
+- Prompts include structured evidence summaries and assurance rules; conditional domains only when applicable.
+- Exports render Unknown as “Not established during consultation” and exclude or clearly indicate Not applicable fields. Tables remain left‑aligned and long text wraps correctly.
 
 ### Environment variables (quick reference)
 Cloud (Azure OpenAI) mode:

@@ -5,8 +5,43 @@ import re
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+# Helper: format threat_scenarios into a readable text block for DOCX rendering
+def _format_threat_scenarios(ts):
+    try:
+        if ts is None:
+            return ""
+        if not isinstance(ts, list):
+            ts = [ts]
+        lines = []
+        for it in ts:
+            if isinstance(it, dict):
+                name = it.get("name") or it.get("title") or it.get("id", "")
+                narrative = it.get("narrative", "")
+                if name and narrative:
+                    lines.append(f"{name}: {narrative}")
+                elif narrative:
+                    lines.append(narrative)
+                elif name:
+                    lines.append(str(name))
+            else:
+                lines.append(str(it))
+        return "\n\n".join([l for l in lines if l])
+    except Exception:
+        return ""
 from fpdf import FPDF
 from data import format_governance_narrative
+from consultation_helpers import (
+    format_critical_asset_profile,
+    format_information_protection_profile,
+    format_identity_governance_profile,
+    format_saas_governance_profile,
+    format_asset_assurance_profile,
+    format_monitoring_assurance_profile,
+    format_supplier_assurance_profile,
+    format_recovery_assurance_profile,
+    format_ir_assurance_profile,
+)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -16,7 +51,95 @@ import numpy as np
 import os
 import tempfile
 from config import get_config, ConfigKey
-from risk import run_monte_carlo
+import logging
+_LOGGER = logging.getLogger(__name__)
+# Suppress noisy third-party logs early to keep console readable
+try:
+    _mpl_level = str(get_config("MATPLOTLIB_LOG_LEVEL", "WARNING")).strip().upper()
+    _http_level = str(get_config("HTTP_LIB_LOG_LEVEL", "WARNING")).strip().upper()
+    logging.getLogger("matplotlib").setLevel(getattr(logging, _mpl_level, logging.WARNING))
+    logging.getLogger("matplotlib.font_manager").setLevel(getattr(logging, _mpl_level, logging.WARNING))
+    logging.getLogger("httpx").setLevel(getattr(logging, _http_level, logging.WARNING))
+    logging.getLogger("httpcore").setLevel(getattr(logging, _http_level, logging.WARNING))
+except Exception:
+    pass
+# Suppress noisy third-party logs as early as possible to avoid console flooding
+try:
+    _mpl_level = str(get_config("MATPLOTLIB_LOG_LEVEL", "WARNING")).strip().upper()
+    _http_level = str(get_config("HTTP_LIB_LOG_LEVEL", "WARNING")).strip().upper()
+    logging.getLogger("matplotlib").setLevel(getattr(logging, _mpl_level, logging.WARNING))
+    logging.getLogger("matplotlib.font_manager").setLevel(getattr(logging, _mpl_level, logging.WARNING))
+    logging.getLogger("httpx").setLevel(getattr(logging, _http_level, logging.WARNING))
+    logging.getLogger("httpcore").setLevel(getattr(logging, _http_level, logging.WARNING))
+except Exception:
+    pass
+# Monte Carlo model removed per specification — no import
+import re as _re
+
+def _normalise_key(key: str) -> str:
+    try:
+        return _re.sub(r"[^a-z0-9]+", "", str(key).lower())
+    except Exception:
+        return str(key)
+
+def _reconcile_context_for_template(doc, context: dict, extra_alias: dict = None, debug: bool = False) -> dict:
+    """
+    Reconcile the render context against the template's declared variables.
+    - Apply a fixed alias map for common variants.
+    - Apply simple normalisation-based mappings for missing keys.
+    - Fill any remaining missing keys with safe defaults (empty string).
+    Returns a new context dict suitable for doc.render().
+    """
+    try:
+        required = set(doc.get_undeclared_template_variables() or [])
+    except Exception:
+        required = set()
+    if not required:
+        return context
+
+    ctx = dict(context) if context is not None else {}
+    fixed_alias = {
+        "Threat_scenarios": "threat_scenarios",
+        "ThreatScenarios": "threat_scenarios",
+        "Threat_Scenarios": "threat_scenarios",
+        "Success_Criteria": "success_metrics_render",
+        "SuccessCriteria": "success_metrics_render",
+        "ComplianceAlignment": "compliance_alignment_render",
+        "Compliance_Framework": "compliance_alignment_render",
+        "Compliance": "compliance_alignment_render",
+    }
+    if isinstance(extra_alias, dict):
+        fixed_alias.update(extra_alias)
+    for alias, real in fixed_alias.items():
+        if alias in required and real in ctx and (alias not in ctx or not ctx.get(alias)):
+            ctx[alias] = ctx.get(real, "")
+
+    # Normalised mapping for missing vars
+    for var in list(required):
+        if var in ctx and ctx.get(var) not in (None, ""):
+            continue
+        norm = _normalise_key(var)
+        found = None
+        for k in ctx.keys():
+            if _normalise_key(k) == norm:
+                found = k
+                break
+        if found and (var not in ctx or ctx.get(var) in (None, "")):
+            ctx[var] = ctx.get(found, "")
+
+    # Final guard: fill any truly missing with safe defaults
+    for var in required:
+        if var not in ctx or ctx.get(var) is None:
+            ctx[var] = ""  # default to empty string for safety
+
+    if debug:
+        try:
+            missing = sorted([v for v in required if not ctx.get(v)])
+            if missing:
+                print("DOCX_UNDECLARED_FILL", missing)
+        except Exception:
+            pass
+    return ctx
 try:
     from quality_pipeline import process_maturity_report, process_threat_report, get_quality_thresholds, quality_gate_enabled
 except Exception:  # Safe fallback if module unavailable
@@ -28,15 +151,25 @@ except Exception:  # Safe fallback if module unavailable
 # ===== Maturity Gauge (document-only) =====
 # Weighted model (Option A): sums to 1.00, elevated Culture
 MATURITY_WEIGHTS = {
-    "iam": 0.17,
-    "endpoint": 0.17,
-    "network": 0.10,
+    # Identity
+    "iam": 0.10,
+    "privileged_access": 0.07,
+    # Endpoint & Network
+    "endpoint": 0.10,
+    "network": 0.07,
+    # Messaging & Cloud
     "email": 0.04,
-    "cloud": 0.13,
-    "secops": 0.13,
-    "testing": 0.02,
-    "culture": 0.09,
-    "grc": 0.12,
+    "cloud": 0.09,
+    # SaaS & Data
+    "saas": 0.06,
+    "data_security": 0.07,
+    # Operations & Assurance
+    "secops": 0.12,
+    "testing": 0.04,
+    "supplier": 0.05,
+    "resilience": 0.07,
+    "culture": 0.05,
+    "grc": 0.04,
     "ai": 0.03,
 }
 
@@ -333,6 +466,8 @@ def draw_estate_summary(pdf, inputs):
             
             # Fallback to "N/A" if the string is empty to prevent multi_cell from hanging
             safe_string = str(value).strip() if str(value).strip() else "N/A"
+            if safe_string == "Unknown":
+                safe_string = "Not established during consultation"
             pdf.multi_cell(0, 6, safe_string, border=0)
 
     # --- Group 1: Organisational Profile ---
@@ -346,6 +481,16 @@ def draw_estate_summary(pdf, inputs):
     draw_row("Endpoints / Servers", f"{safe_get('endpoints')} / {safe_get('servers')}")
     draw_row("Target Compliance", safe_get('compliance'))
     draw_row("Crown Jewels", safe_get('critical_infra'))
+    # Business Services & Sensitive Data (from structured critical_asset_profile if available)
+    try:
+        cap = inputs.get('critical_asset_profile', {}) or {}
+        bs = ", ".join([str(x) for x in (cap.get('business_services') or [])]) if isinstance(cap.get('business_services'), list) else str(cap.get('business_services') or "")
+        sd = ", ".join([str(x) for x in (cap.get('sensitive_data_types') or [])]) if isinstance(cap.get('sensitive_data_types'), list) else str(cap.get('sensitive_data_types') or "")
+        if (bs or sd):
+            draw_row("Business Services", bs or "N/A")
+            draw_row("Sensitive Data", sd or "N/A")
+    except Exception:
+        pass
     draw_row("Managed Service Status", safe_get('managed_service_status'))
     draw_row("Co-Managed Service Units", safe_get('co_managed_units', 0))
     pdf.ln(3)
@@ -362,6 +507,55 @@ def draw_estate_summary(pdf, inputs):
     draw_row("Identity & Access", safe_get('identity'))
     draw_row("Email Security", safe_get('email'))
     draw_row("Cloud Environment", safe_get('cloud_env'))
+    # Structured evidence summaries (compact, omit empty)
+    try:
+        ip = format_information_protection_profile(inputs.get('information_protection_profile', {}))
+        if ip:
+            draw_row("Information Protection", ip)
+    except Exception:
+        pass
+    try:
+        idg = format_identity_governance_profile(inputs.get('identity_governance_profile', {}))
+        if idg:
+            draw_row("Identity Governance", idg)
+    except Exception:
+        pass
+    try:
+        saas = format_saas_governance_profile(inputs.get('saas_governance_profile', {}))
+        if saas:
+            draw_row("SaaS Governance", saas)
+    except Exception:
+        pass
+    try:
+        aa = format_asset_assurance_profile(inputs.get('asset_assurance_profile', {}))
+        if aa:
+            draw_row("Asset Assurance", aa)
+    except Exception:
+        pass
+    try:
+        mon = format_monitoring_assurance_profile(inputs.get('monitoring_assurance_profile', {}))
+        if mon:
+            draw_row("Monitoring Coverage", mon)
+    except Exception:
+        pass
+    try:
+        sup = format_supplier_assurance_profile(inputs.get('supplier_assurance_profile', {}), inputs.get('third_party_access_profile', {}))
+        if sup:
+            draw_row("Supplier & 3rd-Party", sup)
+    except Exception:
+        pass
+    try:
+        rec = format_recovery_assurance_profile(inputs.get('recovery_assurance_profile', {}))
+        if rec:
+            draw_row("Recovery Assurance", rec)
+    except Exception:
+        pass
+    try:
+        ir = format_ir_assurance_profile(inputs.get('incident_response_assurance_profile', {}))
+        if ir:
+            draw_row("Incident Response", ir)
+    except Exception:
+        pass
     pdf.ln(3)
 
     # --- Group 3: Operations & Validation ---
@@ -573,6 +767,56 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
         "mdr_case_log": mdr_case,
         "recommendations": recs,
     }
+    # Pre-render alias hydration to reduce template fragility
+    try:
+        ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+        for alias in ("threat_scenarios", "ThreatScenarios", "Threat_Scenarios", "threat_scenarios_alt"):
+            if not context.get(alias):
+                context[alias] = ts_text
+    except Exception:
+        pass
+    succ_list = _as_list(getattr(report_data, "success_metrics", None))
+    succ_render = "\n".join([f"- {x}" for x in succ_list]) if succ_list else ""
+    # Prepopulate alias mappings so templates with various keys render content
+    # Use local computed succ_render for all success-related aliases
+    if "success_metrics_render" not in locals():
+        compliance_alias_guard = None
+    # If the template uses different alias names, ensure they're present
+    # Ensure aliases map to local render strings to avoid empty placeholders in template
+    for _alias in ("success_metrics_render", "success_criteria", "Success_Criteria"):
+        if not context.get(_alias):
+            context[_alias] = succ_render
+    # Compliance alignment: ensure we have a local render string (compat aliasing)
+    try:
+        comp_render = compliance_alignment_render if 'compliance_alignment_render' in locals() else ""
+        if comp_render:
+            for _alias in ("ComplianceAlignment", "Compliance_Framework", "compliance_alignment", "compliance_render"):
+                if not context.get(_alias):
+                    context[_alias] = comp_render
+    except Exception:
+        pass
+    # Threat scenarios: provide a capitalised alias if missing
+    if not context.get("Threat_scenarios") and ts_text:
+        context["Threat_scenarios"] = ts_text
+    # CAP and Partnership aliasing
+    if not context.get("CAP_Summary") and getattr(report_data, "cap_summary", None):
+        context["CAP_Summary"] = getattr(report_data, "cap_summary", "")
+    if not context.get("Partnership") and getattr(report_data, "partnership_outline", ""):
+        context["Partnership"] = getattr(report_data, "partnership_outline", "")
+    if not context.get("Partnership_Details") and getattr(report_data, "partnership_details", ""):
+        context["Partnership_Details"] = getattr(report_data, "partnership_details", "")
+        
+    # Hardened aliasing for common keys to reduce template fragility
+    try:
+        for alias in ("success_metrics_render", "success_criteria", "Success_Criteria"):
+            if not context.get(alias):
+                context[alias] = _succ_render
+        comp_render = compliance_alignment_render if 'compliance_alignment_render' in locals() else ""
+        for alias in ("ComplianceAlignment", "Compliance_Framework", "Compliance"):
+            if not context.get(alias):
+                context[alias] = comp_render
+    except Exception:
+        pass
 
     # NEW: If envelope-based threat scenario is provided, render the outline parts into separate placeholders
     outline_text = ""
@@ -608,16 +852,168 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
             "ThreatScenarioImpact": impact_text,
             "ThreatScenarioMitigations": mitigations_text,
         })
-    
-    
-    # Render the docx template with our context mapping
-    doc.render(_xml_escape_dict(context))
-    
+# Precompute Threat Scenarios & Success Criteria aliases before rendering
+ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+# Normalise common variants to reduce template fragility
+for alias in ("threat_scenarios", "Threat_scenarios", "Threat_Scenarios", "ThreatScenarios", "threat_scenarios_alt"):
+    context[alias] = ts_text
+    context["Threat_Scenarios"] = ts_text
+
+    _succ = _as_list(getattr(report_data, "success_metrics", None))
+    _succ_render = "\\n".join([f"- {x}" for x in _succ]) if _succ else ""
+    context["success_metrics_render"] = _succ_render
+    context["success_criteria"] = _succ_render
+    context["Success_Criteria"] = _succ_render
+
+    # Ensure CAP and compliance aliases are wired to local renders
+    cap_summary_text = getattr(report_data, "cap_summary", None)
+    if not cap_summary_text:
+        cap_summary_text = format_critical_asset_profile(client_inputs.get("critical_asset_profile", {}))
+    context["cap_summary"] = cap_summary_text
+    context["CAP_Summary"] = cap_summary_text
+    context["CAP"] = cap_summary_text
+    if not context.get("ComplianceAlignment") and not context.get("Compliance_Framework"):
+        comp_render = compliance_alignment_render if 'compliance_alignment_render' in locals() else ""
+        if comp_render:
+            context["ComplianceAlignment"] = comp_render
+            context["Compliance_Framework"] = comp_render
+    # Always expose a compliance_render alias as well
+    context["compliance_alignment_render"] = compliance_alignment_render
+    context["compliance_alignment"] = compliance_alignment_render
+    context["success_criteria"] = _succ_render
+    context["Success_Criteria"] = _succ_render
+
+    # Compliance aliases
+    compliance_render = compliance_alignment_render if 'compliance_alignment_render' in locals() else ""
+    context["ComplianceAlignment"] = compliance_render or compliance_render
+    context["Compliance_Framework"] = compliance_render or compliance_render
+    # Precompute Threat Scenarios & Success Criteria aliases before rendering
+    ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+    context["threat_scenarios"] = ts_text
+    context["Threat_scenarios"] = ts_text
+
+    _succ = _as_list(getattr(report_data, "success_metrics", None))
+    _succ_render = "\n".join([f"- {x}" for x in _succ]) if _succ else ""
+    context["success_metrics_render"] = _succ_render
+    context["success_criteria"] = _succ_render
+    context["Success_Criteria"] = _succ_render
+
+    # Compliance aliases (map to the same string if available)
+    compliance_render = compliance_alignment_render if 'compliance_alignment_render' in locals() else ""
+    context["ComplianceAlignment"] = compliance_render
+    context["Compliance_Framework"] = compliance_render
+    # Broaden alias coverage for common template placeholders to reduce render fragility
+    try:
+        alias_candidates = [
+            "Threat_scenarios_alias",
+            "Threat_Scenarios",
+            "ThreatScenarios",
+            "threat_scenarios_alt",
+            "Compliance",
+            "ComplianceAlignment",
+            "Compliance_Framework",
+            "Cost_of_inaction",
+            "SuccessCriteria",
+            "Cost_of_Inaction",
+            "Success_Criteria",
+        ]
+        for a in alias_candidates:
+            if a not in context or context.get(a) in ("", None):
+                # Map newly known aliases to existing content where reasonable
+                if a.lower().find("threat") != -1:
+                    context[a] = ts_text
+                elif a.lower().find("compliance") != -1:
+                    context[a] = compliance_render
+                elif a.lower().find("success") != -1:
+                    context[a] = _succ_render
+                elif a.lower().find("cost") != -1:
+                    context[a] = getattr(report_data, 'cost_of_inaction', '') or ''
+    except Exception:
+        pass
+    # Diagnostics (opt-in)
+    # Unconditionally log a small render-start message to aid troubleshooting
+    try:
+        _LOGGER.debug("DOCX render starting: context_keys=%d", len(context.keys()))
+        undeclared = []
+        try:
+            undeclared = doc.get_undeclared_template_variables()
+            _LOGGER.debug("DOCX render undeclared placeholders (pre-render): %s", undeclared)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        if str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on"):
+            undeclared = undeclared or []
+            _LOGGER.info(
+                "DOCX render debug: context_keys=%d; undeclared=%s",
+                len(context.keys()),
+                sorted(list(undeclared)) if isinstance(undeclared, (set, list, tuple)) else undeclared
+            )
+            _LOGGER.info(
+                "DOCX render debug: threat_scenarios_present=%s; compliance_alignment_len=%s; success_metrics_len=%s",
+                bool(getattr(report_data, "threat_scenarios", None)),
+                len(getattr(report_data, "compliance_alignment", []) or []),
+                len(getattr(report_data, "success_metrics", []) or [])
+            )
+    except Exception:
+        pass
+    # Pre-render reconciliation and diagnostics
+    try:
+        context = _reconcile_context_for_template(doc, context, debug=bool(get_config("RENDER_DEBUG", "false")))
+    except Exception:
+        pass
+    print("DOCX_RENDER_START", "context_keys=", len(context.keys()))
+    try:
+        if str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on"):
+            try:
+                undeclared = doc.get_undeclared_template_variables()
+            except Exception:
+                undeclared = []
+            print("DOCX_UNDECLARED", sorted(list(undeclared)) if isinstance(undeclared, (set, list, tuple)) else undeclared)
+    except Exception:
+        pass
+    try:
+        doc.render(_xml_escape_dict(context))
+    except Exception as e:
+        try:
+            print("DOCX_RENDER_FAIL", repr(e))
+        except Exception:
+            pass
+        raise
+    else:
+        print("DOCX_RENDER_FINISH")
+    # Post-render: inject threat scenarios into the final document if any are present
+    try:
+        ts_for_inject = getattr(report_data, "threat_scenarios", None)
+        if isinstance(ts_for_inject, list) and ts_for_inject:
+            _inject_threat_scenarios_after_render(doc, ts_for_inject)
+    except Exception:
+        pass
+    # Before rendering the template, ensure critical aliases exist even if upstream data is sparse
+    try:
+        if not context.get("threat_scenarios") and getattr(report_data, "threat_scenarios", None):
+            ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+            if ts_text:
+                context["threat_scenarios"] = ts_text
+                context["Threat_scenarios"] = ts_text
+                context["Threat_Scenarios"] = ts_text
+        if not context.get("cap_summary") and getattr(report_data, "cap_summary", None):
+            context["cap_summary"] = getattr(report_data, "cap_summary", "")
+            context["CAP_Summary"] = getattr(report_data, "cap_summary", "")
+        if not context.get("compliance_alignment_render") and 'compliance_alignment_render' in locals():
+            if compliance_alignment_render:
+                context["ComplianceAlignment"] = compliance_alignment_render
+                context["Compliance_Framework"] = compliance_alignment_render
+                context["compliance_alignment_render"] = compliance_alignment_render
+                context["compliance_alignment"] = compliance_alignment_render
+    except Exception:
+        pass
+
     # Save document into a BytesIO memory stream
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    
     return buffer.getvalue()
 
 
@@ -646,7 +1042,45 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
             break
 
     if placeholder_element is None:
+        try:
+            _LOGGER.warning("Threat scenarios placeholder not found in DOCX template; attempting alternative placeholder search.")
+        except Exception:
+            pass
         return
+
+    # Simple, robust text replacement helper to catch any leftover literal placeholders in the document
+    def _replace_text_in_docx(target_doc, old_text: str, new_text: str):
+        if not old_text:
+            return
+        if new_text is None:
+            new_text = ""
+        # Replace in paragraphs
+        for para in target_doc.paragraphs:
+            if old_text in para.text:
+                # Replace in the text of the paragraph (best-effort)
+                para.text = para.text.replace(old_text, new_text)
+                # Attempt to replace within runs as well
+                for run in para.runs:
+                    if old_text in run.text:
+                        run.text = run.text.replace(old_text, new_text)
+        # Replace in table cells
+        for table in getattr(target_doc, 'tables', []):
+            for row in table.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        if old_text in para.text:
+                            para.text = para.text.replace(old_text, new_text)
+                            for run in para.runs:
+                                if old_text in run.text:
+                                    run.text = run.text.replace(old_text, new_text)
+
+    # Compute the text to inject from threat_scenarios
+    ts_text = ts_text if 'ts_text' in locals() else _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+    # Inject/replace the exact placeholders across common variants
+    if ts_text:
+        _replace_text_in_docx(doc, '{{ threat_scenarios }}', ts_text)
+        _replace_text_in_docx(doc, '{{ Threat_scenarios }}', ts_text)
+
 
     # Helper: create a new paragraph inserted after the given element
     def _new_para_after(prev_el, style=None):
@@ -977,6 +1411,14 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         # Fail open: continue export without blocking if pipeline errors
         pass
 
+    # Normalise potential None/scalar optional context fields to list forms for template rendering
+    def _as_list(value):
+        if isinstance(value, list):
+            return value
+        if value is None or value == "":
+            return []
+        return [value]
+
     # 1) Radar chart image
     data = getattr(report_data, "radar_chart_data", None)
     labels = []
@@ -1011,18 +1453,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         except OSError:
             pass
     maturity_gauge_image = InlineImage(doc, gauge_buffer, width=Inches(2.5))
-    # --- Monte Carlo risk simulation (document context only) ---
-    # Prefer MC data computed upstream (app.py); fall back to local compute
-    mc = mc_data if isinstance(mc_data, dict) and mc_data else None
-    if mc is None:
-        try:
-            mc_iters = int(get_config("MC_ITERATIONS", 5000))
-        except Exception:
-            mc_iters = 5000
-        try:
-            mc = run_monte_carlo(client_inputs, report_data, iterations=mc_iters)
-        except Exception:
-            mc = None
+    # Monte Carlo model removed — do not compute or include MC data
+    mc = None
 
     # --- Domain rating summary (map 1–3 to 0–100 and categorise) ---
     domain_ratings = []
@@ -1031,6 +1463,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             if lo <= p <= hi:
                 return n
         return "High Risk" if p < 40 else "Strong"
+    # Track pillar distribution while building ratings (v: 1→Pillar 1, 2→Pillar 2, 3→Pillar 3)
+    pillar_counts = {"Pillar 1": 0, "Pillar 2": 0, "Pillar 3": 0}
     if labels and values:
         for lbl, val in zip(labels, values):
             try:
@@ -1041,23 +1475,99 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                 v = 0.0
             if v > 3:
                 v = 3.0
+            # Increment pillar counts using nearest-integer style mapping
+            if v <= 1.5:
+                pillar_counts["Pillar 1"] += 1
+            elif v <= 2.5:
+                pillar_counts["Pillar 2"] += 1
+            else:
+                pillar_counts["Pillar 3"] += 1
             pct_val = int(round((v / 3.0) * 100))
             category_val = _categorise_percent(pct_val)
             domain_ratings.append({"domain": lbl, "percent": pct_val, "category": category_val})
     domain_ratings_bullets = "\n".join([f"- {d['domain']}: {d['category']} ({d['percent']}/100)" for d in domain_ratings])
+    # Render a concise pillar distribution string for template usage
+    maturity_pillar_distribution = (
+        f"Domains by Pillar — Pillar 1: {pillar_counts['Pillar 1']}, "
+        f"Pillar 2: {pillar_counts['Pillar 2']}, "
+        f"Pillar 3: {pillar_counts['Pillar 3']}"
+    )
+    # Caption for the gauge: category + score + approximate pillar (derived from overall percent)
+    try:
+        approx_pillar = int(round((overall_percent / 100.0) * 3.0))
+    except Exception:
+        approx_pillar = 1
+    if approx_pillar < 1:
+        approx_pillar = 1
+    if approx_pillar > 3:
+        approx_pillar = 3
+    maturity_gauge_caption = (
+        f"Overall: {overall_category} ({overall_percent}/100) — approx. Pillar {approx_pillar} weighted across core domains"
+    )
 
     # 2) Domains & Roadmap derivation with safe defaults
     domains_list = []
+
+    # Map standard domain names to radar keys used in radar_chart_data
+    _DOMAIN_TO_RADAR = {
+        "Identity & Access Management": "iam",
+        "Privileged Access & Identity Governance": "privileged_access",
+        "Endpoint & Device Security": "endpoint",
+        "Network & Remote Access Security": "network",
+        "Email & Collaboration Security": "email",
+        "Cloud & Infrastructure Security": "cloud",
+        "SaaS & Application Governance": "saas",
+        "Data Security & Information Protection": "data_security",
+        "Security Operations & Response": "secops",
+        "Security Validation & Testing": "testing",
+        "Supplier & Third-Party Security": "supplier",
+        "Operational Resilience & Backup": "resilience",
+        "Security Culture & Awareness": "culture",
+        "Governance, Risk & Compliance": "grc",
+        "AI Governance & Security": "ai",
+    }
+
+    # Build per-domain weighted contribution percents from radar_chart_data and MATURITY_WEIGHTS
+    domain_weighted_pct_map = {}
+    try:
+        if "dd" in locals() and isinstance(dd, dict):
+            def _norm_score(v):
+                try:
+                    fv = float(v)
+                except Exception:
+                    fv = 1.0
+                if fv < 0: fv = 0.0
+                if fv > 3: fv = 3.0
+                return fv
+            for dname, rkey in _DOMAIN_TO_RADAR.items():
+                if rkey in dd and rkey in MATURITY_WEIGHTS:
+                    s = _norm_score(dd.get(rkey, 1))
+                    w = MATURITY_WEIGHTS.get(rkey, 0.0)
+                    pct = int(round(w * (s / 3.0) * 100))
+                    if pct < 0: pct = 0
+                    if pct > 100: pct = 100
+                    domain_weighted_pct_map[dname] = pct
+    except Exception:
+        domain_weighted_pct_map = {}
+
     domain_items = getattr(report_data, "domain_assessments", None) or getattr(report_data, "domains", None) or []
     if not isinstance(domain_items, list):
         domain_items = []
     for item in domain_items:
         if hasattr(item, "model_dump"):
-            domains_list.append(_xml_escape_dict(item.model_dump()))
+            _d = item.model_dump()
+            _name = _d.get("domain_name") or _d.get("name")
+            _d["weighted_contribution_percent"] = domain_weighted_pct_map.get(_name)
+            domains_list.append(_xml_escape_dict(_d))
         elif isinstance(item, dict):
-            domains_list.append(_xml_escape_dict(item))
+            _name = item.get("domain_name") or item.get("name")
+            _d = dict(item)
+            _d["weighted_contribution_percent"] = domain_weighted_pct_map.get(_name)
+            domains_list.append(_xml_escape_dict(_d))
         else:
-            domains_list.append(_xml_escape_dict({"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))}))
+            _fallback = {"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))}
+            _fallback["weighted_contribution_percent"] = domain_weighted_pct_map.get(_fallback.get("domain_name"))
+            domains_list.append(_xml_escape_dict(_fallback))
 
     roadmap_list = []
     phases = getattr(report_data, "phased_roadmap", None) or getattr(report_data, "roadmap", None) or []
@@ -1138,13 +1648,31 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             plan_text = " | ".join(actions_per_gap)
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
-
     context = {
         # Keep {{ threat_scenarios }} as a literal placeholder for post-render injection
-        "threat_scenarios": "{{ threat_scenarios }}",
-        # Keep {{ monte_carlo_section }} as a literal placeholder for post-render injection
-        "monte_carlo_section": "{{ monte_carlo_section }}",
+        # Threat_scenarios" : "{{ threat_scenarios }}",
+        # Also support templates using capitalised placeholder name
+        "Threat_scenarios": "{{ threat_scenarios }}",
+        # CAP compact summary for overview section
+        "cap_summary": format_critical_asset_profile(client_inputs.get("critical_asset_profile", {})),
+        # Monte Carlo placeholder removed
         "customer_name": client_inputs.get("customer_name", "Customer"),
+        
+        # New optional alias fields for template compatibility
+        "cost_of_inaction": getattr(report_data, "cost_of_inaction", ""),
+        "cost_of_inaction_summary": getattr(report_data, "cost_of_inaction_summary", ""),
+        # Success metrics aliases
+        "success_metrics": getattr(report_data, "success_metrics", []),
+        "success_metrics_render": getattr(report_data, "success_metrics_render", ""),
+        # Aliases for success criteria
+        "success_criteria": getattr(report_data, "success_metrics_render", ""),
+        "Success_Criteria": getattr(report_data, "success_metrics_render", ""),
+        # Compliance alignment aliases
+        "compliance_alignment": getattr(report_data, "compliance_alignment_render", ""),
+        "ComplianceAlignment": getattr(report_data, "compliance_alignment_render", ""),
+        "Compliance_Framework": getattr(report_data, "compliance_alignment_render", ""),
+        # Generic partnership alias
+        "Partnership": getattr(report_data, "partnership_outline", "") or getattr(report_data, "partnership_details", ""),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
         "industry": client_inputs.get("industry", "Unknown"),
         "users": client_inputs.get("users", "0"),
@@ -1170,19 +1698,12 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         "maturity_gauge": maturity_gauge_image,
         "domain_ratings": domain_ratings,
         "domain_ratings_bullets": domain_ratings_bullets,
+        # Gauge context strings (optional in template)
+        "maturity_gauge_caption": maturity_gauge_caption,
+        "maturity_pillar_distribution": maturity_pillar_distribution,
         "maturity_score": f"{overall_percent}/100",
         "maturity_score_category": overall_category,
-        # Monte Carlo outputs (optional; populated if template tags exist)
-        "mc_breach_probability_pct": (round(mc.get("breach_probability_pct", 0.0), 1) if mc else 0.0),
-        "mc_aal_gbp": (mc.get("aal_gbp", 0.0) if mc else 0.0),
-        "mc_p50_gbp": (mc.get("p50_gbp", 0.0) if mc else 0.0),
-        "mc_p90_gbp": (mc.get("p90_gbp", 0.0) if mc else 0.0),
-        "mc_p95_gbp": (mc.get("p95_gbp", 0.0) if mc else 0.0),
-        "mc_cvar95_gbp": (mc.get("cvar95_gbp", 0.0) if mc else 0.0),
-        "mc_summary": (mc.get("summary", "") if mc else ""),
-        "mc_explanation": (mc.get("explanation", "") if mc else ""),
-        "mc_drivers_bullets": ("\n".join([f"- {d}" for d in mc.get("drivers", [])]) if mc else ""),
-        "mc_assumptions_bullets": ("\n".join([f"- {a}" for a in mc.get("assumptions", [])]) if mc else ""),
+        # Monte Carlo outputs removed from context
         "pentest_status": client_inputs.get("pentest_status", "Unknown"),
         "vuln_scanning": client_inputs.get("vuln_scanning", "Unknown"),
         "remote_access": client_inputs.get("remote_access", "Unknown"),
@@ -1205,15 +1726,47 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         ]) if getattr(report_data, 'executive_summary_action_blocks', None) else ""),
         "matrix_mapping": report_data.resiliency_matrix_mapping if hasattr(report_data, "resiliency_matrix_mapping") else "",
         "cost_of_inaction": report_data.cost_of_inaction if hasattr(report_data, "cost_of_inaction") else "",
-        "domains": domains_list,
-        "roadmap": roadmap_list,
-        "compliance_alignment": compliance_alignment_list,
-        "success_metrics": getattr(report_data, "success_metrics", ""),
-        "engagement_cadence": getattr(report_data, "engagement_cadence", ""),
-        "consultant_discovery_guide": getattr(report_data, "consultant_discovery_guide", ""),
+        "domains": (domains_list if domains_list is not None else []),
+        "roadmap": (roadmap_list if roadmap_list is not None else []),
+        "compliance_alignment": (compliance_alignment_list if compliance_alignment_list is not None else []),
+        "success_metrics": _as_list(getattr(report_data, "success_metrics", None)),
+        "engagement_cadence": _as_list(getattr(report_data, "engagement_cadence", None)),
+        "consultant_discovery_guide": _as_list(getattr(report_data, "consultant_discovery_guide", None)),
         "compliance_alignment_render": compliance_alignment_render,
         "partnership_outline": getattr(report_data, "partnership_outline", ""),
     }
+    # Ensure a stable baseline set of keys for the template, even if some fields are missing from LLM outputs
+    try:
+        # Threat scenarios: if not present, fill from local ts_text
+        if not context.get("threat_scenarios"):
+            if ts_text:
+                context["threat_scenarios"] = ts_text
+                context["Threat_scenarios"] = ts_text
+                context["Threat_Scenarios"] = ts_text
+        # Compliance alignment: force local render into common aliases
+        if 'compliance_alignment_render' in locals() and compliance_alignment_render:
+            context.setdefault("ComplianceAlignment", compliance_alignment_render)
+            context.setdefault("Compliance_Framework", compliance_alignment_render)
+            context.setdefault("compliance_alignment_render", compliance_alignment_render)
+            context.setdefault("compliance_alignment", compliance_alignment_render)
+        # Cost of Inaction fields
+        if not context.get("cost_of_inaction") and getattr(report_data, "cost_of_inaction", ""):
+            context["cost_of_inaction"] = getattr(report_data, "cost_of_inaction", "")
+        if not context.get("cost_of_inaction_summary") and getattr(report_data, "cost_of_inaction_summary", ""):
+            context["cost_of_inaction_summary"] = getattr(report_data, "cost_of_inaction_summary", "")
+        # CAP & partnership fallbacks
+        if not context.get("cap_summary") and getattr(report_data, "cap_summary", ""):
+            context["cap_summary"] = getattr(report_data, "cap_summary", "")
+            context["CAP_Summary"] = getattr(report_data, "cap_summary", "")
+        if not context.get("partnership_details") and getattr(report_data, "partnership_details", ""):
+            context["partnership_details"] = getattr(report_data, "partnership_details", "")
+        if not context.get("partnership_outline") and getattr(report_data, "partnership_outline", ""):
+            context["partnership_outline"] = getattr(report_data, "partnership_outline", "")
+        # Threat intelligence context
+        if not context.get("threat_intelligence_context") and getattr(report_data, "threat_intelligence_context", ""):
+            context["threat_intelligence_context"] = getattr(report_data, "threat_intelligence_context", "")
+    except Exception:
+        pass
     # Threat intelligence: populate from the LLM-generated report data
     context["threat_intelligence_context"] = getattr(report_data, "threat_intelligence_context", "") or ""
     # Partnership governance: ensure both raw and rendered forms are populated in the context
@@ -1257,49 +1810,33 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     context["proactive_testing_programme"] = getattr(report_data, "proactive_testing_programme", "") or ""
     context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
     context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
-    doc.render(_xml_escape_dict(context))
-    # Monte Carlo interpretation: deterministic by default; optional LLM mode via MC_INTERPRETATION_MODE
-    mc_text = mc_consultative_interpretation
+    # Pre-render reconciliation to align template placeholders with context
     try:
-        mode = str(get_config("MC_INTERPRETATION_MODE", "deterministic")).strip().lower()
+        debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
+        context = _reconcile_context_for_template(doc, context, debug=debug)
     except Exception:
-        mode = "deterministic"
-    if (not isinstance(mc_text, str) or not mc_text.strip()) and isinstance(mc, dict) and mc:
-        if mode == "llm":
-            try:
-                from core import LLMEngine
-                from prompts import build_mc_interpretation_prompt, SYSTEM_PERSONA
-                client = LLMEngine.get_client()
-                deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-                prompt = build_mc_interpretation_prompt(client_inputs, mc)
-                mc_text = LLMEngine.generate_text_report(client, deployment, SYSTEM_PERSONA, prompt, temperature=0.2) or ""
-            except Exception:
-                mc_text = ""
-        else:
-            try:
-                br = float(mc.get('breach_probability_pct', 0.0))
-                aal = float(mc.get('aal_gbp', 0.0))
-                p50 = float(mc.get('p50_gbp', 0.0))
-                p90 = float(mc.get('p90_gbp', 0.0))
-                p95 = float(mc.get('p95_gbp', 0.0))
-                cvar = float(mc.get('cvar95_gbp', 0.0))
-                mc_text = (
-                    f"In probabilistic terms, the model estimates a {br:.1f}% annual breach probability. "
-                    f"Expected annual loss is approximately £{aal:,.0f}, with typical outcomes around £{p50:,.0f} and tail events reaching £{p90:,.0f}–£{p95:,.0f}. "
-                    f"The CVaR95 figure (average of the worst 5% of simulated years) is £{cvar:,.0f}, which frames potential extreme exposure. "
-                    f"These figures are indicative; actual outcomes depend on control effectiveness, response time, and recovery discipline."
-                )
-            except Exception:
-                mc_text = ""
-    # Post-render: insert Monte Carlo section (if available)
+        pass
+    print("DOCX_RENDER_START", "context_keys=", len(context.keys()))
     try:
-        _inject_monte_carlo_section_after_render(doc, mc, mc_text)
+        if str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on"):
+            undeclared = []
+            try:
+                undeclared = doc.get_undeclared_template_variables()
+            except Exception:
+                undeclared = []
+            print("DOCX_UNDECLARED", sorted(list(undeclared)) if isinstance(undeclared, (list, set, tuple)) else undeclared)
     except Exception:
-        # Fail-open: ensure the placeholder is removed if present
+        pass
+    try:
+        doc.render(_xml_escape_dict(context))
+    except Exception as e:
         try:
-            _inject_monte_carlo_section_after_render(doc, {}, "")
+            print("DOCX_RENDER_FAIL", repr(e))
         except Exception:
             pass
+        raise
+    else:
+        print("DOCX_RENDER_FINISH")
 
     # Post-render: inject formatted threat scenarios with proper Word styling
     threat_scenarios_data_for_inject = getattr(report_data, "threat_scenarios", None)

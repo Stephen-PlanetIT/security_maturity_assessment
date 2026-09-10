@@ -505,6 +505,48 @@ def process_maturity_report(client_inputs: dict, report_data: Any) -> Tuple[Any,
     texts = {
         "executive_summary": getattr(report_data, "executive_summary", ""),
     }
+
+    # Additional enrichment: expand thin optional narratives and ensure KPIs exist
+    try:
+        # proactive_testing_programme
+        if hasattr(report_data, "proactive_testing_programme"):
+            val = getattr(report_data, "proactive_testing_programme", "") or ""
+            if _too_short(val, MIN_WORDS.get("proactive_testing_programme", 150)):
+                setattr(report_data, "proactive_testing_programme", _enrich_with_llm("proactive_testing_programme", val))
+        # incident_response_plan_outline
+        if hasattr(report_data, "incident_response_plan_outline"):
+            val = getattr(report_data, "incident_response_plan_outline", "") or ""
+            if _too_short(val, MIN_WORDS.get("incident_response_plan_outline", 150)):
+                setattr(report_data, "incident_response_plan_outline", _enrich_with_llm("incident_response_plan_outline", val))
+        # disaster_recovery_plan_outline
+        if hasattr(report_data, "disaster_recovery_plan_outline"):
+            val = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
+            if _too_short(val, MIN_WORDS.get("disaster_recovery_plan_outline", 150)):
+                setattr(report_data, "disaster_recovery_plan_outline", _enrich_with_llm("disaster_recovery_plan_outline", val))
+        # cost_of_inaction
+        if hasattr(report_data, "cost_of_inaction"):
+            val = getattr(report_data, "cost_of_inaction", "") or ""
+            if _too_short(val, MIN_WORDS.get("cost_of_inaction", 120)):
+                setattr(report_data, "cost_of_inaction", _enrich_with_llm("cost_of_inaction", val))
+        # ensure success_metrics exists; if missing, generate 3–4 KPIs
+        if not getattr(report_data, "success_metrics", None):
+            try:
+                from core import LLMEngine
+                client = LLMEngine.get_client()
+                if client:
+                    deployment = get_config("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+                    kp_prompt = (
+                        f"Generate 3–4 measurable success metrics for {client_inputs.get('customer_name','the client')} "
+                        f"in {client_inputs.get('industry','their industry')}, focusing on MFA coverage, patch SLA, backup immutability tests, and MTTR. Use UK English."
+                    )
+                    text = LLMEngine.generate_text_report(client, deployment, "You are a senior UK cyber consultant.", kp_prompt, temperature=0.4) or ""
+                    lines = [l.strip('-• ').strip() for l in text.splitlines() if l.strip()]
+                    if lines:
+                        setattr(report_data, "success_metrics", lines[:4])
+            except Exception:
+                pass
+    except Exception:
+        pass
     quality = score_report(texts)
     # Gate pass flag
     thr = get_quality_thresholds()

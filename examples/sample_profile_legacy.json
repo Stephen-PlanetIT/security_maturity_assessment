@@ -1,0 +1,18 @@
+{
+  "customer_name": "Legacy Co",
+  "industry": "Manufacturing",
+  "users": 120,
+  "critical_infra": "Production Scheduling System",
+  "endpoints": 150,
+  "servers": 10,
+  "operating_systems": ["Windows 10", "Windows Server"],
+  "mdr_provider": "None",
+  "endpoint": "Microsoft Defender",
+  "firewall": "Sophos",
+  "remote_access": "Legacy VPN (Client-based)",
+  "saas_backup": "None (Relying on Microsoft/Google)",
+  "identity": "On-premises Active Directory only",
+  "m365_license": "None / On-Prem Only",
+  "email": "Mimecast",
+  "cloud_env": ["None (Fully On-Prem)"]
+}

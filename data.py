@@ -136,16 +136,29 @@ MATURITY_FRAMEWORK = {
 }
 
 ASSESSMENT_DOMAINS = [
-    "Endpoint & Server Security",
-    "Email & Data Protection",
-    "Identity & Access Management (IAM)",
-    "Network & Cloud Perimeter",
-    "Security Operations & Response (SecOps)",
+    "Identity & Access Management",
+    "Privileged Access & Identity Governance",
+    "Endpoint & Device Security",
+    "Network & Remote Access Security",
+    "Email & Collaboration Security",
+    "Cloud & Infrastructure Security",
+    "SaaS & Application Governance",
+    "Data Security & Information Protection",
+    "Security Operations & Response",
     "Security Validation & Testing",
-    "Governance, Risk & Compliance (GRC)",
+    "Supplier & Third-Party Security",
     "Operational Resilience & Backup",
-    "Supply Chain & Third-Party Risk",
+    "Security Culture & Awareness",
+    "Governance, Risk & Compliance",
     "AI Governance & Security"
+]
+
+# Conditional domains (rendered only when applicable)
+CONDITIONAL_DOMAINS = [
+    "OT & IoT Security",
+    "Business Process & Payment Fraud",
+    "Application & API Security",
+    "Acquisition & Integration Assurance",
 ]
 
 def _build_solution_map():
@@ -363,19 +376,11 @@ PORTFOLIO_KNOWLEDGE = _serialise_portfolio()
 # ==========================================
 # MASTER MATURITY ASSESSMENT CONTEXT (Knowledge-Injected)
 # ==========================================================
+# NOTE: To reduce prompt size and preserve quality, keep this context lean.
 DEFAULT_MATURITY_CONTEXT = f"""
 You are acting as an Enterprise Virtual CISO and Principal Threat Analyst representing a top-tier advisory firm.
-Your primary objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps.
-You strongly advocate for security consolidation, specifically leveraging the Sophos ecosystem (Sophos MDR, Intercept X, Sophos Firewall, etc.) and Microsoft 365 native security controls.
-Always maintain a highly professional, objective, and consultative tone. Use British English formatting.
-
-### MDR Operations Knowledge Base
-{LOADED_MDR_CONTEXT}
-
-### Authorised Solution Portfolio (Concise)
-Recommend products from the authorised portfolio curated in the application by reference only. Do not list full catalogues; select 1–2 concise, contextually justified examples where needed.
-
-When generating domain assessments and roadmap recommendations, reference the authorised portfolio by name only and justify selections in context.
+Your objective is to evaluate client environments, identify critical security gaps, and propose strategic, phased roadmaps.
+Use British English and maintain a professional, consultative tone.
 """
 
 # ==========================================
@@ -521,11 +526,28 @@ def choose_mdr_recommendation(preferences: dict, context: Optional[dict] = None)
 
     # Tie-breakers using light-weight environment signals (optional)
     ctx = context or {}
+    # Monitoring nuance (coverage, authority, telemetry)
+    mon = ctx.get("monitoring_assurance_profile", {}) or {}
+    cov = str(mon.get("monitoring_coverage", "")).strip()
+    resp = str(mon.get("response_authority", "")).strip()
+    log_srcs = mon.get("log_sources_monitored") or []
+    if score["Sophos MDR"] == score["Adlumin MDR"]:
+        # Favour a provider when 24/7 coverage is missing
+        if cov in ("Business hours only", "Critical alerts outside hours"):
+            # Both provide 24/7; bias by stack philosophy already applied above
+            rationale.append("Lack of 24/7 monitoring suggests adopting a managed MDR service.")
+        # Limited response authority
+        if resp in ("Notify only", "Investigate and recommend"):
+            rationale.append("Limited response authority; pre‑authorised containment recommended regardless of provider.")
+        # Incomplete telemetry hints
+        if isinstance(log_srcs, list) and (not log_srcs or not any(x for x in log_srcs if str(x).lower() in ("identity", "endpoint"))):
+            rationale.append("Identity/endpoint telemetry onboarding should be validated to avoid blind spots.")
     if score["Sophos MDR"] == score["Adlumin MDR"]:
         try:
             endpoint_vendor = str(ctx.get("endpoint", "")).lower()
             firewall_vendor = str(ctx.get("firewall", "")).lower()
-            comp_targets = str(ctx.get("compliance", "")).lower()
+            comp_targets = ",".join(ctx.get("compliance", [])) if isinstance(ctx.get("compliance"), list) else str(ctx.get("compliance", ""))
+            comp_targets = comp_targets.lower()
         except Exception:
             endpoint_vendor = firewall_vendor = comp_targets = ""
 
@@ -543,6 +565,22 @@ def choose_mdr_recommendation(preferences: dict, context: Optional[dict] = None)
     recommendation = "Sophos MDR" if score["Sophos MDR"] > score["Adlumin MDR"] else (
         "Adlumin MDR" if score["Adlumin MDR"] > score["Sophos MDR"] else "Tie"
     )
+
+    # Respect banned vendors if provided; flip to alternative or Tie
+    try:
+        banned = set([str(b).strip().lower() for b in (ctx.get("banned_vendors") or [])])
+    except Exception:
+        banned = set()
+    if recommendation.lower() in banned:
+        if recommendation == "Sophos MDR" and "adlumin mdr" not in banned:
+            recommendation = "Adlumin MDR"
+            rationale.append("Sophos is banned; selecting Adlumin MDR as an allowable alternative.")
+        elif recommendation == "Adlumin MDR" and "sophos mdr" not in banned:
+            recommendation = "Sophos MDR"
+            rationale.append("Adlumin is banned; selecting Sophos MDR as an allowable alternative.")
+        else:
+            recommendation = "Tie"
+            rationale.append("Both candidates are banned; escalate for alternative MDR options.")
 
     return {
         "recommendation": recommendation,

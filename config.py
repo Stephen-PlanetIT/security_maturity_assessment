@@ -38,6 +38,12 @@ class ConfigKey:
     AUTH_SESSION_TTL_MIN = "AUTH_SESSION_TTL_MIN"
     AUTH_MAX_ATTEMPTS = "AUTH_MAX_ATTEMPTS"
     AUTH_COOLDOWN_SEC = "AUTH_COOLDOWN_SEC"
+    AUTH_SLIDING_TTL = "AUTH_SLIDING_TTL"
+
+    # Session persistence (provider-agnostic via config)
+    SESSION_PERSIST_ENABLED = "SESSION_PERSIST_ENABLED"
+    SESSION_STORAGE_DIR = "SESSION_STORAGE_DIR"
+    SESSION_AUTOSAVE_SEC = "SESSION_AUTOSAVE_SEC"
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -194,6 +200,7 @@ def get_reference_sample() -> str:
         if isinstance(text, str) and text.strip():
             sample_text = text
     sample_text = sample_text.strip()
-    if len(sample_text) > 6000:
-        sample_text = sample_text[:6000]
+    # Keep the reference sample short to minimise prompt bloat; cap to ~1500 chars
+    if len(sample_text) > 1500:
+        sample_text = sample_text[:1500]
     return sample_text
