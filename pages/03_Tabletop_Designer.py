@@ -10,6 +10,7 @@ from prompts import (
 from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from config import get_config, ConfigKey
 from catalog import PLANET_IT_PORTFOLIO
+from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections
 
 def _safe_index(options, value):
     """Return index of value in options; 0 if missing or invalid."""
@@ -306,6 +307,44 @@ with st.expander("Customer Estate & Engagement Profile (Advanced)", expanded=Fal
         })
         st.success("Advanced profile applied to Tabletop context.")
 
+# Extended inputs parity with Maturity (shared)
+ai_dict = render_ai_usage_and_governance()
+sav_dict = render_security_culture_sections()
+cap_dict, sr_dict, ip_dict, idg_dict, saas_dict, aa_dict, mon_dict, sup_dict, tpa_dict, rec_dict, ir_dict, as_map = render_governance_assurance_sections()
+st.session_state.setdefault("client_inputs", {})
+# Merge Security Culture (behaviours)
+st.session_state["client_inputs"].update({
+    "savviness": sav_dict.get("savviness"),
+    "savviness_label": sav_dict.get("savviness_label"),
+    "culture_score": sav_dict.get("culture_score"),
+    "culture_q1": sav_dict.get("culture_q1"),
+    "culture_q2": sav_dict.get("culture_q2"),
+    "culture_q3": sav_dict.get("culture_q3"),
+    "culture_reporting_routes": sav_dict.get("culture_reporting_routes"),
+    "culture_followup_coaching": sav_dict.get("culture_followup_coaching"),
+    "culture_role_training": sav_dict.get("culture_role_training"),
+    "culture_leadership_engagement": sav_dict.get("culture_leadership_engagement"),
+    "culture_policy_ack": sav_dict.get("culture_policy_ack"),
+    "culture_phish_fail_pct_90d": sav_dict.get("culture_phish_fail_pct_90d"),
+    "culture_report_rate_pct_90d": sav_dict.get("culture_report_rate_pct_90d"),
+})
+# Merge AI Governance
+st.session_state["client_inputs"].update(ai_dict)
+# Merge Governance & Assurance evidence maps
+st.session_state["client_inputs"].update({
+    "critical_asset_profile": cap_dict,
+    "service_resilience_profile": sr_dict,
+    "information_protection_profile": ip_dict,
+    "identity_governance_profile": idg_dict,
+    "saas_governance_profile": saas_dict,
+    "asset_assurance_profile": aa_dict,
+    "monitoring_assurance_profile": mon_dict,
+    "supplier_assurance_profile": sup_dict,
+    "third_party_access_profile": tpa_dict,
+    "recovery_assurance_profile": rec_dict,
+    "incident_response_assurance_profile": ir_dict,
+    "assurance_status": as_map,
+})
 col_sc1, col_sc2 = st.columns(2)
 with col_sc1:
     selected_themes = st.multiselect(

@@ -332,6 +332,33 @@ def get_threat_docx_bytes():
             st.error("Word export failed. Please try regenerating the report.")
     return st.session_state.get('threat_docx_bytes')
 
+def get_threat_json_bytes():
+    """Lazy-generate and cache JSON bytes for the Threat Simulator structured data."""
+    if st.session_state.get('threat_json_bytes') is None and st.session_state.get('scenario_obj'):
+        try:
+            import json as _json
+            # Prefer Pydantic v2 model_dump; fallback to .dict(); else best-effort
+            _sc = st.session_state['scenario_obj']
+            if hasattr(_sc, 'model_dump'):
+                scenario_dump = _sc.model_dump()
+            elif hasattr(_sc, 'dict'):
+                scenario_dump = _sc.dict()
+            else:
+                scenario_dump = _sc
+            payload = {
+                "version": APP_VERSION,
+                "client_inputs": st.session_state.get('client_inputs', {}),
+                "scenario": scenario_dump,
+                "recommendations": st.session_state.get('recs', []),
+                "mdr_case": st.session_state.get('mdr_case', "")
+            }
+            st.session_state['threat_json_bytes'] = _json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("JSON export failed: %s", e, exc_info=True)
+            st.error("JSON export failed. Please try regenerating the report.")
+    return st.session_state.get('threat_json_bytes')
+
 def get_maturity_docx_bytes():
     """Lazy-generate and cache Cybersecurity Maturity Assessment Word Doc bytes."""
     if st.session_state.get('maturity_docx_bytes') is None and st.session_state.get('maturity_obj'):
@@ -471,8 +498,9 @@ _CSP_META = (
     'frame-ancestors \'none\';">'
 )
 st.markdown(_CSP_META, unsafe_allow_html=True)
-# Hide default Streamlit sidebar/navigation (landing + workflows without sidebar)
-st.markdown("<style>[data-testid='stSidebar']{display:none;} [data-testid='stSidebarNav']{display:none;}</style>", unsafe_allow_html=True)
+# Hide default Streamlit sidebar/navigation only on landing (preserve Pages sidebar elsewhere)
+if not st.session_state.get('workflow'):
+    st.markdown("<style>[data-testid='stSidebar']{display:none;} [data-testid='stSidebarNav']{display:none;}</style>", unsafe_allow_html=True)
 validate_platform_config() # Fails fast if keys are missing
 # Authentication gate (env-driven). If AUTH_ENABLED=true, blocks UI until sign-in.
 login_gate()
@@ -1811,6 +1839,14 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                     data=docx_data, 
                     file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Report.docx", 
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            json_data = get_threat_json_bytes()
+            if json_data:
+                st.download_button(
+                    "🧾 Download Scenario Data (.json)",
+                    data=json_data,
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Scenario_Data.json",
+                    mime="application/json"
                 )
 
 elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
