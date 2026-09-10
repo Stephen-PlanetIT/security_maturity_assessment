@@ -1,3 +1,4 @@
+from __future__ import annotations
 # prompts.py
 import os
 import datetime
@@ -159,12 +160,6 @@ def build_domain_batch_prompt(client_inputs, domains_subset) -> str:
         + "Each domain object must conform to DomainAssessment schema (domain_name, current_maturity_level, etc.). "
         + "Keep text concise and in British English."
     )
-    primary_objective: str = Field(description="The overarching strategic goal for this phase (e.g., 'Stabilisation and Perimeter Hardening').")
-    key_deliverables: List[str] = Field(description="3-4 specific tactical deliverables for this phase.", min_items=3, max_items=4)
-    estimated_effort: str = Field(description="Categorise the effort required (e.g., 'Low Effort / High Impact', 'Moderate Effort / Operational Shift', 'High Effort / Transformational').")
-    milestones: List[str] = Field(description="Strategic deployment milestones combining the recommended solutions. Include the operational 'Why' for each milestone.", min_items=3, max_items=5)
-    resource_requirements: str = Field(description="Who needs to execute this phase (e.g., 'Planet IT SOC, Internal IT Team, External Pen-Testers').")
-    business_value_delivered: str = Field(description="A concise statement on what tangible risk reduction or operational improvement the board achieves by completing this phase.")
 
 
 class RadarChartData(BaseModel):
@@ -233,6 +228,12 @@ class MaturityHeader(BaseModel):
     radar_chart_data: RadarChartData = Field(description="Radar scores for the three pillars.")
     resiliency_matrix_mapping: str = Field(description="Explicit mapping of radar scores to Pillars 1-3.")
     phased_roadmap: List[RoadmapPhase] = Field(description="Three sequential roadmap phases.", min_items=3, max_items=3)
+    threat_scenarios: Optional[List["ThreatScenarioItem"]] = Field(
+        default=None,
+        description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation.",
+        min_items=1,
+        max_items=3
+    )
     cost_of_inaction: Optional[str] = Field(default=None, description="A brief cost-of-inaction narrative to accompany the maturity header.")
     # Optional fields (keep optional to preserve compatibility)
     success_metrics: Optional[List[str]] = Field(default=None, description="3-4 measurable KPIs.", min_items=3, max_items=4)
@@ -286,7 +287,7 @@ class MaturityReport(BaseModel):
     success_metrics: Optional[List[str]] = Field(default=None, description="3-4 measurable KPIs.", min_items=3, max_items=4)
     engagement_cadence: Optional[List[str]] = Field(default=None, description="Schedule of advisory meetings.", min_items=3, max_items=6)
     consultant_discovery_guide: Optional[List[str]] = Field(default=None, description="Provocative questions for the discovery phase.", min_items=5, max_items=10)
-threat_scenarios: Optional[List[ThreatScenarioItem]] = Field(
+    threat_scenarios: Optional[List[ThreatScenarioItem]] = Field(
         default=None,
         description="Auto-generated threat scenarios populated via maturity-gap analysis. Set after initial report generation.",
         min_items=1,
@@ -725,17 +726,30 @@ Do NOT restate full framework, domain lists, or product mappings in any field; r
 Only generate conditional domains when applicable evidence is present. If a module is Not applicable, exclude it or clearly indicate N/A; do not score it as weak.
 """
 
-    return base_prompt + "\n\n" + evidence_block + "\n\n" + assurance_clause + "\n\n" + ban_clause + "\n\n" + whitelist_clause + (("\n" + dfe_clause + "\n") if dfe_clause else "") + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + conditional_domains_note + "\n\n" + """
-### DOMAIN WRITING PROFILES (REQUIRED)
-Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
-- Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.
-- Network Security: persona: Network Security Architect; focus on segmentation, traffic controls, and service resilience.
-- Security Operations & Response (SecOps): persona: SOC Consultant; focus on detection engineering, triage discipline, and MTTR.
-- Security Validation & Testing: persona: Security Assurance Consultant; focus on evidence, scoping, and test cadence.
-- Governance, Risk & Compliance (GRC): persona: Governance Advisor; focus on policy, oversight, and regulatory exposure.
-- AI Governance & Security: persona: AI Risk & Security Lead; focus on AI acceptable use, shadow AI discovery, model/data risk, and monitoring.
-Strictly avoid repeated connective phrases across domains. Vary sentence length and cadence.
-""" + "\n\n" + actions_instruction
+    radar_hint_clause = """
+    ### RADAR EVIDENCE HINTS (STRICT)
+    Use the structured consultation evidence to inform RadarChartData logically:
+    - saas: Reflect SaaS governance evidence (inventory status, SSO/MFA coverage, offboarding process, OAuth governance, shadow IT visibility).
+    - data_security: Reflect Information Protection evidence (classification/labels, external sharing posture, DLP, retention governance).
+    - supplier: Reflect Supplier Assurance and Third‑Party Access evidence (assurance maturity, identity model, supplier MFA, review cadence).
+    - resilience: Reflect Recovery Assurance evidence (restore testing cadence, immutability, administrative separation, recovery exercises).
+    - secops: Reflect Monitoring Assurance evidence (coverage, response authority, detection testing), not identity hygiene.
+    - grc: Reflect IR readiness and governance evidence; maintain penalties where IR is absent or untested.
+    - ai: Reflect AI governance evidence (policy, shadow AI monitoring, DLP/CASB coverage).
+    STRICT: Honour the 3‑point cap and Capability Mismatch exactly; do not inflate scores without explicit supporting evidence.
+    """
+
+    return base_prompt + "\n\n" + evidence_block + "\n\n" + radar_hint_clause + "\n\n" + assurance_clause + "\n\n" + ban_clause + "\n\n" + whitelist_clause + (("\n" + dfe_clause + "\n") if dfe_clause else "") + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + conditional_domains_note + "\n\n" + """
+    ### DOMAIN WRITING PROFILES (REQUIRED)
+    Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
+    - Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.
+    - Network Security: persona: Network Security Architect; focus on segmentation, traffic controls, and service resilience.
+    - Security Operations & Response (SecOps): persona: SOC Consultant; focus on detection engineering, triage discipline, and MTTR.
+    - Security Validation & Testing: persona: Security Assurance Consultant; focus on evidence, scoping, and test cadence.
+    - Governance, Risk & Compliance (GRC): persona: Governance Advisor; focus on policy, oversight, and regulatory exposure.
+    - AI Governance & Security: persona: AI Risk & Security Lead; focus on AI acceptable use, shadow AI discovery, model/data risk, and monitoring.
+    Strictly avoid repeated connective phrases across domains. Vary sentence length and cadence.
+    """ + "\n\n" + actions_instruction
 
 
 def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
@@ -767,5 +781,9 @@ def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
         "- Provide 1–2 paragraphs (no bullet points) that explain what these figures mean in business terms, tie them to downtime tolerance and the client’s assets, and outline the consequence of inaction.\n"
         "- Do not invent numbers; only interpret the figures provided.\n"
     )
+
+# Forward-ref resolution for models to ensure safe cross-references
+ThreatScenarioItem.update_forward_refs()
+MaturityHeader.update_forward_refs()
 
 

@@ -9,14 +9,36 @@ try:
 except Exception:  # pragma: no cover
     bcrypt = None
 from core import LLMEngine
-from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA
+from prompts import build_scenario_prompt, build_mdr_case_prompt, build_maturity_prompt, build_maturity_header_prompt, ScenarioReport, MaturityReport, SYSTEM_PERSONA, MaturityHeader
 from data import FULLY_MANAGED_URL, CO_MANAGED_URL
 from data import MDR_COMPARISON, choose_mdr_recommendation
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_maturity_docx, create_threat_docx
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
-from risk import run_monte_carlo
+from consultation_schema import (
+    DEFAULT_CRITICAL_ASSET_PROFILE,
+    DEFAULT_SERVICE_RESILIENCE_PROFILE,
+    DEFAULT_INFORMATION_PROTECTION,
+    DEFAULT_IDENTITY_GOVERNANCE,
+    DEFAULT_SAAS_GOVERNANCE,
+    DEFAULT_ASSET_ASSURANCE,
+    DEFAULT_MONITORING_ASSURANCE,
+    DEFAULT_SUPPLIER_ASSURANCE,
+    DEFAULT_THIRD_PARTY_ACCESS_PROFILE,
+    DEFAULT_RECOVERY_ASSURANCE,
+    DEFAULT_IR_ASSURANCE,
+    ASSURANCE_STATUS_DEFAULT,
+    BUSINESS_SERVICES_OPTIONS,
+    SENSITIVE_DATA_OPTIONS,
+    ASSESSMENT_STATUS_OPTIONS,
+    RTO_OPTIONS,
+    RPO_OPTIONS,
+    MANUAL_WORKAROUND_OPTIONS,
+    DEP_MAPPING_OPTIONS,
+    RECOVERY_PRIORITIES_OPTIONS,
+)
+from consultation_helpers import migrate_profile
 
 _SANITISE_REPLACEMENTS = [
     (_re.compile(r'["]{3,}'), '"'),
@@ -74,6 +96,32 @@ def _safe_index(options, value):
         return options.index(value) if value in options else 0
     except Exception:
         return 0
+
+def _with_custom_prefill(value: str, options: list[str]) -> tuple[int, str]:
+    """
+    Return (index, custom_default) for a selectbox with 'Other / Custom...' option.
+    If value matches an option, returns its index and empty custom string.
+    Otherwise returns index of 'Other / Custom...' and the original value as the default for the custom field.
+    """
+    try:
+        if value in options:
+            return options.index(value), ""
+    except Exception:
+        pass
+    try:
+        idx = options.index("Other / Custom...")
+    except Exception:
+        idx = 0
+    return idx, (value or "")
+
+def _resolve_custom(selection: str, custom: str) -> str:
+    """
+    Resolve the final value for a selectbox with 'Other / Custom...'.
+    If 'Other / Custom...' is selected and custom has content, returns the custom string; otherwise returns the selection.
+    """
+    if isinstance(selection, str) and selection == "Other / Custom..." and isinstance(custom, str) and custom.strip():
+        return custom.strip()
+    return selection
 
 # --- VERSION TRACKER ---
 with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
@@ -508,18 +556,14 @@ with st.sidebar:
     
     st.divider()
 
-    # Threat Scenarios in Maturity Assessment toggle (non-disruptive) for ACT MODE wiring
     if workflow == "📈 Cybersecurity Maturity Assessment":
-        enable_threats = st.checkbox("Enable Threat Scenarios in Maturity Assessment", value=True)
-        st.session_state['enable_threat_scenarios_in_maturity'] = enable_threats
-        enable_mc = st.checkbox("Enable Monte Carlo Risk Simulation", value=True)
-        st.session_state['enable_mc'] = enable_mc
-        try:
-            _default_mc = int(get_config("MC_ITERATIONS", 5000))
-        except Exception:
-            _default_mc = 5000
-        mc_iterations = st.number_input("Monte Carlo Iterations", min_value=100, max_value=20000, step=100, value=(_default_mc))
-        st.session_state['mc_iterations'] = mc_iterations
+        generation_mode = st.radio(
+            "Generation Mode",
+            options=["Monolithic (single-pass)", "Staged (header-first)"],
+            index=0,
+            help="Monolithic: single LLM pass to produce full report. Staged: header-first, then follow-ups."
+        )
+        st.session_state['staged_enabled'] = (generation_mode == "Staged (header-first)")
 
 # --- MAIN PAGE HEADER ---
 st.title("Security Use Case & Cybersecurity Maturity Assessment Generator")
@@ -566,6 +610,10 @@ with st.expander("Profile: Export / Import", expanded=False):
                         required_keys = ["customer_name", "industry", "users"]
                         if not all(k in profile for k in required_keys):
                             st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
+                        try:
+                            profile = migrate_profile(profile)
+                        except Exception:
+                            pass
                         st.session_state['_imported_profile'] = profile
                         st.session_state['use_imported_profile'] = True
                         st.session_state['use_test_data'] = False
@@ -739,10 +787,432 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
 
     st.divider()
 
+# Crown Jewels & Governance Evidence
+with st.container():
+    # Defaults from TEST_DATA for dev/imported profiles
+    _cap_defaults = TEST_DATA.get('critical_asset_profile', DEFAULT_CRITICAL_ASSET_PROFILE) if isinstance(TEST_DATA, dict) else DEFAULT_CRITICAL_ASSET_PROFILE
+    _sr_defaults = TEST_DATA.get('service_resilience_profile', DEFAULT_SERVICE_RESILIENCE_PROFILE) if isinstance(TEST_DATA, dict) else DEFAULT_SERVICE_RESILIENCE_PROFILE
+    _ip_defaults = TEST_DATA.get('information_protection_profile', DEFAULT_INFORMATION_PROTECTION) if isinstance(TEST_DATA, dict) else DEFAULT_INFORMATION_PROTECTION
+    _idg_defaults = TEST_DATA.get('identity_governance_profile', DEFAULT_IDENTITY_GOVERNANCE) if isinstance(TEST_DATA, dict) else DEFAULT_IDENTITY_GOVERNANCE
+    _saas_defaults = TEST_DATA.get('saas_governance_profile', DEFAULT_SAAS_GOVERNANCE) if isinstance(TEST_DATA, dict) else DEFAULT_SAAS_GOVERNANCE
+    _aa_defaults = TEST_DATA.get('asset_assurance_profile', DEFAULT_ASSET_ASSURANCE) if isinstance(TEST_DATA, dict) else DEFAULT_ASSET_ASSURANCE
+    _mon_defaults = TEST_DATA.get('monitoring_assurance_profile', DEFAULT_MONITORING_ASSURANCE) if isinstance(TEST_DATA, dict) else DEFAULT_MONITORING_ASSURANCE
+    _sup_defaults = TEST_DATA.get('supplier_assurance_profile', DEFAULT_SUPPLIER_ASSURANCE) if isinstance(TEST_DATA, dict) else DEFAULT_SUPPLIER_ASSURANCE
+    _tpa_defaults = TEST_DATA.get('third_party_access_profile', DEFAULT_THIRD_PARTY_ACCESS_PROFILE) if isinstance(TEST_DATA, dict) else DEFAULT_THIRD_PARTY_ACCESS_PROFILE
+    _rec_defaults = TEST_DATA.get('recovery_assurance_profile', DEFAULT_RECOVERY_ASSURANCE) if isinstance(TEST_DATA, dict) else DEFAULT_RECOVERY_ASSURANCE
+    _ir_defaults = TEST_DATA.get('incident_response_assurance_profile', DEFAULT_IR_ASSURANCE) if isinstance(TEST_DATA, dict) else DEFAULT_IR_ASSURANCE
+    _as_defaults = TEST_DATA.get('assurance_status', ASSURANCE_STATUS_DEFAULT) if isinstance(TEST_DATA, dict) else ASSURANCE_STATUS_DEFAULT
+
+    # Critical Asset Profile
+    with st.expander("Critical Asset Profile", expanded=False):
+        st.subheader("Critical Asset Profile")
+        _cap_bs_defaults = [v for v in (_cap_defaults.get('business_services') or []) if v in BUSINESS_SERVICES_OPTIONS]
+        _cap_bs_custom_list = [v for v in (_cap_defaults.get('business_services') or []) if v not in BUSINESS_SERVICES_OPTIONS]
+        cap_bs = st.multiselect("Business Services", BUSINESS_SERVICES_OPTIONS, default=_cap_bs_defaults)
+        cap_bs_custom = st.text_input("Custom Business Services (separate by ';')", value="; ".join(_cap_bs_custom_list))
+        cap_bs_final = cap_bs + [s.strip() for s in cap_bs_custom.split(';') if s.strip()]
+        cap_sp = st.text_input("Systems/Platforms", value=_cap_defaults.get('systems_platforms', ''))
+        _cap_sd_defaults = [v for v in (_cap_defaults.get('sensitive_data_types') or []) if v in SENSITIVE_DATA_OPTIONS]
+        _cap_sd_custom_list = [v for v in (_cap_defaults.get('sensitive_data_types') or []) if v not in SENSITIVE_DATA_OPTIONS]
+        cap_sd = st.multiselect("Sensitive Data Types", SENSITIVE_DATA_OPTIONS, default=_cap_sd_defaults)
+        cap_sd_custom = st.text_input("Custom Sensitive Data Types (separate by ';')", value="; ".join(_cap_sd_custom_list))
+        cap_sd_final = cap_sd + [s.strip() for s in cap_sd_custom.split(';') if s.strip()]
+        cap_extra = st.text_area("Additional Context", value=_cap_defaults.get('additional_context', ''))
+        _cap_dict = {
+            "business_services": cap_bs_final,
+            "systems_platforms": cap_sp,
+            "sensitive_data_types": cap_sd_final,
+            "additional_context": cap_extra,
+        }
+
+    # Service Resilience Profile
+    with st.expander("Service Resilience Profile", expanded=False):
+        st.subheader("Service Resilience Profile")
+        sr_assess = st.selectbox("Assessment Status", ASSESSMENT_STATUS_OPTIONS, index=(_safe_index(ASSESSMENT_STATUS_OPTIONS, _sr_defaults.get('assessment_status'))))
+        sr_crit = st.text_input("Most Critical Service", value=_sr_defaults.get('most_critical_service', ''))
+        sr_rto = st.selectbox("Service-specific RTO", RTO_OPTIONS, index=(_safe_index(RTO_OPTIONS, _sr_defaults.get('service_specific_rto'))))
+        sr_rpo = st.selectbox("Service-specific RPO", RPO_OPTIONS, index=(_safe_index(RPO_OPTIONS, _sr_defaults.get('service_specific_rpo'))))
+        sr_mw = st.selectbox("Manual Workaround", MANUAL_WORKAROUND_OPTIONS, index=(_safe_index(MANUAL_WORKAROUND_OPTIONS, _sr_defaults.get('manual_workaround'))))
+        sr_dep = st.selectbox("Dependency Mapping", DEP_MAPPING_OPTIONS, index=(_safe_index(DEP_MAPPING_OPTIONS, _sr_defaults.get('dependency_mapping'))))
+        sr_pri = st.selectbox("Recovery Priorities", RECOVERY_PRIORITIES_OPTIONS, index=(_safe_index(RECOVERY_PRIORITIES_OPTIONS, _sr_defaults.get('recovery_priorities'))))
+        sr_notes = st.text_area("Notes", value=_sr_defaults.get('notes', ''))
+        _sr_dict = {
+            "assessment_status": sr_assess,
+            "most_critical_service": sr_crit,
+            "service_specific_rto": sr_rto,
+            "service_specific_rpo": sr_rpo,
+            "manual_workaround": sr_mw,
+            "dependency_mapping": sr_dep,
+            "recovery_priorities": sr_pri,
+            "notes": sr_notes,
+        }
+
+    # Information Protection
+    with st.expander("Information Protection", expanded=False):
+        st.subheader("Information Protection")
+        ip_cls_opts = ["Sensitivity labels partially deployed", "None", "Unknown", "Other / Custom..."]
+        idx_ip_cls, ip_cls_custom_def = _with_custom_prefill(_ip_defaults.get('data_classification_status', 'Unknown'), ip_cls_opts)
+        ip_cls_sel = st.selectbox("Data Classification Status", ip_cls_opts, index=idx_ip_cls)
+        ip_cls_custom = st.text_input("Custom Classification", value=ip_cls_custom_def if ip_cls_sel == "Other / Custom..." else "")
+        ip_cls = _resolve_custom(ip_cls_sel, ip_cls_custom)
+
+        ip_share_opts = ["Restricted and regularly reviewed", "Broadly enabled", "Unknown", "Other / Custom..."]
+        idx_ip_share, ip_share_custom_def = _with_custom_prefill(_ip_defaults.get('external_sharing_posture', 'Unknown'), ip_share_opts)
+        ip_share_sel = st.selectbox("External Sharing Posture", ip_share_opts, index=idx_ip_share)
+        ip_share_custom = st.text_input("Custom External Sharing", value=ip_share_custom_def if ip_share_sel == "Other / Custom..." else "")
+        ip_share = _resolve_custom(ip_share_sel, ip_share_custom)
+
+        ip_dlp_opts = ["Deployed for selected sensitive data", "None", "Unknown", "Other / Custom..."]
+        idx_ip_dlp, ip_dlp_custom_def = _with_custom_prefill(_ip_defaults.get('dlp_status', 'Unknown'), ip_dlp_opts)
+        ip_dlp_sel = st.selectbox("DLP Status", ip_dlp_opts, index=idx_ip_dlp)
+        ip_dlp_custom = st.text_input("Custom DLP", value=ip_dlp_custom_def if ip_dlp_sel == "Other / Custom..." else "")
+        ip_dlp = _resolve_custom(ip_dlp_sel, ip_dlp_custom)
+
+        ip_ret_opts = ["Retention controls configured", "Unknown", "Other / Custom..."]
+        idx_ip_ret, ip_ret_custom_def = _with_custom_prefill(_ip_defaults.get('retention_governance', 'Unknown'), ip_ret_opts)
+        ip_ret_sel = st.selectbox("Retention Governance", ip_ret_opts, index=idx_ip_ret)
+        ip_ret_custom = st.text_input("Custom Retention Governance", value=ip_ret_custom_def if ip_ret_sel == "Other / Custom..." else "")
+        ip_ret = _resolve_custom(ip_ret_sel, ip_ret_custom)
+
+        _ip_dict = {
+            "data_classification_status": ip_cls,
+            "external_sharing_posture": ip_share,
+            "dlp_status": ip_dlp,
+            "retention_governance": ip_ret,
+        }
+
+    # Identity Governance
+    with st.expander("Identity Governance", expanded=False):
+        st.subheader("Identity Governance")
+        idg_lc = st.text_input("Identity Lifecycle Maturity", value=_idg_defaults.get('identity_lifecycle_maturity', ''))
+        idg_leaver = st.text_input("Leaver Deprovisioning", value=_idg_defaults.get('leaver_deprovisioning', ''))
+        idg_ar = st.text_input("Access Review Status", value=_idg_defaults.get('access_review_status', ''))
+        idg_pam = st.text_input("Privileged Access Model", value=_idg_defaults.get('privileged_access_model', ''))
+
+        idg_pim_opts = ["Just-in-time access for major platforms", "None", "Planned", "Unknown", "Other / Custom..."]
+        idx_idg_pim, idg_pim_custom_def = _with_custom_prefill(_idg_defaults.get('pim_pam_status', 'Unknown'), idg_pim_opts)
+        idg_pim_sel = st.selectbox("PIM/PAM Status", idg_pim_opts, index=idx_idg_pim)
+        idg_pim_custom = st.text_input("Custom PIM/PAM", value=idg_pim_custom_def if idg_pim_sel == "Other / Custom..." else "")
+        idg_pim = _resolve_custom(idg_pim_sel, idg_pim_custom)
+
+        idg_bg = st.text_input("Break Glass Governance", value=_idg_defaults.get('break_glass_governance', ''))
+
+        idg_sag_opts = ["Ownership and credential rotation defined", "Informally managed", "Unknown", "Other / Custom..."]
+        idx_idg_sag, idg_sag_custom_def = _with_custom_prefill(_idg_defaults.get('service_account_governance', 'Unknown'), idg_sag_opts)
+        idg_sag_sel = st.selectbox("Service Account Governance", idg_sag_opts, index=idx_idg_sag)
+        idg_sag_custom = st.text_input("Custom Service Account Governance", value=idg_sag_custom_def if idg_sag_sel == "Other / Custom..." else "")
+        idg_sag = _resolve_custom(idg_sag_sel, idg_sag_custom)
+
+        idg_shared_opts = ["Restricted and documented", "Widespread", "Unknown", "Other / Custom..."]
+        idx_idg_shared, idg_shared_custom_def = _with_custom_prefill(_idg_defaults.get('shared_account_usage', 'Unknown'), idg_shared_opts)
+        idg_shared_sel = st.selectbox("Shared Account Usage", idg_shared_opts, index=idx_idg_shared)
+        idg_shared_custom = st.text_input("Custom Shared Account Usage", value=idg_shared_custom_def if idg_shared_sel == "Other / Custom..." else "")
+        idg_shared = _resolve_custom(idg_shared_sel, idg_shared_custom)
+
+        idg_legacy_opts = ["Restricted for selected dependencies", "Enabled and not reviewed", "Unknown", "Other / Custom..."]
+        idx_idg_legacy, idg_legacy_custom_def = _with_custom_prefill(_idg_defaults.get('legacy_authentication_status', 'Unknown'), idg_legacy_opts)
+        idg_legacy_sel = st.selectbox("Legacy Authentication Status", idg_legacy_opts, index=idx_idg_legacy)
+        idg_legacy_custom = st.text_input("Custom Legacy Authentication Status", value=idg_legacy_custom_def if idg_legacy_sel == "Other / Custom..." else "")
+        idg_legacy = _resolve_custom(idg_legacy_sel, idg_legacy_custom)
+
+        idg_notes = st.text_area("Notes", value=_idg_defaults.get('notes', ''), key="idg_notes")
+        _idg_dict = {
+            "identity_lifecycle_maturity": idg_lc,
+            "leaver_deprovisioning": idg_leaver,
+            "access_review_status": idg_ar,
+            "privileged_access_model": idg_pam,
+            "pim_pam_status": idg_pim,
+            "break_glass_governance": idg_bg,
+            "service_account_governance": idg_sag,
+            "shared_account_usage": idg_shared,
+            "legacy_authentication_status": idg_legacy,
+            "notes": idg_notes,
+        }
+
+    # SaaS Governance
+    with st.expander("SaaS Governance", expanded=False):
+        st.subheader("SaaS Governance")
+        saas_inv_opts = ["Register with owners and data classification", "No authoritative inventory", "Unknown", "Other / Custom..."]
+        idx_sg_inv, sg_inv_custom_def = _with_custom_prefill(_saas_defaults.get('inventory_status', 'Unknown'), saas_inv_opts)
+        sg_inv_sel = st.selectbox("Inventory Status", saas_inv_opts, index=idx_sg_inv)
+        sg_inv_custom = st.text_input("Custom Inventory Status", value=sg_inv_custom_def if sg_inv_sel == "Other / Custom..." else "")
+        sg_inv = _resolve_custom(sg_inv_sel, sg_inv_custom)
+
+        sg_cp = st.text_input("Critical Platforms", value=_saas_defaults.get('critical_platforms', ''))
+
+        saas_sso_opts = ["Most supported applications", "Limited", "Unknown", "Other / Custom..."]
+        idx_sg_sso, sg_sso_custom_def = _with_custom_prefill(_saas_defaults.get('sso_coverage', 'Unknown'), saas_sso_opts)
+        sg_sso_sel = st.selectbox("SSO Coverage", saas_sso_opts, index=idx_sg_sso)
+        sg_sso_custom = st.text_input("Custom SSO Coverage", value=sg_sso_custom_def if sg_sso_sel == "Other / Custom..." else "")
+        sg_sso = _resolve_custom(sg_sso_sel, sg_sso_custom)
+
+        saas_mfa_opts = ["All technically capable platforms", "Unknown", "Other / Custom..."]
+        idx_sg_mfa, sg_mfa_custom_def = _with_custom_prefill(_saas_defaults.get('mfa_coverage', 'Unknown'), saas_mfa_opts)
+        sg_mfa_sel = st.selectbox("MFA Coverage", saas_mfa_opts, index=idx_sg_mfa)
+        sg_mfa_custom = st.text_input("Custom MFA Coverage", value=sg_mfa_custom_def if sg_mfa_sel == "Other / Custom..." else "")
+        sg_mfa = _resolve_custom(sg_mfa_sel, sg_mfa_custom)
+
+        sg_off = st.text_input("Offboarding Process", value=_saas_defaults.get('offboarding_process', ''))
+
+        saas_rec_opts = ["Documented for critical platforms", "Unknown", "Other / Custom..."]
+        idx_sg_rec, sg_rec_custom_def = _with_custom_prefill(_saas_defaults.get('recovery_responsibility', 'Unknown'), saas_rec_opts)
+        sg_rec_sel = st.selectbox("Recovery Responsibility", saas_rec_opts, index=idx_sg_rec)
+        sg_rec_custom = st.text_input("Custom Recovery Responsibility", value=sg_rec_custom_def if sg_rec_sel == "Other / Custom..." else "")
+        sg_rec = _resolve_custom(sg_rec_sel, sg_rec_custom)
+
+        saas_shadow_opts = ["CASB discovery", "Unknown", "Other / Custom..."]
+        idx_sg_shadow, sg_shadow_custom_def = _with_custom_prefill(_saas_defaults.get('shadow_it_visibility', 'Unknown'), saas_shadow_opts)
+        sg_shadow_sel = st.selectbox("Shadow IT Visibility", saas_shadow_opts, index=idx_sg_shadow)
+        sg_shadow_custom = st.text_input("Custom Shadow IT Visibility", value=sg_shadow_custom_def if sg_shadow_sel == "Other / Custom..." else "")
+        sg_shadow = _resolve_custom(sg_shadow_sel, sg_shadow_custom)
+
+        saas_oauth_opts = ["Applications periodically reviewed", "User consent unrestricted or unknown", "Unknown", "Other / Custom..."]
+        idx_sg_oauth, sg_oauth_custom_def = _with_custom_prefill(_saas_defaults.get('oauth_app_governance', 'Unknown'), saas_oauth_opts)
+        sg_oauth_sel = st.selectbox("OAuth App Governance", saas_oauth_opts, index=idx_sg_oauth)
+        sg_oauth_custom = st.text_input("Custom OAuth Governance", value=sg_oauth_custom_def if sg_oauth_sel == "Other / Custom..." else "")
+        sg_oauth = _resolve_custom(sg_oauth_sel, sg_oauth_custom)
+
+        sg_notes = st.text_area("Notes", value=_saas_defaults.get('notes', ''), key="saas_notes")
+        _saas_dict = {
+            "inventory_status": sg_inv,
+            "critical_platforms": sg_cp,
+            "sso_coverage": sg_sso,
+            "mfa_coverage": sg_mfa,
+            "offboarding_process": sg_off,
+            "recovery_responsibility": sg_rec,
+            "shadow_it_visibility": sg_shadow,
+            "oauth_app_governance": sg_oauth,
+            "notes": sg_notes,
+        }
+
+    # Asset Assurance
+    with st.expander("Asset Assurance", expanded=False):
+        st.subheader("Asset Assurance")
+        aa_inv_opts = ["Hardware, software and cloud assets centrally recorded", "Incomplete or unknown", "Unknown", "Other / Custom..."]
+        idx_aa_inv, aa_inv_custom_def = _with_custom_prefill(_aa_defaults.get('asset_inventory_maturity', 'Unknown'), aa_inv_opts)
+        aa_inv_sel = st.selectbox("Asset Inventory Maturity", aa_inv_opts, index=idx_aa_inv)
+        aa_inv_custom = st.text_input("Custom Asset Inventory", value=aa_inv_custom_def if aa_inv_sel == "Other / Custom..." else "")
+        aa_inv = _resolve_custom(aa_inv_sel, aa_inv_custom)
+
+        aa_eas = st.text_input("External Attack Surface Visibility", value=_aa_defaults.get('external_attack_surface_visibility', ''))
+        aa_vrm_opts = ["Tracker with priorities and dates", "Findings reported but not centrally tracked", "Unknown", "Other / Custom..."]
+        idx_aa_vrm, aa_vrm_custom_def = _with_custom_prefill(_aa_defaults.get('vulnerability_remediation_maturity', 'Unknown'), aa_vrm_opts)
+        aa_vrm_sel = st.selectbox("Vulnerability Remediation Maturity", aa_vrm_opts, index=idx_aa_vrm)
+        aa_vrm_custom = st.text_input("Custom Vulnerability Remediation", value=aa_vrm_custom_def if aa_vrm_sel == "Other / Custom..." else "")
+        aa_vrm = _resolve_custom(aa_vrm_sel, aa_vrm_custom)
+
+        aa_cfg = st.text_input("Secure Configuration Baseline", value=_aa_defaults.get('secure_configuration_baseline', ''))
+        aa_change = st.text_input("Security Change Assurance", value=_aa_defaults.get('security_change_assurance', ''))
+        aa_uts = st.text_input("Unsupported Technology Status", value=_aa_defaults.get('unsupported_technology_status', ''))
+        _aa_dict = {
+            "asset_inventory_maturity": aa_inv,
+            "external_attack_surface_visibility": aa_eas,
+            "vulnerability_remediation_maturity": aa_vrm,
+            "secure_configuration_baseline": aa_cfg,
+            "security_change_assurance": aa_change,
+            "unsupported_technology_status": aa_uts,
+        }
+
+    # Monitoring Assurance
+    with st.expander("Monitoring Assurance", expanded=False):
+        st.subheader("Monitoring Assurance")
+        mon_cov_opts = ["24/7 alert monitoring", "Business hours only", "Critical alerts outside hours", "Unknown", "Other / Custom..."]
+        idx_mon_cov, mon_cov_custom_def = _with_custom_prefill(_mon_defaults.get('monitoring_coverage', 'Unknown'), mon_cov_opts)
+        mon_cov_sel = st.selectbox("Monitoring Coverage", mon_cov_opts, index=idx_mon_cov)
+        mon_cov_custom = st.text_input("Custom Monitoring Coverage", value=mon_cov_custom_def if mon_cov_sel == "Other / Custom..." else "")
+        mon_cov = _resolve_custom(mon_cov_sel, mon_cov_custom)
+
+        mon_logs_options = ["Endpoint", "Identity", "Microsoft 365", "Firewall", "SIEM", "Cloud"]
+        _mon_logs_defaults = [v for v in (_mon_defaults.get('log_sources_monitored') or []) if v in mon_logs_options]
+        _mon_logs_custom_list = [v for v in (_mon_defaults.get('log_sources_monitored') or []) if v not in mon_logs_options]
+        mon_logs = st.multiselect("Log Sources Monitored", options=mon_logs_options, default=_mon_logs_defaults)
+        mon_logs_custom = st.text_input("Custom Log Sources Monitored (separate by ';')", value="; ".join(_mon_logs_custom_list))
+        mon_logs_final = mon_logs + [s.strip() for s in mon_logs_custom.split(';') if s.strip()]
+
+        mon_ret = st.text_input("Log Retention", value=_mon_defaults.get('log_retention', ''))
+        mon_esc = st.text_input("Out-of-hours Escalation", value=_mon_defaults.get('out_of_hours_escalation', ''))
+
+        mon_auth_opts = ["Isolate and remediate", "Investigate and recommend", "Notify only", "Unknown", "Other / Custom..."]
+        idx_mon_auth, mon_auth_custom_def = _with_custom_prefill(_mon_defaults.get('response_authority', 'Unknown'), mon_auth_opts)
+        mon_auth_sel = st.selectbox("Response Authority", mon_auth_opts, index=idx_mon_auth)
+        mon_auth_custom = st.text_input("Custom Response Authority", value=mon_auth_custom_def if mon_auth_sel == "Other / Custom..." else "")
+        mon_auth = _resolve_custom(mon_auth_sel, mon_auth_custom)
+
+        mon_test = st.text_input("Detection Testing", value=_mon_defaults.get('detection_testing', ''))
+        mon_rep = st.text_input("Security Reporting Cadence", value=_mon_defaults.get('security_reporting_cadence', ''))
+        mon_gaps = st.text_input("Known Coverage Gaps", value=_mon_defaults.get('known_coverage_gaps', ''))
+        _mon_dict = {
+            "monitoring_coverage": mon_cov,
+            "log_sources_monitored": mon_logs_final,
+            "log_retention": mon_ret,
+            "out_of_hours_escalation": mon_esc,
+            "response_authority": mon_auth,
+            "detection_testing": mon_test,
+            "security_reporting_cadence": mon_rep,
+            "known_coverage_gaps": mon_gaps,
+        }
+
+    # Supplier Assurance & Third-Party Access
+    with st.expander("Supplier Assurance & Third-Party Access", expanded=False):
+        st.subheader("Supplier Assurance & Third-Party Access")
+        sup_maturity_opts = ["Periodic review of critical suppliers", "None", "Unknown", "Other / Custom..."]
+        idx_sup_mat, sup_mat_custom_def = _with_custom_prefill(_sup_defaults.get('supplier_assurance_maturity', 'Unknown'), sup_maturity_opts)
+        sup_maturity_sel = st.selectbox("Supplier Assurance Maturity", sup_maturity_opts, index=idx_sup_mat)
+        sup_maturity_custom = st.text_input("Custom Supplier Assurance Maturity", value=sup_mat_custom_def if sup_maturity_sel == "Other / Custom..." else "")
+        sup_maturity = _resolve_custom(sup_maturity_sel, sup_maturity_custom)
+        _sup_dict = {"supplier_assurance_maturity": sup_maturity}
+
+        tpa_access_opts = ["Access exists", "Unknown", "Other / Custom..."]
+        idx_tpa_acc, tpa_acc_custom_def = _with_custom_prefill(_tpa_defaults.get('access_present', 'Unknown'), tpa_access_opts)
+        tpa_access_sel = st.selectbox("Third-Party Access Present", tpa_access_opts, index=idx_tpa_acc)
+        tpa_access_custom = st.text_input("Custom Third-Party Access Present", value=tpa_acc_custom_def if tpa_access_sel == "Other / Custom..." else "")
+        tpa_access = _resolve_custom(tpa_access_sel, tpa_access_custom)
+
+        tpa_model_opts = ["Named accounts with MFA", "Shared accounts", "Unknown", "Other / Custom..."]
+        idx_tpa_model, tpa_model_custom_def = _with_custom_prefill(_tpa_defaults.get('identity_model', 'Unknown'), tpa_model_opts)
+        tpa_model_sel = st.selectbox("Identity Model", tpa_model_opts, index=idx_tpa_model)
+        tpa_model_custom = st.text_input("Custom Identity Model", value=tpa_model_custom_def if tpa_model_sel == "Other / Custom..." else "")
+        tpa_model = _resolve_custom(tpa_model_sel, tpa_model_custom)
+
+        tpa_mfa_opts = ["Universal for supplier access", "Not enforced", "Unknown", "Other / Custom..."]
+        idx_tpa_mfa, tpa_mfa_custom_def = _with_custom_prefill(_tpa_defaults.get('mfa_status', 'Unknown'), tpa_mfa_opts)
+        tpa_mfa_sel = st.selectbox("MFA Status", tpa_mfa_opts, index=idx_tpa_mfa)
+        tpa_mfa_custom = st.text_input("Custom Third-Party MFA", value=tpa_mfa_custom_def if tpa_mfa_sel == "Other / Custom..." else "")
+        tpa_mfa = _resolve_custom(tpa_mfa_sel, tpa_mfa_custom)
+
+        tpa_time_opts = ["Yes", "No", "Not applicable"]
+        tpa_time = st.selectbox("Time-limited", tpa_time_opts, index=_safe_index(tpa_time_opts, _tpa_defaults.get('time_limited', 'Not applicable')))
+        tpa_mon_opts = ["Yes", "No", "Not applicable"]
+        tpa_mon = st.selectbox("Monitored", tpa_mon_opts, index=_safe_index(tpa_mon_opts, _tpa_defaults.get('monitored', 'Not applicable')))
+        tpa_review_opts = ["Yes", "No", "Not applicable"]
+        tpa_review = st.selectbox("Periodically Reviewed", tpa_review_opts, index=_safe_index(tpa_review_opts, _tpa_defaults.get('periodically_reviewed', 'Not applicable')))
+
+        tpa_deps = st.text_input("Critical Supplier Dependencies", value=_tpa_defaults.get('critical_supplier_dependencies', ''))
+
+        tpa_contract_opts = ["Standard requirements for critical suppliers", "None or unknown", "Other / Custom..."]
+        idx_tpa_contract, tpa_contract_custom_def = _with_custom_prefill(_tpa_defaults.get('contractual_security_requirements', 'None or unknown'), tpa_contract_opts)
+        tpa_contract_sel = st.selectbox("Contractual Security Requirements", tpa_contract_opts, index=idx_tpa_contract)
+        tpa_contract_custom = st.text_input("Custom Contractual Requirements", value=tpa_contract_custom_def if tpa_contract_sel == "Other / Custom..." else "")
+        tpa_contract = _resolve_custom(tpa_contract_sel, tpa_contract_custom)
+
+        tpa_notify = st.text_input("Incident Notification", value=_tpa_defaults.get('incident_notification', ''))
+        tpa_exit = st.text_input("Exit Planning", value=_tpa_defaults.get('exit_planning', ''))
+        tpa_conc = st.text_input("Concentration Risk", value=_tpa_defaults.get('concentration_risk', ''))
+        tpa_notes = st.text_area("Notes", value=_tpa_defaults.get('notes', ''), key="tpa_notes")
+        _tpa_dict = {
+            "access_present": tpa_access, "identity_model": tpa_model, "mfa_status": tpa_mfa, "time_limited": tpa_time,
+            "monitored": tpa_mon, "periodically_reviewed": tpa_review, "critical_supplier_dependencies": tpa_deps,
+            "contractual_security_requirements": tpa_contract, "incident_notification": tpa_notify, "exit_planning": tpa_exit,
+            "concentration_risk": tpa_conc, "notes": tpa_notes,
+        }
+
+    # Recovery Assurance
+    with st.expander("Recovery Assurance", expanded=False):
+        st.subheader("Recovery Assurance")
+        rec_rt_opts = ["Regular representative restores", "Ad hoc", "Never", "Unknown", "Other / Custom..."]
+        idx_rec_rt, rec_rt_custom_def = _with_custom_prefill(_rec_defaults.get('restore_testing', 'Unknown'), rec_rt_opts)
+        rec_rt_sel = st.selectbox("Restore Testing", rec_rt_opts, index=idx_rec_rt)
+        rec_rt_custom = st.text_input("Custom Restore Testing", value=rec_rt_custom_def if rec_rt_sel == "Other / Custom..." else "")
+        rec_rt = _resolve_custom(rec_rt_sel, rec_rt_custom)
+
+        rec_imm_opts = ["Immutable or air-gapped for critical backups", "None", "Unknown", "Other / Custom..."]
+        idx_rec_imm, rec_imm_custom_def = _with_custom_prefill(_rec_defaults.get('immutability_status', 'Unknown'), rec_imm_opts)
+        rec_imm_sel = st.selectbox("Immutability Status", rec_imm_opts, index=idx_rec_imm)
+        rec_imm_custom = st.text_input("Custom Immutability", value=rec_imm_custom_def if rec_imm_sel == "Other / Custom..." else "")
+        rec_imm = _resolve_custom(rec_imm_sel, rec_imm_custom)
+
+        rec_sep = st.text_input("Administrative Separation", value=_rec_defaults.get('administrative_separation', ''))
+        rec_srv = st.text_input("Service Recovery Testing", value=_rec_defaults.get('service_recovery_testing', ''))
+        rec_evd = st.text_input("Evidence Retained", value=_rec_defaults.get('evidence_retained', ''))
+        rec_owner = st.text_input("Recovery Ownership", value=_rec_defaults.get('recovery_ownership', ''))
+        rec_notes = st.text_area("Notes", value=_rec_defaults.get('notes', ''), key="rec_notes")
+        _rec_dict = {
+            "restore_testing": rec_rt, "immutability_status": rec_imm, "administrative_separation": rec_sep,
+            "service_recovery_testing": rec_srv, "evidence_retained": rec_evd, "recovery_ownership": rec_owner, "notes": rec_notes,
+        }
+
+    # Incident Response Assurance
+    with st.expander("Incident Response Assurance", expanded=False):
+        st.subheader("Incident Response Assurance")
+        ir_roles_opts = ["Technical and business roles documented", "Informal", "Unknown", "Other / Custom..."]
+        idx_ir_roles, ir_roles_custom_def = _with_custom_prefill(_ir_defaults.get('roles_defined', 'Unknown'), ir_roles_opts)
+        ir_roles_sel = st.selectbox("Roles Defined", ir_roles_opts, index=idx_ir_roles)
+        ir_roles_custom = st.text_input("Custom Roles Defined", value=ir_roles_custom_def if ir_roles_sel == "Other / Custom..." else "")
+        ir_roles = _resolve_custom(ir_roles_sel, ir_roles_custom)
+
+        ir_bauth_opts = ["Documented", "Unknown", "Other / Custom..."]
+        idx_ir_bauth, ir_bauth_custom_def = _with_custom_prefill(_ir_defaults.get('business_decision_authority', 'Unknown'), ir_bauth_opts)
+        ir_bauth_sel = st.selectbox("Business Decision Authority", ir_bauth_opts, index=idx_ir_bauth)
+        ir_bauth_custom = st.text_input("Custom Business Decision Authority", value=ir_bauth_custom_def if ir_bauth_sel == "Other / Custom..." else "")
+        ir_bauth = _resolve_custom(ir_bauth_sel, ir_bauth_custom)
+
+        ir_tech_opts = ["Endpoint isolation authorised", "Unknown", "Other / Custom..."]
+        idx_ir_tech, ir_tech_custom_def = _with_custom_prefill(_ir_defaults.get('technical_response_authority', 'Unknown'), ir_tech_opts)
+        ir_tech_sel = st.selectbox("Technical Response Authority", ir_tech_opts, index=idx_ir_tech)
+        ir_tech_custom = st.text_input("Custom Technical Response Authority", value=ir_tech_custom_def if ir_tech_sel == "Other / Custom..." else "")
+        ir_tech = _resolve_custom(ir_tech_sel, ir_tech_custom)
+
+        ir_tt_opts = ["Within the past year", "More than one year ago", "Never", "Unknown", "Other / Custom..."]
+        idx_ir_tt, ir_tt_custom_def = _with_custom_prefill(_ir_defaults.get('tabletop_status', 'Unknown'), ir_tt_opts)
+        ir_tt_sel = st.selectbox("Tabletop Status", ir_tt_opts, index=idx_ir_tt)
+        ir_tt_custom = st.text_input("Custom Tabletop Status", value=ir_tt_custom_def if ir_tt_sel == "Other / Custom..." else "")
+        ir_tt = _resolve_custom(ir_tt_sel, ir_tt_custom)
+
+        ir_oob = st.text_input("Out-of-band Communications", value=_ir_defaults.get('out_of_band_communications', ''))
+        ir_cris = st.text_input("Crisis Communications", value=_ir_defaults.get('crisis_communications', ''))
+        ir_reg_opts = ["Decision process and templates prepared", "Included in exercises", "Unknown", "Other / Custom..."]
+        idx_ir_reg, ir_reg_custom_def = _with_custom_prefill(_ir_defaults.get('regulatory_notification_readiness', 'Unknown'), ir_reg_opts)
+        ir_reg_sel = st.selectbox("Regulatory Notification Readiness", ir_reg_opts, index=idx_ir_reg)
+        ir_reg_custom = st.text_input("Custom Regulatory Notification Readiness", value=ir_reg_custom_def if ir_reg_sel == "Other / Custom..." else "")
+        ir_reg = _resolve_custom(ir_reg_sel, ir_reg_custom)
+
+        ir_sup = st.text_input("Supplier Coordination", value=_ir_defaults.get('supplier_coordination', ''))
+        ir_less = st.text_input("Lessons Learned Process", value=_ir_defaults.get('lessons_learned_process', ''))
+        ir_notes = st.text_area("Notes", value=_ir_defaults.get('notes', ''), key="ir_notes")
+        _ir_dict = {
+            "roles_defined": ir_roles, "business_decision_authority": ir_bauth, "technical_response_authority": ir_tech,
+            "tabletop_status": ir_tt, "out_of_band_communications": ir_oob, "crisis_communications": ir_cris,
+            "regulatory_notification_readiness": ir_reg, "supplier_coordination": ir_sup, "lessons_learned_process": ir_less, "notes": ir_notes,
+        }
+
+    # Assurance Status (map)
+    with st.expander("Assurance Status", expanded=False):
+        st.subheader("Assurance Status")
+        _status_opts = ["Confirmed during consultation", "Reported, evidence not reviewed", "Requires supplier confirmation", "Not applicable", "Unknown"]
+        def _status_select(label_key, current):
+            return st.selectbox(label_key, _status_opts, index=_safe_index(_status_opts, current or "Unknown"))
+        as_default = _status_select("Default Assurance", (_as_defaults or {}).get("default", "Unknown"))
+        as_ip = _status_select("Information Protection", (_as_defaults or {}).get("information_protection", ""))
+        as_idg = _status_select("Identity Governance", (_as_defaults or {}).get("identity_governance", ""))
+        as_saas = _status_select("SaaS Governance", (_as_defaults or {}).get("saas_governance", ""))
+        as_mon = _status_select("Monitoring", (_as_defaults or {}).get("monitoring", ""))
+        as_sup = _status_select("Supplier Security", (_as_defaults or {}).get("supplier_security", ""))
+        as_rec = _status_select("Recovery", (_as_defaults or {}).get("recovery", ""))
+        as_ir = _status_select("Incident Response", (_as_defaults or {}).get("incident_response", ""))
+        as_ot = _status_select("OT & IoT", (_as_defaults or {}).get("ot_iot", ""))
+        as_pf = _status_select("Payment Fraud", (_as_defaults or {}).get("payment_fraud", ""))
+        as_app = _status_select("Application Security", (_as_defaults or {}).get("application_security", ""))
+        as_int = _status_select("Integration Assurance", (_as_defaults or {}).get("integration_assurance", ""))
+
+        _as_map = {
+            "default": as_default,
+            "information_protection": as_ip,
+            "identity_governance": as_idg,
+            "saas_governance": as_saas,
+            "monitoring": as_mon,
+            "supplier_security": as_sup,
+            "recovery": as_rec,
+            "incident_response": as_ir,
+            "ot_iot": as_ot,
+            "payment_fraud": as_pf,
+            "application_security": as_app,
+            "integration_assurance": as_int,
+        }
+
 ## --- PARTNERSHIP GOVERNANCE ---
 st.markdown("### 🔗 Partnership Governance")
 _pt_opts = ["Fully Managed", "Co-Managed"]
-partnership_type = st.radio("Partnership Governance Model", _pt_opts, index=(_pt_opts.index(TEST_DATA['partnership_type']) if dev else 0))
+partnership_type = st.radio("Partnership Governance Model", _pt_opts, index=(_safe_index(_pt_opts, TEST_DATA.get('partnership_type')) if dev else 0))
 st.session_state['partnership_type'] = partnership_type
 if partnership_type == "Fully Managed":
     st.markdown(f"Official URL: {FULLY_MANAGED_URL}")
@@ -833,48 +1303,93 @@ ai_dlp_controls = st.multiselect(
 
 st.divider()
 
-## --- SECURITY CULTURE CALCULATOR ---
-st.markdown("### 🧮 Security Culture Calculator")
+## --- SECURITY CULTURE & HUMAN RISK ---
+with st.container():
+    # Persisted options for import/export compatibility
+    _q1_opts = ["Never", "Annually", "Bi-Annually", "Quarterly", "Monthly"]
+    _q2_opts = ["None", "Annual Compliance Video", "Annual with simulations", "Continuous with active coaching", "Continuous with nudges/micro-learning"]
+    _reporting_opts = ["None", "Informal", "Documented clear routes", "Anonymous hotline", "One-click report (mail client)"]
+    _coaching_opts = ["None", "Ad hoc", "Manager-led coaching", "Structured with tracking", "Just-in-time micro-coaching"]
+    _role_opts = ["None", "High-risk roles only", "Partial key roles", "Comprehensive role-based"]
+    _leadership_opts = ["None", "Ad hoc", "Monthly stand-up", "Quarterly / regular with OKRs", "Board KPIs/OKRs"]
+    _policy_ack_opts = ["None", "Annual", "On hire and on-change", "Quarterly or on-change"]
+    _q3_opts = ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"]
 
-calc_col1, calc_col2, calc_col3 = st.columns(3)
+    with st.expander("Programme Controls", expanded=True):
+        col_c1, col_c2, col_c3 = st.columns(3)
+        with col_c1:
+            q1 = st.radio("Phishing Simulations", _q1_opts, index=(_safe_index(_q1_opts, TEST_DATA.get('culture_q1')) if dev else 0))
+        with col_c2:
+            q2 = st.radio("Security Training Programme", _q2_opts, index=(_safe_index(_q2_opts, TEST_DATA.get('culture_q2')) if dev else 0))
+        with col_c3:
+            q3 = st.radio("Endpoint Privileges (telemetry)", _q3_opts, index=(_safe_index(_q3_opts, TEST_DATA.get('culture_q3')) if dev else 0))
 
-# Persisted options for import/export compatibility
-_q1_opts = ["Never", "Annually", "Monthly / Quarterly"]
-_q2_opts = ["None", "Annual Compliance Video", "Continuous with active coaching"]
-_q3_opts = ["Most users are Local Admins", "Only IT/Devs are Local Admins", "Zero Trust (No Local Admins/LAPS)"]
+        col_c4, col_c5, col_c6 = st.columns(3)
+        with col_c4:
+            reporting_routes = st.radio("Reporting Routes", _reporting_opts, index=(_safe_index(_reporting_opts, TEST_DATA.get('culture_reporting_routes')) if dev else 0))
+        with col_c5:
+            followup_coaching = st.radio("Follow-up Coaching", _coaching_opts, index=(_safe_index(_coaching_opts, TEST_DATA.get('culture_followup_coaching')) if dev else 0))
+        with col_c6:
+            role_training = st.radio("Role-based Training Coverage", _role_opts, index=(_safe_index(_role_opts, TEST_DATA.get('culture_role_training')) if dev else 0))
 
-with calc_col1:
-    q1 = st.radio("1. Phishing Simulations", _q1_opts, index=(_safe_index(_q1_opts, TEST_DATA.get('culture_q1')) if dev else 0))
-with calc_col2:
-    q2 = st.radio("2. Security Training", _q2_opts, index=(_safe_index(_q2_opts, TEST_DATA.get('culture_q2')) if dev else 0))
-with calc_col3:
-    q3 = st.radio("3. Endpoint Privileges", _q3_opts, index=(_safe_index(_q3_opts, TEST_DATA.get('culture_q3')) if dev else 0))
+        col_c7, col_c8 = st.columns(2)
+        with col_c7:
+            leadership = st.radio("Leadership Engagement", _leadership_opts, index=(_safe_index(_leadership_opts, TEST_DATA.get('culture_leadership_engagement')) if dev else 0))
+        with col_c8:
+            policy_ack = st.radio("Policy Acknowledgement", _policy_ack_opts, index=(_safe_index(_policy_ack_opts, TEST_DATA.get('culture_policy_ack')) if dev else 0))
 
-# Derive MFA score from the Operational Telemetry mfa_status field (avoids duplicate question)
-mfa_score_map = {"None": 0, "Privileged Accounts Only": 1, "Universal / Conditional Access": 3}
-mfa_score = mfa_score_map.get(mfa_status, 0)
+    with st.expander("Programme Metrics (optional)", expanded=False):
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            phish_fail = st.number_input("Phish Failure Rate (last 90 days, %)", min_value=0, max_value=100, value=int(TEST_DATA.get('culture_phish_fail_pct_90d', 0)) if dev else 0)
+        with col_m2:
+            report_rate = st.number_input("Report Rate (last 90 days, %)", min_value=0, max_value=100, value=int(TEST_DATA.get('culture_report_rate_pct_90d', 0)) if dev else 0)
 
-culture_score = 0
-culture_score += mfa_score
-culture_score += {"Never": 0, "Annually": 1, "Monthly / Quarterly": 2}[q1]
-culture_score += {"None": 0, "Annual Compliance Video": 1, "Continuous with active coaching": 2}[q2]
-culture_score += {"Most users are Local Admins": 0, "Only IT/Devs are Local Admins": 1, "Zero Trust (No Local Admins/LAPS)": 2}[q3]
+    # Culture score (behavioural only; exclude MFA and endpoint admin)
+    def _score(map_opts, sel):
+        try:
+            if map_opts == "q1":
+                return {"Never": 0, "Annually": 1, "Bi-Annually": 1, "Quarterly": 2, "Monthly": 2}.get(sel, 0)
+            if map_opts == "q2":
+                return {"None": 0, "Annual Compliance Video": 1, "Annual with simulations": 1, "Continuous with active coaching": 2, "Continuous with nudges/micro-learning": 2}.get(sel, 0)
+            if map_opts == "report":
+                return {"None": 0, "Informal": 1, "Documented clear routes": 2, "Anonymous hotline": 2, "One-click report (mail client)": 2}.get(sel, 0)
+            if map_opts == "coach":
+                return {"None": 0, "Ad hoc": 1, "Manager-led coaching": 1, "Structured with tracking": 2, "Just-in-time micro-coaching": 2}.get(sel, 0)
+            if map_opts == "role":
+                return {"None": 0, "High-risk roles only": 1, "Partial key roles": 1, "Comprehensive role-based": 2}.get(sel, 0)
+            if map_opts == "lead":
+                return {"None": 0, "Ad hoc": 1, "Monthly stand-up": 2, "Quarterly / regular with OKRs": 2, "Board KPIs/OKRs": 2}.get(sel, 0)
+            if map_opts == "ack":
+                return {"None": 0, "Annual": 1, "On hire and on-change": 2, "Quarterly or on-change": 2}.get(sel, 0)
+            return 0
+        except Exception:
+            return 0
 
-if culture_score <= 4:
-    savviness_label = "Pillar 1: Reactive Culture"
-elif culture_score <= 7:
-    savviness_label = "Pillar 2: Proactive Culture"
-else:
-    savviness_label = "Pillar 3: Adaptive Culture"
+    culture_score = 0
+    culture_score += _score("q1", q1)
+    culture_score += _score("q2", q2)
+    culture_score += _score("report", reporting_routes)
+    culture_score += _score("coach", followup_coaching)
+    culture_score += _score("role", role_training)
+    culture_score += _score("lead", leadership)
+    culture_score += _score("ack", policy_ack)
 
-savviness_profiles = {
-    "Pillar 1: Reactive Culture": "Currently developing baseline awareness. Focus should be placed on universally enforcing MFA and restricting local administrator privileges.",
-    "Pillar 2: Proactive Culture": "Strong baseline awareness. Users complete regular training and foundational identity controls are actively enforced.",
-    "Pillar 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats, supported by strict access controls and continuous coaching."
-}
+    if culture_score <= 5:
+        savviness_label = "Pillar 1: Reactive Culture"
+    elif culture_score <= 10:
+        savviness_label = "Pillar 2: Proactive Culture"
+    else:
+        savviness_label = "Pillar 3: Adaptive Culture"
 
-st.info(f"**Calculated Score: {culture_score}/8** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
-savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
+    savviness_profiles = {
+        "Pillar 1: Reactive Culture": "Currently developing baseline awareness. Build reporting routes, establish structured coaching, and adopt role-based training.",
+        "Pillar 2: Proactive Culture": "Strong baseline awareness. Programmes include clear routes, consistent coaching, and role-targeted content.",
+        "Pillar 3: Adaptive Culture": "Highly optimised, zero-trust mindset. Users actively report threats; leadership drives OKRs; training is continuous and role-specific."
+    }
+
+    st.info(f"**Calculated Score: {culture_score}/14** | Result: {savviness_label} — *{savviness_profiles[savviness_label]}*")
+    savviness = f"{savviness_label} - {savviness_profiles[savviness_label]}"
 
 # --- GLOBAL INPUTS DICTIONARY ---
 def _norm(v, unk="Unknown"):
@@ -903,7 +1418,7 @@ client_inputs = {
     "critical_infra": critical_infra, 
     "mdr_provider": _norm(mdr_provider, "None"), 
     "endpoint": _norm(endpoint), 
-    "endpoint_posture": _norm(endpoint_posture), # NEW LINE
+    "endpoint_posture": _norm(endpoint_posture),
     "firewall": _norm(firewall), 
     "identity": _norm(identity), 
     "m365_license": _norm(m365_license_str, "None / On-Prem Only"), 
@@ -917,6 +1432,18 @@ client_inputs = {
     "vuln_scanning": _norm(vuln_scanning), 
     "validation_notes": validation_notes,
     "context_notes": context_notes,
+    # Security Culture (behavioural fields)
+    "culture_q1": q1,
+    "culture_q2": q2,
+    "culture_q3": q3,  # telemetry only; excluded from culture_score
+    "culture_reporting_routes": reporting_routes,
+    "culture_followup_coaching": followup_coaching,
+    "culture_role_training": role_training,
+    "culture_leadership_engagement": leadership,
+    "culture_policy_ack": policy_ack,
+    "culture_phish_fail_pct_90d": phish_fail,
+    "culture_report_rate_pct_90d": report_rate,
+    # Operational telemetry
     "mfa_status": _norm(mfa_status),
     "patching": _norm(patching),
     "backups": _norm(backups),
@@ -932,13 +1459,64 @@ client_inputs = {
     "banned_vendors": banned_vendors,
     "managed_service_status": _norm(st.session_state.get('managed_service_status', 'None'), "None"),
     "co_managed_units": st.session_state.get('co_managed_units', 0),
-    "partnership_type": partnership_type
+    "partnership_type": partnership_type,
+    # Structured profiles from UI (JSON-serialisable)
+    "critical_asset_profile": _cap_dict,
+    "service_resilience_profile": _sr_dict,
+    "information_protection_profile": _ip_dict,
+    "identity_governance_profile": _idg_dict,
+    "saas_governance_profile": _saas_dict,
+    "asset_assurance_profile": _aa_dict,
+    "monitoring_assurance_profile": _mon_dict,
+    "supplier_assurance_profile": _sup_dict,
+    "third_party_access_profile": _tpa_dict,
+    "recovery_assurance_profile": _rec_dict,
+    "incident_response_assurance_profile": _ir_dict,
+    "assurance_status": _as_map,
 }
 
 import json as _json
 _client_hash = _json.dumps(client_inputs, sort_keys=True, default=str)
 if st.session_state.get('_client_inputs_hash') != _client_hash:
     st.session_state['client_inputs'] = _sanitise_client_inputs(client_inputs)
+    # Attach structured consultation profiles if present in imported TEST_DATA (preserves nested assurance/governance)
+    try:
+        if isinstance(TEST_DATA, dict):
+            for key in [
+                "critical_asset_profile",
+                "service_resilience_profile",
+                "information_protection_profile",
+                "identity_governance_profile",
+                "saas_governance_profile",
+                "asset_assurance_profile",
+                "monitoring_assurance_profile",
+                "supplier_assurance_profile",
+                "third_party_access_profile",
+                "recovery_assurance_profile",
+                "incident_response_assurance_profile",
+                "assurance_status",
+            ]:
+                if key in TEST_DATA and key not in st.session_state['client_inputs']:
+                    st.session_state['client_inputs'][key] = TEST_DATA[key]
+        # Ensure defaults exist to avoid None lookups downstream (no open dicts in Pydantic models)
+        for key, default in [
+            ("critical_asset_profile", DEFAULT_CRITICAL_ASSET_PROFILE),
+            ("service_resilience_profile", DEFAULT_SERVICE_RESILIENCE_PROFILE),
+            ("information_protection_profile", DEFAULT_INFORMATION_PROTECTION),
+            ("identity_governance_profile", DEFAULT_IDENTITY_GOVERNANCE),
+            ("saas_governance_profile", DEFAULT_SAAS_GOVERNANCE),
+            ("asset_assurance_profile", DEFAULT_ASSET_ASSURANCE),
+            ("monitoring_assurance_profile", DEFAULT_MONITORING_ASSURANCE),
+            ("supplier_assurance_profile", DEFAULT_SUPPLIER_ASSURANCE),
+            ("third_party_access_profile", DEFAULT_THIRD_PARTY_ACCESS_PROFILE),
+            ("recovery_assurance_profile", DEFAULT_RECOVERY_ASSURANCE),
+            ("incident_response_assurance_profile", DEFAULT_IR_ASSURANCE),
+            ("assurance_status", ASSURANCE_STATUS_DEFAULT),
+        ]:
+            if key not in st.session_state['client_inputs'] or st.session_state['client_inputs'][key] is None:
+                st.session_state['client_inputs'][key] = default
+    except Exception:
+        pass
     st.session_state['_client_inputs_hash'] = _client_hash
     # Inject reference sample from configuration (tone-only; non-UI)
     try:
@@ -1061,8 +1639,7 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
     _remaining = max(0, _cooldown - int(_now_ts - _last_gen))
     if _remaining > 0:
         st.info(f"⏳ Cooldown active — generation available in {_remaining} second{'s' if _remaining != 1 else ''}.")
-    
-    if st.button("Generate Threat Scenario", type="primary", disabled=(_remaining > 0)):
+    if st.button("Generate Threat Simulation", type="primary", disabled=(_remaining > 0)):
         # Clear any cached export bytes from previous runs
         for key in ['pdf_bytes', 'threat_docx_bytes', 'mdr_case']:
             st.session_state.pop(key, None)
@@ -1101,7 +1678,7 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                 st.success("Threat Simulation Generated Successfully.")
             else:
                 st.error("Engine failed to generate the scenario.")
-        
+
     if st.session_state.get('scenario_obj'):
         st.subheader("📥 Export Deliverables")
         dl_threat_col1, dl_threat_col2 = st.columns(2)
@@ -1126,90 +1703,121 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
 
 elif st.session_state['workflow'] == "📈 Cybersecurity Maturity Assessment":
     st.header("Cybersecurity Maturity Assessment")
-    
-    _now_ts2 = time.time()
-    _cooldown2 = 30
-    _last_gen2 = st.session_state.get('_last_generation_ts', 0)
-    _remaining2 = max(0, _cooldown2 - int(_now_ts2 - _last_gen2))
-    if _remaining2 > 0:
-        st.info(f"⏳ Cooldown active — generation available in {_remaining2} second{'s' if _remaining2 != 1 else ''}.")
-    
-    if st.button("Generate Maturity Roadmap", type="primary", disabled=(_remaining2 > 0)):
-        st.session_state['_last_generation_ts'] = time.time()
+    # Hint: evidence controls are rendered above as top-level sections
+    st.caption("Use the top-level Governance & Assurance Evidence sections above to capture domain evidence before generating.")
+if st.button("Generate Maturity Roadmap", type="primary"):
+    if bool(st.session_state.get('staged_enabled', False)):
+        st.session_state["_last_generation_ts"] = time.time()
+        with st.spinner("Compiling Cybersecurity Maturity Assessment (staged)..."):
+            client = LLMEngine.get_client()
+            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+            header_prompt = build_maturity_header_prompt(st.session_state["client_inputs"])
+            header_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, header_prompt, MaturityHeader)
+            if header_obj:
+                st.session_state["maturity_obj"] = header_obj
+    else:
+        st.session_state["_last_generation_ts"] = time.time()
         with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
             client = LLMEngine.get_client()
             deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            
-            maturity_prompt = build_maturity_prompt(st.session_state['client_inputs'])
+            maturity_prompt = build_maturity_prompt(st.session_state["client_inputs"])
             maturity_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, maturity_prompt, MaturityReport)
-            
             if maturity_obj:
-                st.session_state['maturity_obj'] = maturity_obj
-                # Generate maturity-aligned threat scenario via streaming LLM (mirrors Threat Simulator)
-                try:
-                    # Build gap summary from domain assessments for the threat prompt
-                    gaps_summary = []
-                    for domain in getattr(maturity_obj, 'domain_assessments', []):
-                        name = getattr(domain, 'domain_name', 'Unknown')
-                        critical = getattr(domain, 'critical_gaps', [])
-                        if critical:
-                            gaps_summary.append(f"  - {name}: {', '.join(critical)}")
-                    gap_text = '\n'.join(gaps_summary) if gaps_summary else 'No critical gaps identified.'
+                st.session_state["maturity_obj"] = maturity_obj
+            
+
+    try:
+        mr = st.session_state.get('maturity_obj')
+        if mr and not getattr(mr, 'success_metrics', None):
+            mr.success_metrics = [
+                "Reduce mean time to respond (MTTR) through improved monitoring and runbooks",
+                "Increase MFA enforcement coverage across all identities",
+                "Improve backup immutability and restore assurance through regular testing",
+            ]
+        if not getattr(mr, 'engagement_cadence', None):
+            mr.engagement_cadence = [
+                "Monthly governance review",
+                "Quarterly roadmap checkpoint",
+                "Annual strategic reset with the Board",
+            ]
+        if not getattr(mr, 'consultant_discovery_guide', None):
+            mr.consultant_discovery_guide = [
+                "What are the Crown Jewels and their data flows?",
+                "What is the acceptable downtime tolerance (RTO)?",
+                "Do you carry cyber insurance and what are the conditions?",
+                "Where is MFA enforced across identities and services?",
+                "How are backups validated and how often?",
+            ]
+        if not getattr(mr, 'partnership_outline', None):
+            mr.partnership_outline = "Planet IT will partner to deliver a co-managed or fully managed engagement focused on measurable outcomes, repeatable governance ceremonies, and continuous improvement."
+    except Exception:
+        pass
+
+    # Generate maturity-aligned threat scenario via streaming LLM (mirrors Threat Simulator)
+    try:
+        # Build gap summary from domain assessments for the threat prompt
+        gaps_summary = []
+        for domain in getattr(mr, 'domain_assessments', []):
+            name = getattr(domain, 'domain_name', 'Unknown')
+            critical = getattr(domain, 'critical_gaps', [])
+            if critical:
+                gaps_summary.append(f"  - {name}: {', '.join(critical)}")
+        gap_text = '\n'.join(gaps_summary) if gaps_summary else 'No critical gaps identified.'
+
+        # Derive attack vector from operational telemetry gaps (prioritised)
+        mfa_status = client_inputs.get('mfa_status', 'Unknown')
+        patching = client_inputs.get('patching', 'Unknown')
+        backups = client_inputs.get('backups', 'Unknown')
+        ir_readiness = client_inputs.get('ir_readiness', 'Unknown')
+        remote_access = client_inputs.get('remote_access', 'Unknown')
+        saas_backup = client_inputs.get('saas_backup', 'Unknown')
+        endpoint_posture = client_inputs.get('endpoint_posture', 'Unknown')
+        savviness = client_inputs.get('savviness', '')
+        endpoint_capability = client_inputs.get('endpoint_posture', 'Unknown')
                     
-                    # Derive attack vector from operational telemetry gaps (prioritised)
-                    mfa_status = client_inputs.get('mfa_status', 'Unknown')
-                    patching = client_inputs.get('patching', 'Unknown')
-                    backups = client_inputs.get('backups', 'Unknown')
-                    ir_readiness = client_inputs.get('ir_readiness', 'Unknown')
-                    remote_access = client_inputs.get('remote_access', 'Unknown')
-                    saas_backup = client_inputs.get('saas_backup', 'Unknown')
-                    endpoint_posture = client_inputs.get('endpoint_posture', 'Unknown')
-                    savviness = client_inputs.get('savviness', '')
-                    endpoint_capability = client_inputs.get('endpoint_posture', 'Unknown')
-                    
-                    # Compound gap scenario: no MFA + manual patching + no backups = worst case
-                    if mfa_status in ['None', 'Privileged Accounts Only'] and patching == 'Manual / Ad-hoc' and backups in ['No Formal Backups', 'On-Premise Only']:
-                        attack_vector = "Compound Breach via Phishing + Unpatched VPN + Ransomware — Multi-stage attack exploiting credential theft (no universal MFA), privilege escalation through an unpatched CVE on VPN infrastructure (ad-hoc patch management), culminating in enterprise-wide ransomware deployment against non-immutable backups"
-                    # MFA gaps
-                    elif mfa_status in ['None']:
-                        attack_vector = "Credential Stuffing / Brute-Force Attack — Initial access through automated credential attacks against internet-facing authentication portals without any MFA enforcement. Threat actor exploits known breached credentials from dark-web dumps to authenticate directly"
-                    elif mfa_status in ['Privileged Accounts Only']:
-                        attack_vector = "Spear-Phishing + Session Hijacking — Initial access via targeted phishing campaign against standard users. Once foothold established, lateral movement to privileged accounts leverages absence of universal MFA to escalate without additional authentication challenges"
-                    # Patching gaps
-                    elif patching == 'Manual / Ad-hoc':
-                        attack_vector = "Exploitation of Known Unpatched CVE — Initial access via publicly disclosed vulnerability (CVE with known PoC exploit) on externally exposed infrastructure. Ad-hoc patch management leaves a 30+ day window between disclosure and remediation, enabling opportunistic exploitation"
-                    # Backup gaps
-                    elif backups in ['No Formal Backups']:
-                        attack_vector = "Ransomware via Supply Chain / Island Hopping — Initial access through compromised software update or third-party managed service provider. Absence of any formal backup strategy leaves the organisation with zero recovery capability, maximising extortion leverage"
-                    elif backups in ['On-Premise Only']:
-                        attack_vector = "Ransomware with Targeted Backup Destruction — Initial access through RDP brute-force on exposed management interfaces. Threat actor enumerates and encrypts on-premise backup repositories before deploying ransomware, eliminating local recovery options"
-                    # IR Readiness gaps
-                    elif ir_readiness in ['No Formal Plan']:
-                        attack_vector = "Extended Dwell-Time Data Exfiltration — Initial access via a zero-day vulnerability in an externally facing web application. With no formal incident response plan, the threat actor maintains undetected persistence for 90+ days, exfiltrating sensitive data in small, scheduled batches to avoid anomaly detection thresholds"
-                    elif ir_readiness in ['Documented IR Plan (Untested)']:
-                        attack_vector = "Ransomware or Data Destruction via Insider Threat — Initial access through a compromised privileged account. The untested IR plan fails during execution due to undocumented dependencies and stale contact lists, extending containment time from hours to days"
-                    # Remote Access gaps
-                    elif remote_access in ['Legacy VPN (Client-based)', 'None / Cloud Only']:
-                        attack_vector = "VPN Exploitation + Lateral Movement — Initial access through exploitation of a legacy VPN appliance with known vulnerabilities. Once inside the network perimeter, the flat internal network architecture enables unrestricted lateral movement toward critical assets"
-                    # SaaS Backup gaps
-                    elif saas_backup == 'None (Relying on Microsoft/Google)':
-                        attack_vector = "Microsoft 365 Tenant Compromise — Initial access through OAuth consent phishing or token replay. Absence of third-party SaaS backup means threat actor can permanently delete or encrypt Exchange Online, SharePoint, and Teams data beyond Microsoft's native retention windows"
-                    # Endpoint Capability gaps
-                    elif endpoint_capability in ['Legacy AV Only (Signatures/Heuristics)']:
-                        attack_vector = "Living-Off-the-Land (LOLBin) Attack — Initial access via a malicious Office macro or ISO payload. Legacy signature-based AV fails to detect fileless techniques leveraging PowerShell, WMI, and mshta, enabling persistent access without triggering traditional antivirus alerts"
-                    # Security Culture gaps
-                    elif 'Pillar 1' in savviness:
-                        attack_vector = "Social Engineering + Physical Access — Initial access through a targeted vishing (voice phishing) campaign impersonating IT support, requesting remote access credentials. Low security culture awareness and absence of continuous training enable the attacker to bypass technical controls through human manipulation"
-                    # Well-defended but still attackable
-                    else:
-                        attack_vector = "Multi-Stage Intrusion via Business Email Compromise — Initial access through a compromised executive email account (despite MFA) via adversary-in-the-middle (AiTM) proxy. Sophisticated threat actor leverages internal trust relationships to authorise fraudulent wire transfers or data exfiltration, evading standard detection through legitimate tooling"
-                    
-                    pillar = getattr(maturity_obj, 'resiliency_matrix_mapping', 'Pillar 1')
-                    crown_jewels = client_inputs.get('critical_infra', 'Unknown')
-                    rto = client_inputs.get('rto', 'Unknown')
-                    insurance = client_inputs.get('insurance', 'Unknown')
-                    
-                    threat_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')}
+        # Compound gap scenario: no MFA + manual patching + no backups = worst case
+        if mfa_status in ['None', 'Privileged Accounts Only'] and patching == 'Manual / Ad-hoc' and backups in ['No Formal Backups', 'On-Premise Only']:
+            attack_vector = "Compound Breach via Phishing + Unpatched VPN + Ransomware — Multi-stage attack exploiting credential theft (no universal MFA), privilege escalation through an unpatched CVE on VPN infrastructure (ad-hoc patch management), culminating in enterprise-wide ransomware deployment against non-immutable backups"
+        # MFA gaps
+        elif mfa_status in ['None']:
+            attack_vector = "Credential Stuffing / Brute-Force Attack — Initial access through automated credential attacks against internet-facing authentication portals without any MFA enforcement. Threat actor exploits known breached credentials from dark-web dumps to authenticate directly"
+        elif mfa_status in ['Privileged Accounts Only']:
+            attack_vector = "Spear-Phishing + Session Hijacking — Initial access via targeted phishing campaign against standard users. Once foothold established, lateral movement to privileged accounts leverages absence of universal MFA to escalate without additional authentication challenges"
+        # Patching gaps
+        elif patching == 'Manual / Ad-hoc':
+            attack_vector = "Exploitation of Known Unpatched CVE — Initial access via publicly disclosed vulnerability (CVE with known PoC exploit) on externally exposed infrastructure. Ad-hoc patch management leaves a 30+ day window between disclosure and remediation, enabling opportunistic exploitation"
+        # Backup gaps
+        elif backups in ['No Formal Backups']:
+            attack_vector = "Ransomware via Supply Chain / Island Hopping — Initial access through compromised software update or third-party managed service provider. Absence of any formal backup strategy leaves the organisation with zero recovery capability, maximising extortion leverage"
+        elif backups in ['On-Premise Only']:
+            attack_vector = "Ransomware with Targeted Backup Destruction — Initial access through RDP brute-force on exposed management interfaces. Threat actor enumerates and encrypts on-premise backup repositories before deploying ransomware, eliminating local recovery options"
+        # IR Readiness gaps
+        elif ir_readiness in ['No Formal Plan']:
+            attack_vector = "Extended Dwell-Time Data Exfiltration — Initial access via a zero-day vulnerability in an externally facing web application. With no formal incident response plan, the threat actor maintains undetected persistence for 90+ days, exfiltrating sensitive data in small, scheduled batches to avoid anomaly detection thresholds"
+        elif ir_readiness in ['Documented IR Plan (Untested)']:
+            attack_vector = "Ransomware or Data Destruction via Insider Threat — Initial access through a compromised privileged account. The untested IR plan fails during execution due to undocumented dependencies and stale contact lists, extending containment time from hours to days"
+        # Remote Access gaps
+        elif remote_access in ['Legacy VPN (Client-based)', 'None / Cloud Only']:
+            attack_vector = "VPN Exploitation + Lateral Movement — Initial access through exploitation of a legacy VPN appliance with known vulnerabilities. Once inside the network perimeter, the flat internal network architecture enables unrestricted lateral movement toward critical assets"
+        # SaaS Backup gaps
+        elif saas_backup == 'None (Relying on Microsoft/Google)':
+            attack_vector = "Microsoft 365 Tenant Compromise — Initial access through OAuth consent phishing or token replay. Absence of third-party SaaS backup means threat actor can permanently delete or encrypt Exchange Online, SharePoint, and Teams data beyond Microsoft's native retention windows"
+        # Endpoint Capability gaps
+        elif endpoint_capability in ['Legacy AV Only (Signatures/Heuristics)']:
+            attack_vector = "Living-Off-the-Land (LOLBin) Attack — Initial access via a malicious Office macro or ISO payload. Legacy signature-based AV fails to detect fileless techniques leveraging PowerShell, WMI, and mshta, enabling persistent access without triggering traditional antivirus alerts"
+        # Security Culture gaps
+        elif 'Pillar 1' in savviness:
+            attack_vector = "Social Engineering + Physical Access — Initial access through a targeted vishing (voice phishing) campaign impersonating IT support, requesting remote access credentials. Low security culture awareness and absence of continuous training enable the attacker to bypass technical controls through human manipulation"
+        # Well-defended but still attackable
+        else:
+            attack_vector = "Multi-Stage Intrusion via Business Email Compromise — Initial access through a compromised executive email account (despite MFA) via adversary-in-the-middle (AiTM) proxy. Sophisticated threat actor leverages internal trust relationships to authorise fraudulent wire transfers or data exfiltration, evading standard detection through legitimate tooling"
+
+        pillar = getattr(mr, 'resiliency_matrix_mapping', 'Pillar 1')
+        crown_jewels = client_inputs.get('critical_infra', 'Unknown')
+        rto = client_inputs.get('rto', 'Unknown')
+        insurance = client_inputs.get('insurance', 'Unknown')
+
+        threat_prompt = f"""ENGAGEMENT DETAILS: Customer: {client_inputs['customer_name']} | Industry: {client_inputs['industry']} | Users: {client_inputs.get('users', '500')}
 CLIENT ENVIRONMENT: Critical Asset: {crown_jewels} | MDR: {client_inputs.get('mdr_provider', 'None')} | Endpoint: {client_inputs.get('endpoint', 'Unknown')} | Firewall: {client_inputs.get('firewall', 'Unknown')}
 MATURITY CONTEXT: {pillar}
 IDENTIFIED SECURITY GAPS:
@@ -1230,91 +1838,71 @@ SCENARIO REQUIREMENTS:
 
 Act as ROLE 1 (Tactical Threat Analyst). Write a highly technical, narrative-driven breach scenario in British English. Use Markdown for hyperlinks. Do not use bullet points in narrative sections — write flowing paragraphs."""
 
-                    # Stream the threat narrative
-                    ref_sample = st.session_state['client_inputs'].get('reference_sample', '')
-                    if ref_sample:
-                        threat_prompt += f"""
+        # Stream the threat narrative
+        ref_sample = st.session_state['client_inputs'].get('reference_sample', '')
+        if ref_sample:
+            threat_prompt += f"""
 
-REFERENCE SAMPLE (TONE ONLY — DO NOT COPY)
+REFERENCE SAMPLE (TONE ONLY — DO NOT COPY)                    
 {ref_sample}
 
 ANTI-MIMICRY DIRECTIVE
 You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or section wording from the reference sample. Target high stylistic dissimilarity and vary sentence length and cadence. If any sentence would share more than 8 consecutive words with the sample, rewrite it.
 """
-                    accumulated = ""
-                    for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
-                        accumulated += token
-                    
-                    if accumulated.strip():
-                        from prompts import ThreatScenarioItem
-                        threat_scenarios = [
-                            ThreatScenarioItem(
-                                id="ts-maturity-1",
-                                name=f"{pillar} Maturity-Aligned Threat Scenario",
-                                incident_type=pillar,
-                                narrative=accumulated.strip(),
-                            )
-                        ]
-                        maturity_obj.threat_scenarios = threat_scenarios
-                        st.session_state['maturity_threat_scenarios'] = threat_scenarios
-                        st.session_state['maturity_obj'] = maturity_obj
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        f"Threat scenario LLM generation failed; building fallback from maturity data. Error: {e}"
-                    )
-                    # Fallback: build a lightweight threat scenario from the maturity report itself
-                    if maturity_obj:
-                        from prompts import ThreatScenarioItem
-                        threat_scenarios = [
-                            ThreatScenarioItem(
-                                id="ts-maturity-1",
-                                name=f"{maturity_obj.resiliency_matrix_mapping} Threat Scenario",
-                                incident_type=maturity_obj.resiliency_matrix_mapping,
-                                narrative=maturity_obj.cost_of_inaction,
-                            )
-                        ]
-                        maturity_obj.threat_scenarios = threat_scenarios
-                        st.session_state['maturity_threat_scenarios'] = threat_scenarios
-                        st.session_state['maturity_obj'] = maturity_obj
-                # Clear any cached export bytes from previous runs
-                for key in ['maturity_docx_bytes']:
-                    st.session_state.pop(key, None)
-                # Optionally compute Monte Carlo summary
-                try:
-                    if st.session_state.get('enable_mc', True):
-                        try:
-                            _iters = int(st.session_state.get('mc_iterations', get_config("MC_ITERATIONS", 5000)) or 5000)
-                        except Exception:
-                            _iters = 5000
-                        mc = run_monte_carlo(st.session_state['client_inputs'], st.session_state['maturity_obj'], iterations=_iters)
-                        st.session_state['mc_summary'] = mc
-                        # Generate LLM consultative interpretation (short, non-blocking UI)
-                        try:
-                            from prompts import build_mc_interpretation_prompt
-                            mc_prompt = build_mc_interpretation_prompt(st.session_state['client_inputs'], mc)
-                            accumulated = ""
-                            for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, mc_prompt, temperature=0.2):
-                                accumulated += token
-                            st.session_state['mc_llm_interpretation'] = accumulated.strip()
-                        except Exception:
-                            st.session_state['mc_llm_interpretation'] = ""
-                except Exception:
-                    pass
-                st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
-            else:
-                st.error("Engine failed to generate the roadmap.")
+        accumulated = ""
+        for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
+            accumulated += token
+
+        if accumulated.strip():
+            from prompts import ThreatScenarioItem
+            threat_scenarios = [
+                ThreatScenarioItem(
+                    id="ts-maturity-1",
+                    name=f"{pillar} Maturity-Aligned Threat Scenario",
+                    incident_type=pillar,
+                    narrative=accumulated.strip(),
+                )
+            ]
+            mr.threat_scenarios = threat_scenarios
+            st.session_state['maturity_threat_scenarios'] = threat_scenarios
+            st.session_state['maturity_obj'] = mr
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Threat scenario LLM generation failed; building fallback from maturity data. Error: {e}"
+        )
+        # Fallback: build a lightweight threat scenario from the maturity report itself
+        if mr:
+            from prompts import ThreatScenarioItem
+            threat_scenarios = [
+                ThreatScenarioItem(
+                    id="ts-maturity-1",
+                    name=f"{mr.resiliency_matrix_mapping} Threat Scenario",
+                    incident_type=mr.resiliency_matrix_mapping,
+                    narrative=mr.cost_of_inaction,
+                )
+            ]
+            mr.threat_scenarios = threat_scenarios
+            st.session_state['maturity_threat_scenarios'] = threat_scenarios
+            st.session_state['maturity_obj'] = mr
+        # Clear any cached export bytes from previous runs
+        for key in ['maturity_docx_bytes']:
+            st.session_state.pop(key, None)
+        st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
+    else:
+        st.error("Engine failed to generate the roadmap.")
         
     if st.session_state.get('maturity_obj'):
         st.subheader("📥 Export Deliverables")
-        docx_data = get_maturity_docx_bytes()
+        with st.spinner("Preparing Word document..."):
+            docx_data = get_maturity_docx_bytes()
         if docx_data:
             st.download_button(
                 "📄 Download Cybersecurity Maturity Report (Word)", 
                 data=docx_data, 
                 file_name=f"{cached_customer_name.replace(' ', '_')}_Cybersecurity_Maturity_Report.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"maturity_docx_dl_{st.session_state.get('_client_inputs_hash','')}_{st.session_state.get('mc_iterations',0)}"
+                key=f"maturity_docx_dl_{st.session_state.get('_client_inputs_hash','')}"
             )
 
     if st.session_state.get('maturity_obj'):
@@ -1365,35 +1953,10 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                 if rec:
                     st.markdown("### Microsoft Healthchecks & Hardening")
                     st.write(rec)
-            # Monte Carlo summary (optional)
-            mc = st.session_state.get('mc_summary')
-            if mc:
-                st.markdown("### Monte Carlo Risk Estimate")
-                st.info(
-                    f"Estimated annual breach probability: {mc.get('breach_probability_pct', 0.0):.1f}% | "
-                    f"AAL: £{mc.get('aal_gbp', 0.0):,.0f} | P50: £{mc.get('p50_gbp', 0.0):,.0f} | "
-                    f"P90: £{mc.get('p90_gbp', 0.0):,.0f} | P95: £{mc.get('p95_gbp', 0.0):,.0f} | CVaR95: £{mc.get('cvar95_gbp', 0.0):,.0f}"
-                )
-                # LLM consultative interpretation (customer-focused)
-                mc_text = st.session_state.get('mc_llm_interpretation')
-                if mc_text:
-                    st.markdown("#### Consultant’s interpretation")
-                    st.write(mc_text)
-                # Deterministic interpretive context for non-technical stakeholders
-                if mc.get('explanation'):
-                    st.markdown("#### What these numbers mean")
-                    st.write(mc.get('explanation'))
-                # Top exposure drivers (relative)
-                drivers = mc.get('drivers') or []
-                if drivers:
-                    st.markdown("#### Top exposure drivers")
-                    st.markdown("\n".join([f"- {d}" for d in drivers[:3]]))
-                with st.expander("Assumptions", expanded=False):
-                    st.markdown("\n".join([f"- {a}" for a in mc.get('assumptions', [])]))
                 
         with tab2:
             st.markdown("### Security Domain Analysis")
-            for domain in maturity.domain_assessments:
+        for domain in getattr(maturity, 'domain_assessments', []):
                 with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}"):
                     st.markdown("**Technical Analysis:**")
                     st.markdown(domain.current_state_analysis)
@@ -1410,7 +1973,7 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                     
         with tab3:
             st.markdown("### Phased Implementation")
-            for phase in maturity.phased_roadmap:
+        for phase in getattr(maturity, 'phased_roadmap', []):
                 st.markdown(f"#### {phase.phase_title}: {phase.primary_objective}")
                 for milestone in phase.milestones:
                     st.markdown(f"- {milestone}")

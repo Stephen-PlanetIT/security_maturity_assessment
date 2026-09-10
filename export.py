@@ -711,6 +711,21 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_threat_scenario_template.docx")
     doc = DocxTemplate(template_path)
+    # Initialise safe local defaults to prevent NameError in Threat export context
+    try:
+        from types import SimpleNamespace
+        report_data = SimpleNamespace()
+    except Exception:
+        report_data = None
+    def _as_list(value):
+        if isinstance(value, list):
+            return value
+        if value is None or value == "":
+            return []
+        return [value]
+    compliance_alignment_render = ""
+    _succ_render = ""
+    ts_text = ""
     # --- QUALITY PIPELINE (Threat Report DOCX) ---
     try:
         if 'process_threat_report' in globals() and callable(process_threat_report) and (quality_gate_enabled() if callable(quality_gate_enabled) else True):
@@ -852,12 +867,12 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
             "ThreatScenarioImpact": impact_text,
             "ThreatScenarioMitigations": mitigations_text,
         })
-# Precompute Threat Scenarios & Success Criteria aliases before rendering
-ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
-# Normalise common variants to reduce template fragility
-for alias in ("threat_scenarios", "Threat_scenarios", "Threat_Scenarios", "ThreatScenarios", "threat_scenarios_alt"):
-    context[alias] = ts_text
-    context["Threat_Scenarios"] = ts_text
+    # Precompute Threat Scenarios & Success Criteria aliases before rendering
+    ts_text = _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+    # Normalise common variants to reduce template fragility
+    for alias in ("threat_scenarios", "Threat_scenarios", "Threat_Scenarios", "ThreatScenarios", "threat_scenarios_alt"):
+        context[alias] = ts_text
+        context["Threat_Scenarios"] = ts_text
 
     _succ = _as_list(getattr(report_data, "success_metrics", None))
     _succ_render = "\\n".join([f"- {x}" for x in _succ]) if _succ else ""
@@ -1075,7 +1090,7 @@ def _inject_threat_scenarios_after_render(doc, threat_scenarios):
                                     run.text = run.text.replace(old_text, new_text)
 
     # Compute the text to inject from threat_scenarios
-    ts_text = ts_text if 'ts_text' in locals() else _format_threat_scenarios(getattr(report_data, "threat_scenarios", None))
+    ts_text = ts_text if 'ts_text' in locals() else _format_threat_scenarios(threat_scenarios)
     # Inject/replace the exact placeholders across common variants
     if ts_text:
         _replace_text_in_docx(doc, '{{ threat_scenarios }}', ts_text)
