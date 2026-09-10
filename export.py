@@ -1862,3 +1862,127 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     doc.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
+
+# ==========================================
+# TABLETOP EXPORT PIPELINE
+# ==========================================
+import io
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+def create_tabletop_pptx(master_plan_data: dict) -> bytes:
+    """Generate a clean slide deck for presentation using python-pptx."""
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_master_template.pptx")
+    prs = Presentation(template_path) if os.path.exists(template_path) else Presentation()
+    NAVY = RGBColor(35, 80, 106)
+    DARK_GRAY = RGBColor(50, 50, 50)
+
+    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+    if title_slide.shapes.title:
+        title_slide.shapes.title.text = master_plan_data.get("exercise_title", "Cyber Resilience Tabletop")
+    if len(title_slide.placeholders) > 1:
+        title_slide.placeholders[1].text = f"Prepared for: {master_plan_data.get('client_name', 'Client')}\\nFacilitated by Planet IT Strategic Advisory"
+
+    hk_slide = prs.slides.add_slide(prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0])
+    if hk_slide.shapes.title:
+        hk_slide.shapes.title.text = "Exercise Ground Rules"
+    if len(hk_slide.placeholders) > 1:
+        tf = hk_slide.placeholders[1].text_frame
+        tf.clear()
+        for rule in master_plan_data.get("housekeeping_rules", []):
+            p = tf.add_paragraph()
+            p.text = f"• {rule}"
+            p.font.size = Pt(16)
+            p.font.color.rgb = DARK_GRAY
+
+    for scn_idx, scn in enumerate(master_plan_data.get("scenarios", []), 1):
+        scn_title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+        if scn_title_slide.shapes.title:
+            scn_title_slide.shapes.title.text = f"Scenario {scn_idx}: {scn.get('scenario_title')}"
+        if len(scn_title_slide.placeholders) > 1:
+            scn_title_slide.placeholders[1].text = f"Theme: {scn.get('scenario_theme')}\\nInitial Vector: {scn.get('initial_vector')}"
+
+        for inj in scn.get("injects", []):
+            slide = prs.slides.add_slide(prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0])
+            if slide.shapes.title:
+                slide.shapes.title.text = f"{inj.get('simulated_timestamp')} — {inj.get('phase_title')}"
+            if len(slide.placeholders) > 1:
+                tf = slide.placeholders[1].text_frame
+                tf.clear()
+                p_narrative = tf.add_paragraph()
+                p_narrative.text = inj.get("scenario_narrative", "")
+                p_narrative.font.size = Pt(15)
+                p_narrative.space_after = Pt(14)
+                
+                p_hdr = tf.add_paragraph()
+                p_hdr.text = "Key Questions for the Room:"
+                p_hdr.font.size = Pt(15)
+                p_hdr.font.bold = True
+                p_hdr.font.color.rgb = NAVY
+                p_hdr.space_after = Pt(6)
+
+                for q in inj.get("facilitator_probe_questions", []):
+                    p_q = tf.add_paragraph()
+                    p_q.text = f"• {q}"
+                    p_q.font.size = Pt(14)
+                    p_q.font.color.rgb = DARK_GRAY
+
+    buffer = io.BytesIO()
+    prs.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
+    """Renders the comprehensive Facilitator Guide with probe cards and 'What Good Looks Like'."""
+    pdf = ReportPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 18)
+    robust_multi_cell(pdf, 0, 10, "Tabletop Facilitator & Evaluator Guide", align='C')
+    pdf.ln(2)
+    pdf.set_font("helvetica", "I", 11)
+    robust_multi_cell(pdf, 0, 6, f"Exercise: {master_plan_data.get('exercise_title')} | Client: {master_plan_data.get('client_name')}", align='C')
+    pdf.ln(6)
+    
+    draw_section_header(pdf, "Exercise Ground Rules & Housekeeping")
+    for r in master_plan_data.get("housekeeping_rules", []):
+        robust_multi_cell(pdf, 0, 5, f"- {r}")
+    pdf.ln(4)
+
+    for scn_idx, scn in enumerate(master_plan_data.get("scenarios", []), 1):
+        pdf.add_page()
+        draw_section_header(pdf, f"Scenario {scn_idx}: {scn.get('scenario_title')}")
+        robust_multi_cell(pdf, 0, 5, f"Theme: {scn.get('scenario_theme')} | Vector: {scn.get('initial_vector')}")
+        robust_multi_cell(pdf, 0, 5, f"Target Assets: {', '.join(scn.get('target_assets', []))}")
+        pdf.ln(4)
+
+        for inj in scn.get("injects", []):
+            pdf.ln(2)
+            pdf.set_font("helvetica", "B", 12)
+            pdf.set_text_color(35, 80, 106)
+            pdf.cell(0, 7, f"[{inj.get('simulated_timestamp')}] {inj.get('phase_title')} ({inj.get('inject_id')})", ln=True)
+            pdf.set_text_color(0, 0, 0)
+            
+            pdf.set_font("helvetica", "", 10)
+            robust_multi_cell(pdf, 0, 5, f"Situation: {inj.get('scenario_narrative')}")
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Expected Mature Action (What Good Looks Like):", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            robust_multi_cell(pdf, 0, 5, inj.get("expected_mature_response", ""))
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Facilitator Probes:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for q in inj.get("facilitator_probe_questions", []):
+                robust_multi_cell(pdf, 0, 5, f"• {q}")
+                
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Common Rabbit Holes / Traps to Watch For:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for pitfall in inj.get("common_pitfalls", []):
+                robust_multi_cell(pdf, 0, 5, f"! {pitfall}")
+            pdf.ln(3)
+
+    raw_pdf = pdf.output(dest='S')
+    return bytes(raw_pdf) if not isinstance(raw_pdf, str) else raw_pdf.encode('latin-1')

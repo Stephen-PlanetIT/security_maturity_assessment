@@ -7,7 +7,9 @@
   "endpoints": 300,
   "servers": 20,
   "operating_systems": "Windows 11, Windows Server 2022",
+  "savviness": "Pillar 2: Proactive security culture",
   "mdr_provider": "Sophos MDR",
+  "mdr_decision": "Sophos MDR",
   "endpoint": "Sophos",
   "endpoint_posture": "EDR Deployed (Endpoint Detection & Response)",
   "firewall": "Fortinet",
@@ -27,6 +29,7 @@
   "proactive_tools": "Hoxhunt",
   "validation_notes": "",
   "context_notes": "",
+  "reference_sample": "This is a short tone reference for testing developer utilities.",
   "mfa_status": "Universal / Conditional Access",
   "patching": "Automated (OS & Third-Party)",
   "backups": "Immutable / Air-Gapped",
@@ -43,9 +46,15 @@
   "ai_dlp_controls": "Microsoft Purview DLP",
   "banned_vendors": [],
   "critical_asset_profile": {
-    "business_services": ["Finance and payroll", "Microsoft 365 collaboration"],
+    "business_services": [
+      "Finance and payroll",
+      "Microsoft 365 collaboration"
+    ],
     "systems_platforms": "Dynamics 365; SharePoint; Teams",
-    "sensitive_data_types": ["Personal data", "Financial data"],
+    "sensitive_data_types": [
+      "Personal data",
+      "Financial data"
+    ],
     "additional_context": "Regional operations across two sites"
   },
   "service_resilience_profile": {
@@ -97,7 +106,12 @@
   },
   "monitoring_assurance_profile": {
     "monitoring_coverage": "24/7 alert monitoring",
-    "log_sources_monitored": ["Endpoint", "Identity", "Microsoft 365", "Firewall"],
+    "log_sources_monitored": [
+      "Endpoint",
+      "Identity",
+      "Microsoft 365",
+      "Firewall"
+    ],
     "log_retention": "90 to 365 days",
     "out_of_hours_escalation": "Defined escalation tree",
     "response_authority": "Investigate and recommend",
@@ -143,6 +157,41 @@
     "lessons_learned_process": "Documented post-incident review",
     "notes": ""
   },
+  "ot_iot_profile": {
+    "asset_inventory": "Documented OT asset register",
+    "network_separation": "Logical separation between OT and IT",
+    "vendor_access": "Contractual governance in place",
+    "patch_governance": "Risk-based patching windows",
+    "monitoring": "OT telemetry captured where feasible",
+    "recovery_planning": "Runbooks for critical OT systems",
+    "notes": "Placeholder OT/IoT governance profile"
+  },
+  "payment_fraud_profile": {
+    "payment_processes_present": "Yes, with authorisation workflows",
+    "change_verification": "Out-of-band verification enforced",
+    "dual_authorisation": "Enabled for large payments",
+    "finance_mailbox_protection": "Dedicated secure mailbox with anti-phish controls",
+    "fraud_response_process": "Documented process for suspected fraud",
+    "notes": "Placeholder payment fraud governance"
+  },
+  "application_security_profile": {
+    "secure_development_lifecycle": "Defined SDL with gates",
+    "code_repository_security": "Branch protection and review enforced",
+    "secrets_management": "Centralised secret storage",
+    "dependency_scanning": "Automated SCA enabled",
+    "application_security_testing": "DAST on release candidates",
+    "api_inventory": "Maintained API catalogue",
+    "notes": "Placeholder application security profile"
+  },
+  "integration_assurance_profile": {
+    "security_due_diligence": "Supplier security assessment required",
+    "new_site_security_baseline": "Baseline applied for acquisitions",
+    "pre_connection_assurance": "Security checks before interconnects",
+    "identity_integration": "Federated identity alignment",
+    "supplier_review": "Periodic partner reviews",
+    "integration_tracking": "Register of integrations maintained",
+    "notes": "Placeholder integration assurance profile"
+  },
   "assurance_status": {
     "default": "Reported, evidence not reviewed",
     "information_protection": "",
@@ -156,5 +205,6 @@
     "payment_fraud": "",
     "application_security": "",
     "integration_assurance": ""
-  }
+  },
+  "schema_version": 1
 }

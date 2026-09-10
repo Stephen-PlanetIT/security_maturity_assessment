@@ -328,12 +328,43 @@ You are writing for a C-level and technical director audience. Terse, high-level
 * Use UK English spellings (e.g., analyse, behaviour, programme).
 
  BACKGROUND KNOWLEDGE BASE:
- {context_injection}
-'''
-
-# ==========================================
-# PROMPT BUILDERS
-# ==========================================
+  {context_injection}
+ '''
+ 
+ # ==========================================
+ # TABLETOP FACILITATOR PERSONA
+ # ==========================================
+SYSTEM_PERSONA_TABLETOP = """
+ ROLE: Incident Commander & Facilitator (Planet IT). PURPOSE: Design and run a bespoke tabletop exercise that exploits identified hygiene gaps and governance realities to drive learning outcomes.
+ 
+ STRICT GUARDRAILS:
+ - Use British English throughout.
+ - Honour Pydantic schema constraints exactly (min_items/max_items). Do not return open dicts; only explicit BaseModel objects.
+ - Respect the ban list absolutely; do not recommend or reference banned vendors anywhere.
+ 
+ GAP EXPLOITATION (DETERMINISTIC):
+ - If MFA is None or Privileged Accounts Only: Early injects must include credential abuse/AiTM narratives and indicators (e.g., suspicious sign-ins, session tokens).
+ - If Patch Management is Manual / Ad-hoc: Include exploitation of a known CVE early in the chain; ground with realistic telemetry (alerts/logs).
+ - If Backups are No Formal or On-Premise Only: Introduce backup destruction/immutability traps; probe restore testing cadence and governance.
+ - Each inject must include a clear governance decision_threshold (e.g., Major Incident declaration; ICO 72h notification clock; invoking IR retainer).
+ 
+ DYNAMIC PIVOTS:
+ - When the room deviates from the expected mature response, generate an immediate consequence inject that escalates risk, updates indicators, and adds urgent probes.
+ - Keep learning objectives central; steer discussion back to good practice and governance thresholds.
+ 
+ AAR SCORING & CAPABILITY MISMATCH:
+ - Map observed performance to Pillar 1, 2, or 3.
+ - Apply Capability Mismatch penalties where hygiene is absent irrespective of advanced tooling; do not inflate scores.
+ 
+ OUTPUT DISCIPLINE:
+ - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold.
+ - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
+ - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
+ """
+ 
+ # ==========================================
+ # PROMPT BUILDERS
+ # ==========================================
 def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scenario=""):
     now = datetime.datetime.now(datetime.timezone.utc)
     start_time = (now - datetime.timedelta(minutes=38)).strftime("%H:%M UTC")
@@ -785,5 +816,92 @@ def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
 # Forward-ref resolution for models to ensure safe cross-references
 ThreatScenarioItem.update_forward_refs()
 MaturityHeader.update_forward_refs()
+
+# ==========================================
+# PYDANTIC MODELS: TABLETOP EXERCISE
+# ==========================================
+class TabletopInject(BaseModel):
+    inject_id: str = Field(description="Unique identifier, e.g., 'INJ-1.1'")
+    phase_title: str = Field(description="Phase title, e.g., 'Initial Anomaly Detection' or 'Interim Escalation'")
+    simulated_timestamp: str = Field(description="Relative or clock timestamp, e.g., 'Day 1 - 08:15 UTC'")
+    scenario_narrative: str = Field(description="The event presented to the room. Grounded in their actual estate.")
+    technical_indicators: List[str] = Field(description="Specific logs, alerts, cmdlines, or console indicators (e.g., Sophos MDR alert, Entra sign-in).", min_items=1, max_items=4)
+    facilitator_probe_questions: List[str] = Field(description="Challenging, provocative questions for the facilitator to pose to the room.", min_items=2, max_items=5)
+    expected_mature_response: str = Field(description="What 'Good' looks like according to Planet IT standards and the client's declared runbooks.")
+    common_pitfalls: List[str] = Field(description="Typical client rabbit holes, oversights, or unverified assumptions to challenge.", min_items=2, max_items=4)
+    decision_threshold: str = Field(description="Key governance decision point (e.g., Declaring a Major Incident, 72h ICO clock, Invoking Retainer).")
+
+class TabletopScenario(BaseModel):
+    scenario_id: str = Field(description="Unique scenario ID, e.g., 'SCN-01'")
+    scenario_title: str = Field(description="Title, e.g., 'AiTM Session Hijack & Downstream Supply Chain Impersonation'")
+    scenario_theme: str = Field(description="Theme: 'Cyber Attack', 'Unauthorised Access / Insider', or 'Infrastructure Outage'")
+    target_assets: List[str] = Field(description="Crown jewels or services targeted (from client profile).", min_items=1, max_items=3)
+    initial_vector: str = Field(description="Attack or failure vector (e.g., 'MFA Fatigue / AiTM on Executive Account')")
+    injects: List[TabletopInject] = Field(description="Sequential progression of injects for this scenario.", min_items=3, max_items=6)
+
+class TabletopMasterPlan(BaseModel):
+    exercise_title: str = Field(description="Title of the tabletop workshop.")
+    client_name: str = Field(description="Client name.")
+    housekeeping_rules: List[str] = Field(description="Ground rules (e.g., 'Only documented tools count').", min_items=3, max_items=5)
+    scenarios: List[TabletopScenario] = Field(description="The scenarios comprising the tabletop exercise.", min_items=2, max_items=4)
+
+class TabletopPivotResponse(BaseModel):
+    consequence_narrative: str = Field(description="What happens as a direct consequence of the room's decision.")
+    new_technical_indicators: List[str] = Field(description="Updated logs or environmental changes.", min_items=1, max_items=3)
+    urgent_pivot_questions: List[str] = Field(description="Immediate follow-up questions for the facilitator.", min_items=2, max_items=3)
+    facilitator_guidance: str = Field(description="Coaching notes on how to steer the discussion back towards learning objectives.")
+
+class TabletopAAR(BaseModel):
+    executive_summary: str = Field(description="High-level summary of the organisation's exercise performance.")
+    overall_maturity_observed: str = Field(description="'Pillar 1: Reactive', 'Pillar 2: Proactive', or 'Pillar 3: Adaptive'")
+    key_strengths: List[str] = Field(description="Documented strengths observed during the session.", min_items=2, max_items=5)
+    critical_gaps_identified: List[str] = Field(description="Gaps exposed by the injects.", min_items=2, max_items=5)
+    remediation_recommendations: List[str] = Field(description="Prioritised actions for the client.", min_items=3, max_items=6)
+    delta_notes_for_profile: str = Field(description="Concise summary to update the client's JSON profile.")
+
+# ==========================================
+# PROMPT BUILDERS: TABLETOP EXERCISE
+# ==========================================
+def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list) -> str:
+    cust = client_inputs.get('customer_name', 'Client')
+    infra = client_inputs.get('critical_infra', 'Crown Jewels')
+    mdr = client_inputs.get('mdr_provider', 'None')
+    fw = client_inputs.get('firewall', 'Unknown')
+    identity = client_inputs.get('identity', 'Unknown')
+    ir = client_inputs.get('ir_readiness', 'No Formal Plan')
+    retainer = client_inputs.get('ir_retainer', 'None')
+    bda = client_inputs.get('incident_response_assurance_profile', {}).get('business_decision_authority', 'Unknown')
+    tra = client_inputs.get('incident_response_assurance_profile', {}).get('technical_response_authority', 'Unknown')
+    banned = ", ".join(client_inputs.get('banned_vendors', []))
+    themes_str = ", ".join(selected_themes) if selected_themes else "Cyber Attack, Unauthorised Access"
+
+    return f"""Act as ROLE 1 & ROLE 2 (Senior Cyber Security Incident Response Consultant at Planet IT). Generate a bespoke, multi-scenario Tabletop Exercise Plan for {cust}.
+CLIENT ESTATE GROUNDING:
+- Crown Jewels: {infra} | Identity: {identity}
+- Security Stack: MDR: {mdr} | Endpoint: {client_inputs.get('endpoint')} | Firewall: {fw} | Email: {client_inputs.get('email')}
+- IR Readiness: {ir} | Active Retainer: {retainer} | Business Authority: {bda} | Tech Authority: {tra}
+- Hygiene Telemetry: MFA: {client_inputs.get('mfa_status', 'Unknown')} | Patching: {client_inputs.get('patching', 'Unknown')} | Backups: {client_inputs.get('backups', 'Unknown')}
+- Banned Vendors: [{banned}]
+EXERCISE REQUIREMENTS:
+1. Generate scenarios reflecting these themes: {themes_str}. Directly test the client's ACTUAL stack and governance models.
+2. Every scenario must contain between 3 and 5 progressive injects.
+3. Language: British English strictly (e.g., analyse, behaviour, programme).
+"""
+
+def build_tabletop_pivot_prompt(scenario_context: dict, current_inject: dict, room_decision: str) -> str:
+    return f"""Act as an Incident Commander and Facilitator at Planet IT. The client is participating in a live tabletop exercise.
+SCENARIO: {scenario_context.get('scenario_title')} | CURRENT INJECT: {current_inject.get('scenario_narrative')}
+EXPECTED ACTION: {current_inject.get('expected_mature_response')}
+ROOM'S ACTUAL DECISION: "{room_decision}"
+TASK: Generate an immediate dynamic consequence / pivot inject based on the room's reaction. British English.
+"""
+
+def build_tabletop_aar_prompt(master_plan: dict, session_notes: list, client_inputs: dict) -> str:
+    notes_dump = "\\n".join([f"- Phase: {n['phase']} | Action: {n['decision']} | Facilitator Observations: {n['notes']}" for n in session_notes])
+    return f"""Act as a vCISO at Planet IT. Generate a formal Executive After-Action Report (AAR) for {client_inputs.get('customer_name')}.
+WORKSHOP: {master_plan.get('exercise_title')} | NOTES CAPTURED:
+{notes_dump}
+TASK: Produce an evaluative After-Action Report. Assess whether performance reflects Pillar 1, 2, or 3. Provide actionable recommendations. British English.
+"""
 
 
