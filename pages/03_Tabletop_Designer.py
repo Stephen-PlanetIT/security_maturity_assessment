@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import json
 from core import LLMEngine
 from prompts import (
     TabletopMasterPlan,
@@ -107,7 +108,7 @@ with st.expander("Customer Estate & Engagement Profile (Advanced)", expanded=Fal
 
     with col1:
         st.subheader("Organisational Profile")
-        customer_name = st.text_input("Customer Name", value=client_inputs.get("customer_name", ""))
+        customer_name = st.text_input("Customer Name", value=client_inputs.get("customer_name", ""), key="adv_customer_name")
         consultant_name = st.text_input("Consultant Name", value=client_inputs.get("consultant_name", ""))
         industry_options = [
             "Select Industry...",
@@ -141,8 +142,8 @@ with st.expander("Customer Estate & Engagement Profile (Advanced)", expanded=Fal
             "Other",
         ]
         industry = st.selectbox("Industry", industry_options, index=_safe_index(industry_options, client_inputs.get("industry")))
-        users = st.number_input("Headcount", min_value=0, value=int(client_inputs.get("users", 0)))
-        critical_infra = st.text_input("Crown Jewels", value=client_inputs.get("critical_infra", ""))
+        users = st.number_input("Headcount", min_value=0, value=int(client_inputs.get("users", 0)), key="adv_users")
+        critical_infra = st.text_input("Crown Jewels", value=client_inputs.get("critical_infra", ""), key="adv_critical_infra")
 
     with col2:
         st.subheader("Technology Stack")
@@ -359,6 +360,25 @@ if st.session_state.get("tabletop_plan"):
                 inj["expected_mature_response"] = st.text_area(
                     "What Good Looks Like", value=inj.get("expected_mature_response"), key=f"resp_{s_idx}_{i_idx}"
                 )
+
+    col_json1, col_json2 = st.columns(2)
+    with col_json1:
+        st.download_button(
+            "🧩 Export Tabletop Plan (.json)",
+            data=(json.dumps(plan, ensure_ascii=False, indent=2)).encode("utf-8"),
+            file_name=f"{cached_customer_name}_Tabletop_Plan.json",
+            mime="application/json",
+        )
+    with col_json2:
+        uploaded_plan = st.file_uploader("Import Tabletop Plan (.json)", type=["json"])
+        if uploaded_plan is not None:
+            try:
+                imported = json.loads(uploaded_plan.getvalue().decode("utf-8"))
+                validated = TabletopMasterPlan.model_validate(imported)
+                st.session_state["tabletop_plan"] = validated.model_dump()
+                st.success("Tabletop plan imported and applied to the editor.")
+            except Exception as e:
+                st.error(f"Invalid plan JSON: {e}")
 
     st.divider()
     col_lock1, col_lock2 = st.columns(2)
