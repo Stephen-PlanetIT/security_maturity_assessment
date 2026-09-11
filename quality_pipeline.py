@@ -579,6 +579,75 @@ def process_threat_report(inputs: dict, scenario_obj: Any, mdr_case: str, recs: 
     )
     return scenario_obj, mdr_case, recs2, quality
 
+def process_tabletop_aar(master_plan: dict, session_notes: list, aar_obj: Any, client_inputs: dict | None = None) -> Tuple[Any, List[Dict[str, str]], List[Dict[str, Any]]]:
+    """
+    Deterministic enrichment for Tabletop AAR:
+    - Produce pairs [{"gap": str, "reason": str}] aligning to critical_gaps_identified (export-only consumption).
+    - Build a conservative evidence_map from session_notes to support evidence-led strengths/gaps.
+      Evidence items are shallow dicts suitable for docxtpl loops without altering Pydantic models.
+    Returns (aar_obj, gap_pairs, evidence_items).
+    """
+    pairs: List[Dict[str, str]] = []
+    evidence_items: List[Dict[str, Any]] = []
+    try:
+        gaps = getattr(aar_obj, "critical_gaps_identified", []) or []
+    except Exception:
+        gaps = []
+    def _reason_for_gap(g: str) -> str:
+        s = (g or "").lower()
+        # Heuristic rationale by class of gap; British English; concise export-ready phrasing
+        if "mfa" in s or "multi" in s and "factor" in s:
+            return "Absence of universal MFA increases credential abuse and AiTM risk; privileged access can be hijacked without additional factors."
+        if "patch" in s or "vulnerab" in s or "cve" in s:
+            return "Manual or delayed patching leaves exploitable CVEs unaddressed, extending attacker dwell time and raising compromise likelihood."
+        if "backup" in s or "immut" in s or "restore" in s:
+            return "Lack of immutable, tested backups undermines recovery; ransomware can destroy backups and prolong operational disruption."
+        if "monitor" in s or "coverage" in s or "out of hours" in s or "ooh" in s:
+            return "Limited monitoring—especially out‑of‑hours—delays detection and containment, allowing threats to spread unchecked."
+        if "shared account" in s or "service account" in s or "access review" in s or "privileged" in s:
+            return "Shared or ungoverned accounts reduce accountability and hinder anomaly detection, expanding the blast radius during incidents."
+        if "email" in s or "phish" in s or "mail" in s:
+            return "Weak email controls raise phishing success, enabling initial access and downstream credential reuse or malware delivery."
+        if "edr" in s or "endpoint" in s or "xdr" in s:
+            return "Insufficient endpoint telemetry hampers detection of lateral movement and malicious tools, slowing response and containment."
+        if "incident response" in s or "ir plan" in s or "tabletop" in s:
+            return "Untested incident response plans cause decision delays and unclear authority during crises, increasing impact duration."
+        return "This gap increases attack success probability and delays containment, elevating impact in the observed scenarios."
+    # Gap pairs
+    for g in gaps:
+        try:
+            pairs.append({"gap": str(g), "reason": _reason_for_gap(str(g))})
+        except Exception:
+            continue
+    # Evidence items (derived from session notes)
+    try:
+        for idx, n in enumerate(session_notes or [], start=1):
+            try:
+                scn = (n.get("scenario", "") if isinstance(n, dict) else "")
+                phase = (n.get("phase", "") if isinstance(n, dict) else "")
+                decision = (n.get("decision", "") if isinstance(n, dict) else "")
+                notes = (n.get("notes", "") if isinstance(n, dict) else "")
+                if not (decision or notes):
+                    continue
+                evidence_items.append({
+                    "id": f"EV-{idx:02d}",
+                    "type": "Gap" if "gap" in (notes or "").lower() else "Strength",
+                    "summary": (notes or decision)[:160],
+                    "rationale": decision[:200],
+                    "scenario_references": [scn] if scn else [],
+                    "inject_references": [phase] if phase else [],
+                    "capability": "",
+                    "evidence_source": "Discussion",
+                    "evidence_status": "Stated",
+                    "confidence": "Medium",
+                    "systemic": False,
+                })
+            except Exception:
+                continue
+    except Exception:
+        evidence_items = []
+    return aar_obj, pairs, evidence_items
+
 if __name__ == "__main__":
     demo = """This provides an example. This provides useful context. This provides additional detail. Further maturity is expected. Planet IT can support these changes. Planet IT can support governance as well."""
     print(analyse_phrase_frequency(demo))

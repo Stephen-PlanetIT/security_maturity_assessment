@@ -1,3 +1,4 @@
+from __future__ import annotations
 # export.py
 import io
 import json
@@ -706,6 +707,238 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
         
     # If it's a modern fpdf2 bytearray, safely cast it to bytes
     return bytes(raw_pdf)
+
+def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, immediate_injects: list | None = None) -> bytes:
+    """
+    Render an AAR using a docxtpl template (planet_it_tabletop_report_template.docx).
+    Context derives strictly from TabletopAAR and session notes; optional deterministic
+    enrichment is applied if process_tabletop_aar is available in quality_pipeline.
+    Returns bytes suitable for Streamlit download.
+    """
+    try:
+        template_path = os.path.join(os.path.dirname(__file__), "planet_it_tabletop_report_template.docx")
+        if not os.path.exists(template_path):
+            # Fail closed with empty payload if template is missing
+            return b""
+        doc = DocxTemplate(template_path)
+    except Exception:
+        return b""
+
+    # Extract safe scalars
+    try:
+        exercise_title = master_plan.get("exercise_title") if isinstance(master_plan, dict) else getattr(master_plan, "exercise_title", "")
+    except Exception:
+        exercise_title = ""
+    try:
+        client_name = master_plan.get("client_name") if isinstance(master_plan, dict) else getattr(master_plan, "client_name", "")
+    except Exception:
+        client_name = ""
+
+    # Lessons learned derived deterministically from session notes + immediate injects
+    lessons_learned = []
+    if isinstance(session_notes, list):
+        for n in session_notes:
+            try:
+                phase = (n.get("phase", "") if isinstance(n, dict) else "")
+                decision = (n.get("decision", "") if isinstance(n, dict) else "")
+                notes = (n.get("notes", "") if isinstance(n, dict) else "")
+                line = " | ".join([x for x in [phase, decision, notes] if str(x).strip()])
+                if line:
+                    lessons_learned.append(clean_text(line))
+            except Exception:
+                continue
+    # Append immediate injects to ensure presence in export even if template lacks placeholders
+    try:
+        if isinstance(immediate_injects, list):
+            for ii in immediate_injects:
+                try:
+                    s = ii.get("scenario_title", "")
+                    p = ii.get("phase_title", "")
+                    cn = ii.get("consequence_narrative", "")
+                    qs = ii.get("urgent_pivot_questions", []) or []
+                    line = "[IMMEDIATE INJECT] " + " | ".join([x for x in [s, p, cn, "; ".join([str(x) for x in qs])] if str(x).strip()])
+                    if line:
+                        lessons_learned.append(clean_text(line))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Optional deterministic enrichment (Option C)
+    critical_gap_pairs = []
+    evidence_map_override = []
+    try:
+        from quality_pipeline import process_tabletop_aar  # optional hook
+        if callable(process_tabletop_aar):
+            try:
+                # Provide client_inputs if available in context to aid deterministic reasons
+                client_inputs = {}
+                try:
+                    # Attempt to import from current session context if available at call sites
+                    client_inputs = {}
+                except Exception:
+                    client_inputs = {}
+                _result = process_tabletop_aar(master_plan, session_notes, aar_obj, client_inputs)
+                if isinstance(_result, tuple):
+                    if len(_result) >= 2 and isinstance(_result[1], list):
+                        critical_gap_pairs = _result[1]
+                    if len(_result) >= 3 and isinstance(_result[2], list):
+                        evidence_map_override = _result[2]
+            except Exception:
+                critical_gap_pairs = []
+                evidence_map_override = []
+    except Exception:
+        critical_gap_pairs = []
+        evidence_map_override = []
+
+    # Assemble render context for docxtpl
+    try:
+        def _to_dict_list(obj_list):
+            out = []
+            for o in obj_list or []:
+                try:
+                    out.append(o.model_dump() if hasattr(o, "model_dump") else dict(o))
+                except Exception:
+                    try:
+                        out.append(json.loads(str(o)))
+                    except Exception:
+                        out.append({"value": str(o)})
+            return out
+        key_strengths = _to_dict_list(getattr(aar_obj, "key_strengths", []))
+        critical_gaps = _to_dict_list(getattr(aar_obj, "critical_gaps_identified", []))
+        improvement_actions = _to_dict_list(getattr(aar_obj, "improvement_actions", []))
+        capability_assessments = _to_dict_list(getattr(aar_obj, "capability_assessments", []))
+        decisions_open = _to_dict_list(getattr(aar_obj, "decisions_and_open_items", []))
+        participant_feedback = _to_dict_list(getattr(aar_obj, "participant_feedback", []))
+        profile_changes = _to_dict_list(getattr(aar_obj, "profile_changes", []))
+        scenarios_render = _to_dict_list(getattr(aar_obj, "scenarios", []))
+        # Back-compat: map legacy remediation_recommendations into simple actions if improvement_actions empty
+        recs = getattr(aar_obj, "remediation_recommendations", []) or []
+        if not improvement_actions and isinstance(recs, list) and recs:
+            improvement_actions = [
+                {
+                    "id": f"ACT-{i+1:02d}",
+                    "category": "process",
+                    "recommendation": str(r),
+                    "priority": "Medium",
+                    "supporting_owners": [],
+                    "dependencies": [],
+                    "finding_references": [],
+                    "scenario_references": [],
+                    "rationale": "",
+                    "risk_addressed": "",
+                    "status": "Proposed",
+                    "acceptance_criteria": "",
+                    "closure_evidence": "",
+                    "validation_method": ""
+                } for i, r in enumerate(recs[:10])
+            ]
+        ctx = {
+            "customer_name": client_name or "",
+            "exercise_title": exercise_title or "",
+            "executive_summary": getattr(aar_obj, "executive_summary", "") or "",
+            "overall_maturity_observed": getattr(aar_obj, "overall_maturity_observed", "Unknown") or "Unknown",
+            # Session metadata
+            "session_date": getattr(aar_obj, "session_date", "") or "",
+            "location": getattr(aar_obj, "location", "") or "",
+            "audience": getattr(aar_obj, "audience", "") or "",
+            "facilitator": getattr(aar_obj, "facilitator", "") or "",
+            "exercise_overview": getattr(aar_obj, "exercise_overview", "") or "",
+            "scenario_context": getattr(aar_obj, "scenario_context", "") or "",
+            # Objectives and boundaries
+            "objectives": getattr(aar_obj, "objectives", []) or [],
+            "scope": getattr(aar_obj, "scope", []) or [],
+            "assumptions": getattr(aar_obj, "assumptions", []) or [],
+            # Scenario/capability coverage
+            "scenarios_exercised": getattr(aar_obj, "scenarios_exercised", []) or [],
+            "capabilities_exercised": getattr(aar_obj, "capabilities_exercised", []) or [],
+            # Evidence-led evaluation
+            "key_strengths": key_strengths,
+            "critical_gaps_identified": critical_gaps,
+            "evidence_map": (evidence_map_override if evidence_map_override else getattr(aar_obj, "evidence_map", []) or []),
+            "maturity_rationale": getattr(aar_obj, "maturity_rationale", "") or "",
+            # Improvement plan
+            "remediation_recommendations": recs,
+            "improvement_opportunities": getattr(aar_obj, "improvement_opportunities", []) or [],
+            "improvement_plan": getattr(aar_obj, "improvement_plan", []) or [],
+            # Feedback and follow-ups
+            "participants_feedback": getattr(aar_obj, "participants_feedback", []) or [],
+            "facilitator_observations": getattr(aar_obj, "facilitator_observations", []) or [],
+            "follow_up_exercise_requirements": getattr(aar_obj, "follow_up_exercise_requirements", []) or [],
+            "follow_up_actions": getattr(aar_obj, "follow_up_actions", []) or [],
+            # Lessons learned & profile
+            "lessons_learned": lessons_learned,
+            "delta_notes_for_profile": getattr(aar_obj, "delta_notes_for_profile", "") or "",
+            # Optional enrichment pairs: [{"gap": "...", "reason": "..."}]
+            "critical_gap_pairs": critical_gap_pairs,
+        }
+        # Inject newly supported structured fields if present
+        try:
+            ctx.update({
+                "improvement_actions": improvement_actions,
+                "capability_assessments": capability_assessments,
+                "decisions_and_open_items": decisions_open,
+                "participant_feedback": participant_feedback or ctx.get("participants_feedback", []),
+                "profile_changes": profile_changes,
+                "scenarios": scenarios_render,
+                # Explicit feeder keys to align with DOCX placeholders
+                "exercise_id": getattr(aar_obj, "exercise_id", "") or "",
+                "exercise_date": getattr(aar_obj, "exercise_date", "") or "",
+                "start_time": getattr(aar_obj, "start_time", "") or "",
+                "end_time": getattr(aar_obj, "end_time", "") or "",
+                "exercise_location": getattr(aar_obj, "exercise_location", "") or "",
+                "delivery_mode": getattr(aar_obj, "delivery_mode", "") or "",
+                "audience_profile": getattr(aar_obj, "audience_profile", "") or "",
+                "report_status": getattr(aar_obj, "report_status", "") or "",
+                "report_version": getattr(aar_obj, "report_version", "") or "",
+                "information_classification": getattr(aar_obj, "information_classification", "") or "",
+                # Surface facilitators/participants for Jinja loops
+                "facilitators": _to_dict_list(getattr(aar_obj, "facilitators", [])),
+                "participants": _to_dict_list(getattr(aar_obj, "participants", [])),
+            })
+        except Exception:
+            pass
+    except Exception:
+        ctx = {
+            "customer_name": client_name or "",
+            "exercise_title": exercise_title or "",
+            "executive_summary": "",
+            "overall_maturity_observed": "Unknown",
+            "key_strengths": [],
+            "critical_gaps_identified": [],
+            "remediation_recommendations": [],
+            "lessons_learned": lessons_learned,
+            "delta_notes_for_profile": "",
+            "critical_gap_pairs": [],
+        }
+
+    # Reconcile aliases and escape XML-sensitive content
+    try:
+        debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
+    except Exception:
+        debug = False
+    try:
+        ctx = _reconcile_context_for_template(doc, ctx, debug=debug)
+    except Exception:
+        pass
+    try:
+        safe_ctx = _xml_escape_dict(ctx)
+    except Exception:
+        safe_ctx = ctx
+
+    try:
+        doc.render(safe_ctx)
+    except Exception:
+        # Fail closed; return empty payload if docxtpl render fails
+        return b""
+
+    buf = io.BytesIO()
+    try:
+        doc.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return b""
 
 def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: str) -> bytes:
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
@@ -1871,62 +2104,199 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
+# --- PPTX STYLE HELPERS (branding-safe) ---
+def _apply_para_style(p, font_size_pt=14, rgb=(50, 50, 50), bold=False):
+    try:
+        p.font.size = Pt(font_size_pt)
+        p.font.color.rgb = RGBColor(*rgb)
+        p.font.bold = bold
+    except Exception:
+        pass
+
+def _add_heading(tf, text, font_size_pt=15, rgb=(35, 80, 106)):
+    p = tf.add_paragraph()
+    p.text = text
+    _apply_para_style(p, font_size_pt=font_size_pt, rgb=rgb, bold=True)
+    try:
+        p.space_after = Pt(6)
+    except Exception:
+        pass
+    return p
+
+def _add_bullet(tf, text, font_size_pt=14, rgb=(50, 50, 50)):
+    p = tf.add_paragraph()
+    p.text = f"• {text}"
+    _apply_para_style(p, font_size_pt=font_size_pt, rgb=rgb, bold=False)
+    return p
+
+def _add_textbox(slide, left_in, top_in, width_in, height_in, text=""):
+    tx = slide.shapes.add_textbox(Inches(left_in), Inches(top_in), Inches(width_in), Inches(height_in))
+    tf = tx.text_frame
+    tf.text = text or ""
+    return tx, tf
+
+def _embed_picture(slide, image_path, left_in=6.0, top_in=1.5, width_in=3.0):
+    try:
+        if image_path and isinstance(image_path, str) and len(image_path) > 0 and os.path.exists(image_path):
+            slide.shapes.add_picture(image_path, Inches(left_in), Inches(top_in), width=Inches(width_in))
+            return True
+    except Exception:
+        pass
+    return False
+
 def create_tabletop_pptx(master_plan_data: dict) -> bytes:
     """Generate a clean slide deck for presentation using python-pptx."""
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_master_template.pptx")
-    prs = Presentation(template_path) if os.path.exists(template_path) else Presentation()
+
+    # Safe accessors (dict or object)
+    def _dict_get(obj, key, default=None):
+        try:
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            v = getattr(obj, key, default)
+            return v if v is not None else default
+        except Exception:
+            return default
+
+    # Remove all original slides from the template while preserving theme/masters
+    def _clear_all_template_slides(p):
+        try:
+            sld_id_lst = p.slides._sldIdLst
+            for sld_id in list(sld_id_lst):
+                rId = sld_id.rId
+                p.part.drop_rel(rId)
+                sld_id_lst.remove(sld_id)
+        except Exception:
+            # If this fails, continue using the template as-is
+            pass
+
+    if os.path.exists(template_path):
+        prs = Presentation(template_path)
+        _clear_all_template_slides(prs)
+    else:
+        prs = Presentation()
+
     NAVY = RGBColor(35, 80, 106)
     DARK_GRAY = RGBColor(50, 50, 50)
 
-    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+    # Title slide
+    title_layout = prs.slide_layouts[0] if len(prs.slide_layouts) > 0 else prs.slide_layouts[0]
+    title_slide = prs.slides.add_slide(title_layout)
     if title_slide.shapes.title:
-        title_slide.shapes.title.text = master_plan_data.get("exercise_title", "Cyber Resilience Tabletop")
+        title_slide.shapes.title.text = _dict_get(master_plan_data, "exercise_title", "Cyber Resilience Tabletop")
+    # Subtitle/secondary body: try placeholder, fallback to textbox
+    subtitle_text = f"Prepared for: {_dict_get(master_plan_data, 'client_name', 'Client')}\nFacilitated by Planet IT Strategic Advisory"
     if len(title_slide.placeholders) > 1:
-        title_slide.placeholders[1].text = f"Prepared for: {master_plan_data.get('client_name', 'Client')}\\nFacilitated by Planet IT Strategic Advisory"
+        try:
+            title_slide.placeholders[1].text = subtitle_text
+        except Exception:
+            tx = title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+            tx.text_frame.text = subtitle_text
+    else:
+        tx = title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+        tx.text_frame.text = subtitle_text
 
-    hk_slide = prs.slides.add_slide(prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0])
+    # Housekeeping slide
+    hk_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
+    hk_slide = prs.slides.add_slide(hk_layout)
     if hk_slide.shapes.title:
         hk_slide.shapes.title.text = "Exercise Ground Rules"
+    rules = _dict_get(master_plan_data, "housekeeping_rules", []) or []
     if len(hk_slide.placeholders) > 1:
         tf = hk_slide.placeholders[1].text_frame
-        tf.clear()
-        for rule in master_plan_data.get("housekeeping_rules", []):
+        try:
+            tf.clear()
+        except Exception:
+            tf.text = ""
+        for rule in rules:
+            p = tf.add_paragraph()
+            p.text = f"• {rule}"
+            p.font.size = Pt(16)
+            p.font.color.rgb = DARK_GRAY
+    else:
+        tx = hk_slide.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(8.5), Inches(4.5))
+        tf = tx.text_frame
+        tf.text = ""
+        for rule in rules:
             p = tf.add_paragraph()
             p.text = f"• {rule}"
             p.font.size = Pt(16)
             p.font.color.rgb = DARK_GRAY
 
-    for scn_idx, scn in enumerate(master_plan_data.get("scenarios", []), 1):
-        scn_title_slide = prs.slides.add_slide(prs.slide_layouts[0])
-        if scn_title_slide.shapes.title:
-            scn_title_slide.shapes.title.text = f"Scenario {scn_idx}: {scn.get('scenario_title')}"
-        if len(scn_title_slide.placeholders) > 1:
-            scn_title_slide.placeholders[1].text = f"Theme: {scn.get('scenario_theme')}\\nInitial Vector: {scn.get('initial_vector')}"
+    # Scenarios and injects
+    scenarios = _dict_get(master_plan_data, "scenarios", []) or []
+    for scn_idx, scn in enumerate(scenarios, 1):
+        scn_title = _dict_get(scn, "scenario_title", f"Scenario {scn_idx}")
+        scn_theme = _dict_get(scn, "scenario_theme", "")
+        initial_vector = _dict_get(scn, "initial_vector", "")
 
-        for inj in scn.get("injects", []):
-            slide = prs.slides.add_slide(prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0])
+        scn_title_slide = prs.slides.add_slide(title_layout)
+        if scn_title_slide.shapes.title:
+            scn_title_slide.shapes.title.text = f"Scenario {scn_idx}: {scn_title}"
+        subtitle = f"Theme: {scn_theme}\nInitial Vector: {initial_vector}"
+        if len(scn_title_slide.placeholders) > 1:
+            try:
+                scn_title_slide.placeholders[1].text = subtitle
+            except Exception:
+                tx = scn_title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+                tx.text_frame.text = subtitle
+        else:
+            tx = scn_title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+            tx.text_frame.text = subtitle
+
+        base_injects = _dict_get(scn, "injects", []) or []
+        client_injects = _dict_get(scn, "client_injects", []) or []
+        injects = base_injects + client_injects
+
+        for inj in injects:
+            inj_layout = hk_layout
+            slide = prs.slides.add_slide(inj_layout)
+            ts = _dict_get(inj, "simulated_timestamp", "")
+            phase = _dict_get(inj, "phase_title", "")
+            narrative = _dict_get(inj, "scenario_narrative", "")
+            qlist = _dict_get(inj, "facilitator_probe_questions", []) or []
+            artefact_img = _dict_get(inj, "artefact_image_path", "")
+            references = _dict_get(inj, "references", []) or []
+
             if slide.shapes.title:
-                slide.shapes.title.text = f"{inj.get('simulated_timestamp')} — {inj.get('phase_title')}"
+                parts = [x for x in [ts, phase] if x]
+                slide.shapes.title.text = " — ".join(parts) if parts else ""
+
+            # Narrative + questions (with references)
             if len(slide.placeholders) > 1:
                 tf = slide.placeholders[1].text_frame
-                tf.clear()
+                try:
+                    tf.clear()
+                except Exception:
+                    tf.text = ""
                 p_narrative = tf.add_paragraph()
-                p_narrative.text = inj.get("scenario_narrative", "")
-                p_narrative.font.size = Pt(15)
-                p_narrative.space_after = Pt(14)
-                
-                p_hdr = tf.add_paragraph()
-                p_hdr.text = "Key Questions for the Room:"
-                p_hdr.font.size = Pt(15)
-                p_hdr.font.bold = True
-                p_hdr.font.color.rgb = NAVY
-                p_hdr.space_after = Pt(6)
+                p_narrative.text = narrative or ""
+                _apply_para_style(p_narrative, font_size_pt=15, rgb=(50, 50, 50))
+                try:
+                    p_narrative.space_after = Pt(12)
+                except Exception:
+                    pass
 
-                for q in inj.get("facilitator_probe_questions", []):
-                    p_q = tf.add_paragraph()
-                    p_q.text = f"• {q}"
-                    p_q.font.size = Pt(14)
-                    p_q.font.color.rgb = DARK_GRAY
+                _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
+                for q in qlist:
+                    _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+
+                if references:
+                    _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
+                    for r in references:
+                        _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+            else:
+                tx, tf = _add_textbox(slide, 1.0, 2.0, 8.5, 4.5, text=narrative or "")
+                _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
+                for q in qlist:
+                    _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+                if references:
+                    _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
+                    for r in references:
+                        _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+
+            # Optional artefact image (if path provided and exists)
+            _embed_picture(slide, artefact_img, left_in=6.0, top_in=1.5, width_in=3.0)
 
     buffer = io.BytesIO()
     prs.save(buffer)

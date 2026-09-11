@@ -841,6 +841,20 @@ def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
 # Forward-ref resolution for models to ensure safe cross-references
 ThreatScenarioItem.update_forward_refs()
 MaturityHeader.update_forward_refs()
+# Ensure AAR nested forward refs are resolved
+try:
+    ScenarioInject.update_forward_refs()
+    Scenario.update_forward_refs()
+    Observation.update_forward_refs()
+    CapabilityAssessment.update_forward_refs()
+    DecisionRecord.update_forward_refs()
+    ImprovementAction.update_forward_refs()
+    ParticipantFeedback.update_forward_refs()
+    FollowUpAssurance.update_forward_refs()
+    ProfileChange.update_forward_refs()
+    TabletopAAR.update_forward_refs()
+except Exception:
+    pass
 
 # ==========================================
 # PYDANTIC MODELS: TABLETOP EXERCISE
@@ -876,13 +890,186 @@ class TabletopPivotResponse(BaseModel):
     urgent_pivot_questions: List[str] = Field(description="Immediate follow-up questions for the facilitator.", min_items=2, max_items=3)
     facilitator_guidance: str = Field(description="Coaching notes on how to steer the discussion back towards learning objectives.")
 
+class PersonRole(BaseModel):
+    name: Optional[str] = Field(default=None, description="Participant or facilitator name where individual attribution is appropriate.")
+    role: str = Field(description="Job role or exercise role.")
+    function: str = Field(description="Business or technical function represented.")
+    organisation: Optional[str] = Field(default=None, description="Third-party organisation if applicable.")
+    participation_type: str = Field(description="One of: 'Participant', 'Facilitator', 'Observer'.")
+
+class ScenarioInject(BaseModel):
+    id: str = Field(description="Unique inject reference, e.g., 'SCN-01-INJ-03'.")
+    sequence: int = Field(description="Position within scenario.")
+    simulated_time: Optional[str] = Field(default=None, description="Exercise timeline point represented by the inject.")
+    information_presented: str = Field(description="Information given to participants.")
+    intended_capability: str = Field(description="Capability or decision the inject was intended to test.")
+    response_observed: str = Field(description="Action, discussion or decision observed.")
+    decision_owner: Optional[str] = Field(default=None, description="Role accountable for the response or decision.")
+    decision_rationale: Optional[str] = Field(default=None, description="Reason given for the selected response.")
+    dependencies_identified: List[str] = Field(description="Dependencies identified.", min_items=0, max_items=10)
+    escalation_route: Optional[str] = Field(default=None, description="Escalation path selected or discussed.")
+    outcome: str = Field(description="Result of the inject discussion.")
+    unresolved_questions: List[str] = Field(description="Matters requiring confirmation after the session.", min_items=0, max_items=10)
+
+class Observation(BaseModel):
+    id: str = Field(description="Unique finding reference.")
+    type: str = Field(description="One of: 'Strength' or 'Gap'.")
+    summary: str = Field(description="Client-facing statement of the finding.")
+    rationale: str = Field(description="Explanation of why the observation matters.")
+    scenario_references: List[str] = Field(description="Scenarios where this arose.", min_items=0, max_items=10)
+    inject_references: List[str] = Field(description="Specific injects supporting the observation.", min_items=0, max_items=10)
+    capability: str = Field(description="Response capability affected.")
+    evidence_source: str = Field(description="Discussion, document, demonstrated process or other supporting evidence.")
+    evidence_status: str = Field(description="One of: 'Demonstrated', 'Stated', 'Inferred', 'Unverified'.")
+    confidence: str = Field(description="One of: 'High', 'Medium', 'Low'.")
+    systemic: bool = Field(description="Whether this applies beyond a single scenario.")
+
+class CapabilityAssessment(BaseModel):
+    capability: str = Field(description="Capability assessed.")
+    maturity: str = Field(description="One of: 'Pillar 1: Reactive', 'Pillar 2: Proactive', 'Pillar 3: Adaptive'.")
+    rationale: str = Field(description="Supporting explanation.")
+    scenario_references: List[str] = Field(description="Exercises supporting the rating.", min_items=0, max_items=10)
+    evidence_references: List[str] = Field(description="Related observation or inject references.", min_items=0, max_items=10)
+    confidence: str = Field(description="One of: 'High', 'Medium', 'Low'.")
+
+class DecisionRecord(BaseModel):
+    id: str = Field(description="Unique decision/open-item reference.")
+    record_type: str = Field(description="One of: 'Decision', 'Assumption', 'Open question', 'Validation required'.")
+    summary: str = Field(description="Decision, assumption or unresolved matter.")
+    scenario_references: List[str] = Field(description="Relevant scenarios.", min_items=0, max_items=10)
+    accountable_role: Optional[str] = Field(default=None, description="Role responsible for confirming or progressing it.")
+    rationale: Optional[str] = Field(default=None, description="Reason for the decision or assumption.")
+    follow_up_required: bool = Field(description="Whether further work is required.")
+    target_date: Optional[str] = Field(default=None, description="Expected resolution date (YYYY-MM-DD).")
+    status: str = Field(description="One of: 'Open', 'Confirmed', 'Resolved', 'Superseded'.")
+
+class ImprovementAction(BaseModel):
+    id: str = Field(description="Unique action identifier, e.g., 'ACT-01'.")
+    scenario_references: List[str] = Field(description="Scenarios that generated the action; use 'SESSION' for session-wide.", min_items=0, max_items=10)
+    finding_references: List[str] = Field(description="Related gap identifiers.", min_items=0, max_items=10)
+    category: str = Field(description="Governance, people, process, technology, communications or assurance.")
+    recommendation: str = Field(description="Clear action to be completed.")
+    rationale: str = Field(description="Risk reduction or operational benefit expected.")
+    risk_addressed: str = Field(description="Risk or uncertainty the action is intended to reduce.")
+    priority: str = Field(description="One of: 'Critical', 'High', 'Medium', 'Low'.")
+    effort: Optional[str] = Field(default=None, description="One of: 'Low', 'Medium', 'High'.")
+    cost_band: Optional[str] = Field(default=None, description="One of: 'Low', 'Medium', 'High', 'Unknown'.")
+    accountable_owner: Optional[str] = Field(default=None, description="Role accountable for delivery.")
+    supporting_owners: List[str] = Field(description="Other roles required to support delivery.", min_items=0, max_items=10)
+    dependencies: List[str] = Field(description="Prerequisites or external dependencies.", min_items=0, max_items=10)
+    target_date: Optional[str] = Field(default=None, description="Agreed completion date (YYYY-MM-DD).")
+    target_timeframe: Optional[str] = Field(default=None, description="Indicative timeframe if no date.")
+    status: str = Field(description="One of: 'Proposed', 'Agreed', 'In progress', 'Blocked', 'Completed', 'Deferred', 'Risk accepted'.")
+    acceptance_criteria: str = Field(description="Conditions required for completion.")
+    closure_evidence: str = Field(description="Evidence expected to demonstrate completion.")
+    validation_method: str = Field(description="Method used to confirm effectiveness.")
+    residual_risk: Optional[str] = Field(default=None, description="Risk remaining after completion.")
+    review_date: Optional[str] = Field(default=None, description="Review date (YYYY-MM-DD).")
+    decision_rationale: Optional[str] = Field(default=None, description="Reason where action deferred or risk accepted.")
+
+class ParticipantFeedback(BaseModel):
+    respondent_group: str = Field(description="One of: 'Board', 'Technical', 'Business', 'Third party', 'Other'.")
+    realism_rating: Optional[int] = Field(default=None, ge=0, le=10, description="Perceived realism 0–10.")
+    relevance_rating: Optional[int] = Field(default=None, ge=0, le=10, description="Relevance 0–10.")
+    facilitation_rating: Optional[int] = Field(default=None, ge=0, le=10, description="Facilitation 0–10.")
+    confidence_before: Optional[int] = Field(default=None, ge=0, le=10, description="Confidence before (0–10).")
+    confidence_after: Optional[int] = Field(default=None, ge=0, le=10, description="Confidence after (0–10).")
+    most_valuable_learning: Optional[str] = Field(default=None, description="Most useful learning point.")
+    suggested_improvement: Optional[str] = Field(default=None, description="Suggested change to future sessions.")
+
+class FollowUpAssurance(BaseModel):
+    factual_validation_status: str = Field(description="One of: 'Not started', 'In progress', 'Confirmed', 'Disputed'.")
+    report_approver: Optional[str] = Field(default=None, description="Role approving the report.")
+    approval_date: Optional[str] = Field(default=None, description="Approval date (YYYY-MM-DD).")
+    outstanding_evidence_requests: List[str] = Field(description="Outstanding evidence.", min_items=0, max_items=20)
+    disputed_findings: List[str] = Field(description="Findings requiring further review.", min_items=0, max_items=10)
+    action_review_date: Optional[str] = Field(default=None, description="Action review date (YYYY-MM-DD).")
+    assurance_method: Optional[str] = Field(default=None, description="Evidence review, technical validation, audit, follow-up exercise.")
+    retest_required: bool = Field(description="Whether improvements should be retested.")
+    retest_scope: Optional[str] = Field(default=None, description="Capabilities or scenarios to be retested.")
+    next_tabletop_trigger: Optional[str] = Field(default=None, description="Event or timeframe triggering another exercise.")
+
+class ProfileChange(BaseModel):
+    capability: str = Field(description="Security-profile area affected.")
+    previous_position: Optional[str] = Field(default=None, description="Previous assessment or known position.")
+    current_position: str = Field(description="Position observed during this exercise.")
+    change_type: str = Field(description="One of: 'Improved', 'Unchanged', 'Regressed', 'New finding'.")
+    evidence_status: str = Field(description="One of: 'Demonstrated', 'Reported', 'Unverified'.")
+    supporting_references: List[str] = Field(description="Scenario/finding/action references.", min_items=0, max_items=10)
+    notes: Optional[str] = Field(default=None, description="Additional context.")
+
+class Scenario(BaseModel):
+    id: str = Field(description="Stable scenario reference, e.g., 'SCN-01'.")
+    sequence: int = Field(description="Order delivered.")
+    title: str = Field(description="Client-facing scenario title.")
+    summary: str = Field(description="Concise threat and business context.")
+    objectives: List[str] = Field(description="Scenario-specific objectives.", min_items=1, max_items=10)
+    capabilities_exercised: List[str] = Field(description="Response capabilities tested.", min_items=1, max_items=10)
+    expected_outcomes: List[str] = Field(description="Intended exercise outcomes.", min_items=1, max_items=10)
+    injects: List[ScenarioInject] = Field(description="Ordered injects.", min_items=1, max_items=10)
+    outcome_summary: str = Field(description="Overall response summary.")
+    strengths: List[Observation] = Field(description="Strengths observed in this scenario.", min_items=0, max_items=20)
+    gaps: List[Observation] = Field(description="Gaps observed in this scenario.", min_items=0, max_items=20)
+    decision_references: List[str] = Field(description="Links to decisions arising.", min_items=0, max_items=20)
+    action_references: List[str] = Field(description="Links to actions.", min_items=0, max_items=20)
+    scenario_deviations: List[str] = Field(description="Departures from plan.", min_items=0, max_items=20)
+
+class EvidenceItem(BaseModel):
+    kind: str = Field(description="Either 'strength' or 'gap'.")
+    statement: str = Field(description="The concise strength or gap statement.")
+    evidence: str = Field(description="Evidence supporting the statement (artefacts, decisions, indicators).")
+    inject_ref: Optional[str] = Field(default=None, description="Optional reference to a specific inject (e.g., 'Scenario 1 / Inject 2').")
+    artefacts: Optional[List[str]] = Field(default=None, description="Optional list of artefacts/logs.", min_items=0, max_items=5)
+
 class TabletopAAR(BaseModel):
-    executive_summary: str = Field(description="High-level summary of the organisation's exercise performance.")
-    overall_maturity_observed: str = Field(description="'Pillar 1: Reactive', 'Pillar 2: Proactive', or 'Pillar 3: Adaptive'")
-    key_strengths: List[str] = Field(description="Documented strengths observed during the session.", min_items=2, max_items=5)
-    critical_gaps_identified: List[str] = Field(description="Gaps exposed by the injects.", min_items=2, max_items=5)
-    remediation_recommendations: List[str] = Field(description="Prioritised actions for the client.", min_items=3, max_items=6)
-    delta_notes_for_profile: str = Field(description="Concise summary to update the client's JSON profile.")
+    # Document control
+    report_version: Optional[str] = Field(default=None, description="Version of the generated report.")
+    report_status: Optional[str] = Field(default=None, description="One of: 'Draft', 'Client validation', 'Final'.")
+    information_classification: Optional[str] = Field(default=None, description="Handling classification.")
+    approved_distribution: Optional[List[str]] = Field(default=None, description="Intended recipients.", min_items=0, max_items=20)
+    handling_restrictions: Optional[str] = Field(default=None, description="Restrictions applying to sensitive content.")
+    retention_requirement: Optional[str] = Field(default=None, description="Retention period or policy.")
+    generated_at: Optional[str] = Field(default=None, description="Timestamp when generated (ISO datetime).")
+    facilitator_reviewed: Optional[bool] = Field(default=None, description="Whether a facilitator reviewed the content.")
+    facilitator_reviewed_at: Optional[str] = Field(default=None, description="Date/time of facilitator review (ISO datetime).")
+    # Exercise-level
+    exercise_id: str = Field(description="Unique identifier for the session.")
+    customer_name: str = Field(description="Client organisation name.")
+    exercise_title: str = Field(description="Title of the exercise.")
+    exercise_date: str = Field(description="Date delivered (YYYY-MM-DD).")
+    start_time: Optional[str] = Field(default=None, description="Session start time (HH:MM).")
+    end_time: Optional[str] = Field(default=None, description="Session end time (HH:MM).")
+    exercise_location: Optional[str] = Field(default=None, description="Physical or virtual delivery location.")
+    delivery_mode: str = Field(description="One of: 'In person', 'Remote', 'Hybrid'.")
+    audience_profile: str = Field(description="One of: 'Board', 'Technical', 'Blended'.")
+    exercise_objectives: List[str] = Field(description="Agreed objectives tested.", min_items=1, max_items=10)
+    exercise_scope: str = Field(description="Scope included in the exercise.")
+    exercise_assumptions: List[str] = Field(description="Assumptions treated as true.", min_items=0, max_items=10)
+    exercise_exclusions: List[str] = Field(description="Matters explicitly outside scope.", min_items=0, max_items=10)
+    facilitators: List[PersonRole] = Field(description="Facilitators.", min_items=1, max_items=10)
+    participants: List[PersonRole] = Field(description="Participants.", min_items=1, max_items=50)
+    observers: Optional[List[PersonRole]] = Field(default=None, description="Observers.", min_items=0, max_items=50)
+    expected_functions: Optional[List[str]] = Field(default=None, description="Functions expected to participate.", min_items=0, max_items=20)
+    unrepresented_functions: Optional[List[str]] = Field(default=None, description="Required functions not represented.", min_items=0, max_items=20)
+    scenarios: List[Scenario] = Field(description="Scenarios undertaken.", min_items=1, max_items=10)
+    # Summary and maturity
+    executive_summary: str = Field(description="Concise client-facing summary of the exercise, principal observations, maturity and priority next steps.")
+    overall_maturity_observed: str = Field(description="One of: 'Pillar 1: Reactive', 'Pillar 2: Proactive', 'Pillar 3: Adaptive'.")
+    maturity_rationale: str = Field(description="Evidence-led explanation supporting the overall maturity rating.")
+    # Observations and actions
+    key_strengths: List[Observation] = Field(description="Consolidated strengths.", min_items=1, max_items=20)
+    critical_gaps_identified: List[Observation] = Field(description="Consolidated improvement opportunities (rationale separate).", min_items=1, max_items=20)
+    capability_assessments: Optional[List[CapabilityAssessment]] = Field(default=None, description="Capability maturity ratings.", min_items=0, max_items=20)
+    improvement_actions: List[ImprovementAction] = Field(description="Structured remediation plan.", min_items=1, max_items=50)
+    # Decisions, feedback, follow-ups
+    decisions_and_open_items: Optional[List[DecisionRecord]] = Field(default=None, description="Decisions, assumptions, open questions.", min_items=0, max_items=50)
+    participant_feedback: Optional[List[ParticipantFeedback]] = Field(default=None, description="Structured participant feedback.", min_items=0, max_items=50)
+    facilitator_observations: Optional[str] = Field(default=None, description="Facilitator narrative observations.")
+    exercise_limitations: Optional[List[str]] = Field(default=None, description="Factors affecting exercise or interpretation.", min_items=0, max_items=10)
+    follow_up_assurance: Optional[FollowUpAssurance] = Field(default=None, description="Approval, validation, review and retest arrangements.")
+    # Profile delta
+    delta_notes_for_profile: str = Field(description="Narrative summary of changes required to the client security profile.")
+    profile_changes: Optional[List[ProfileChange]] = Field(default=None, description="Structured comparison against previous exercises.", min_items=0, max_items=50)
 
 # ==========================================
 # PROMPT BUILDERS: TABLETOP EXERCISE
@@ -960,17 +1147,48 @@ QUESTION DESIGN RULES:
 - Do not introduce tools the client does not have.
 """
 
-def build_tabletop_aar_prompt(master_plan: dict, session_notes: list, client_inputs: dict, audience: str = "Blended") -> str:
+def build_tabletop_aar_prompt(master_plan: dict, session_notes: list, client_inputs: dict, audience: str = "Blended", immediate_injects: list | None = None) -> str:
     notes_dump = "\\n".join([f"- Phase: {n['phase']} | Action: {n['decision']} | Facilitator Observations: {n['notes']}" for n in session_notes])
+    inj_dump = ""
+    try:
+        if immediate_injects:
+            lines = []
+            for ii in immediate_injects:
+                try:
+                    s = ii.get("scenario_title", "")
+                    p = ii.get("phase_title", "")
+                    cn = ii.get("consequence_narrative", "")
+                    qs = ii.get("urgent_pivot_questions", []) or []
+                    lines.append(f"- Scenario: {s} | Inject: {p} | Consequence: {cn} | Urgent probes: " + "; ".join([str(x) for x in qs]))
+                except Exception:
+                    continue
+            inj_dump = "\\n".join(lines)
+    except Exception:
+        inj_dump = ""
     return f"""Act as a vCISO at Planet IT. Generate a formal Executive After-Action Report (AAR) for {client_inputs.get('customer_name')}.
 WORKSHOP: {master_plan.get('exercise_title')} | NOTES CAPTURED:
 {notes_dump}
+IMMEDIATE CONSEQUENCE INJECTS:
+{inj_dump}
 AUDIENCE: {audience}. Adjust narrative emphasis accordingly:
 - Board: Emphasise decision governance, risk and impact framing, and business outcomes; keep technical references concise.
 - Technical: Emphasise evidence chains, runbooks, and containment/remediation steps; governance noted but subordinate.
 - Blended: Balance governance and technical depth for a mixed audience.
 
-TASK: Produce an evaluative After-Action Report. Assess whether performance reflects Pillar 1, 2, or 3. Provide actionable recommendations. British English.
+    TASK: Produce an evaluative After-Action Report. Assess whether performance reflects Pillar 1, 2, or 3. Provide actionable recommendations.
+    STRICT OUTPUT RULES:
+    - Use British English throughout.
+    - Populate all exercise-level fields exactly as defined (date/time as ISO strings).
+    - Observations must be returned as Observation objects: key_strengths, critical_gaps_identified.
+    - Do NOT append rationales to gap summaries; populate Observation.rationale instead.
+    - Provide capability_assessments with per-capability maturity and rationale.
+    - Return improvement_actions as ImprovementAction objects (replacing flat remediation lists); include priority, owner, target_date/timeframe and closure_evidence.
+    - Populate decisions_and_open_items with DecisionRecord entries as applicable.
+    - Populate participant_feedback and facilitator_observations (narrative) where available.
+    - Populate follow_up_assurance with validation/approval status and retest arrangements.
+    - Provide profile_changes if any deltas versus prior exercises are asserted.
+    - Honour min_items/max_items constraints for all List fields.
+    - Keep recommendations actionable and proportional; avoid vendor lock-in language; align with observed governance thresholds.
 """
 
 

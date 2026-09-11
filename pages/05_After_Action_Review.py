@@ -2,6 +2,7 @@ import streamlit as st
 from core import LLMEngine
 from prompts import build_tabletop_aar_prompt, SYSTEM_PERSONA_TABLETOP, TabletopAAR
 from config import get_config, ConfigKey
+from consultation_helpers import load_latest_tabletop_session
 
 st.set_page_config(page_title="After-Action Review (AAR)", layout="wide")
 
@@ -54,6 +55,18 @@ with st.container():
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
 st.header("📋 After-Action Review (AAR)")
+# Attempt to load a persisted session snapshot if session state is empty
+try:
+    if not st.session_state.get("tabletop_plan") or not st.session_state.get("tabletop_notes"):
+        saved = load_latest_tabletop_session()
+        if isinstance(saved, dict):
+            st.session_state["tabletop_plan"] = saved.get("plan", {})
+            st.session_state["tabletop_notes"] = saved.get("notes", [])
+            st.session_state["client_inputs"] = saved.get("client_inputs", {})
+            st.session_state["tabletop_audience"] = saved.get("audience", "Blended")
+            st.session_state["immediate_injects"] = saved.get("immediate_injects", [])
+except Exception:
+    pass
 
 # Ensure a generated tabletop plan exists
 if not st.session_state.get("tabletop_plan"):
@@ -73,6 +86,7 @@ else:
                 st.session_state["tabletop_notes"],
                 st.session_state.get("client_inputs", {}),
                 audience=st.session_state.get("tabletop_audience", "Blended"),
+                immediate_injects=st.session_state.get("immediate_injects", []),
             )
             aar_obj = LLMEngine.generate_structured_report(
                 client,
@@ -90,6 +104,76 @@ if st.session_state.get("aar_result"):
     aar = st.session_state["aar_result"]
     st.markdown(f"### Evaluated Performance: `{getattr(aar, 'overall_maturity_observed', 'Unknown')}`")
     st.write(getattr(aar, "executive_summary", ""))
+    with st.expander("Client Feeders", expanded=False):
+        try:
+            client = getattr(aar, "customer_name", "") or ""
+            ex_title = getattr(aar, "exercise_title", "") or ""
+            ex_id = getattr(aar, "exercise_id", "") or ""
+            ex_date = getattr(aar, "exercise_date", "") or ""
+            stime = getattr(aar, "start_time", "") or ""
+            etime = getattr(aar, "end_time", "") or ""
+            loc = getattr(aar, "exercise_location", "") or ""
+            delivery = getattr(aar, "delivery_mode", "") or ""
+            audience = getattr(aar, "audience_profile", "") or ""
+            report_status = getattr(aar, "report_status", "") or ""
+            report_version = getattr(aar, "report_version", "") or ""
+            info_class = getattr(aar, "information_classification", "") or ""
+            feeders = [
+                f"Client\t{client}",
+                f"Exercise\t{ex_title} ({ex_id})",
+                f"Date, time and location\t{ex_date} | {stime}–{etime} | {loc}",
+                f"Delivery and audience\t{delivery} | {audience}",
+            ]
+            # Facilitators
+            try:
+                facs = []
+                for p in getattr(aar, "facilitators", []) or []:
+                    try:
+                        name = getattr(p, "name", None) or (p.get("name") if isinstance(p, dict) else "")
+                        role = getattr(p, "role", None) or (p.get("role") if isinstance(p, dict) else "")
+                        func = getattr(p, "function", None) or (p.get("function") if isinstance(p, dict) else "")
+                        facs.append(f"{name} — {role} ({func})")
+                    except Exception:
+                        continue
+                if facs:
+                    feeders.append("Facilitators\t" + "; ".join(facs))
+            except Exception:
+                pass
+            # Functions represented
+            try:
+                funcs = []
+                for p in getattr(aar, "participants", []) or []:
+                    try:
+                        func = getattr(p, "function", None) or (p.get("function") if isinstance(p, dict) else "")
+                        if func:
+                            funcs.append(func)
+                    except Exception:
+                        continue
+                if funcs:
+                    feeders.append("Functions represented\t" + ", ".join(funcs))
+            except Exception:
+                pass
+            # Scenarios exercised
+            try:
+                scns = []
+                for s in getattr(aar, "scenarios", []) or []:
+                    try:
+                        sid = getattr(s, "id", None) or (s.get("id") if isinstance(s, dict) else "")
+                        title = getattr(s, "title", None) or (s.get("title") if isinstance(s, dict) else "")
+                        if sid or title:
+                            scns.append(f"{sid} — {title}" if sid and title else (sid or title))
+                    except Exception:
+                        continue
+                if scns:
+                    feeders.append("Scenarios exercised\t" + "; ".join(scns))
+            except Exception:
+                pass
+            feeders.append(f"Overall maturity observed\t{getattr(aar, 'overall_maturity_observed', 'Unknown')}")
+            if report_status or report_version or info_class:
+                feeders.append(f"Report control\t{report_status} | Version {report_version} | {info_class}")
+            st.code("\n".join(feeders), language="text")
+        except Exception:
+            st.info("Client feeder fields are unavailable or incomplete in the AAR object.")
 
     col_res1, col_res2 = st.columns(2)
     with col_res1:
@@ -100,6 +184,37 @@ if st.session_state.get("aar_result"):
         st.markdown("#### ⚠️ Identified Critical Gaps")
         for g in getattr(aar, "critical_gaps_identified", []) or []:
             st.markdown(f"- {g}")
+
+    # Export AAR (DOCX)
+    try:
+        from export import create_tabletop_aar_docx
+    except Exception:
+        create_tabletop_aar_docx = None
+    aar_docx = None
+    try:
+        import datetime
+        if callable(create_tabletop_aar_docx):
+            aar_docx = create_tabletop_aar_docx(
+                st.session_state.get("tabletop_plan", {}),
+                st.session_state.get("tabletop_notes", []),
+                aar,
+                st.session_state.get("immediate_injects", []),
+            )
+    except Exception:
+        aar_docx = None
+    if aar_docx:
+        safe_client = ""
+        try:
+            safe_client = str(st.session_state.get("client_inputs", {}).get("customer_name", "Client")).strip() or "Client"
+        except Exception:
+            safe_client = "Client"
+        fname = f"AAR_{safe_client}_{datetime.date.today().isoformat()}.docx"
+        st.download_button(
+            "Download After-Action Review (DOCX)",
+            data=aar_docx,
+            file_name=fname,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
     st.divider()
     st.subheader("🔄 Sync Insights into Client Profile")

@@ -2,6 +2,7 @@ import streamlit as st
 from core import LLMEngine
 from prompts import build_tabletop_pivot_prompt, SYSTEM_PERSONA_TABLETOP, TabletopPivotResponse
 from config import get_config, ConfigKey
+from consultation_helpers import persist_tabletop_session
 
 st.set_page_config(page_title="Live Facilitation Console", layout="wide")
 
@@ -60,6 +61,100 @@ with st.container():
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
 st.header("🎙️ Live Facilitation Console")
+
+# --- Client Feeders (Inputs) ---
+with st.expander("Client Feeders (Inputs)", expanded=False):
+    # Initialise client_inputs dict
+    st.session_state.setdefault("client_inputs", {})
+    ci = st.session_state["client_inputs"]
+
+    # Basic identifiers
+    col_a, col_b = st.columns(2)
+    with col_a:
+        ci["customer_name"] = st.text_input("Client name", value=str(ci.get("customer_name", "")))
+        ci["exercise_title"] = st.text_input("Exercise title", value=str(ci.get("exercise_title", "")))
+        ci["exercise_id"] = st.text_input("Exercise ID", value=str(ci.get("exercise_id", "")))
+    with col_b:
+        ci["exercise_date"] = st.text_input("Exercise date (YYYY-MM-DD)", value=str(ci.get("exercise_date", "")))
+        ci["start_time"] = st.text_input("Start time (HH:MM)", value=str(ci.get("start_time", "")))
+        ci["end_time"] = st.text_input("End time (HH:MM)", value=str(ci.get("end_time", "")))
+
+    # Logistics
+    col_c, col_d = st.columns(2)
+    with col_c:
+        ci["exercise_location"] = st.text_input("Location", value=str(ci.get("exercise_location", "")))
+        dm_options = ["In person", "Remote", "Hybrid"]
+        dm_value = ci.get("delivery_mode", "Hybrid")
+        try:
+            dm_index = dm_options.index(dm_value) if dm_value in dm_options else 2
+        except Exception:
+            dm_index = 2
+        ci["delivery_mode"] = st.selectbox("Delivery mode", options=dm_options, index=dm_index)
+    with col_d:
+        ap_options = ["Board", "Technical", "Blended"]
+        ap_value = ci.get("audience_profile", "Blended")
+        try:
+            ap_index = ap_options.index(ap_value) if ap_value in ap_options else 2
+        except Exception:
+            ap_index = 2
+        ci["audience_profile"] = st.selectbox("Audience profile", options=ap_options, index=ap_index)
+
+    st.caption("Enter participants/facilitators one per line as 'Name | Role | Function | Organisation (optional)'.")
+    fac_text = st.text_area(
+        "Facilitators (Name | Role | Function | Organisation)",
+        value="\n".join(ci.get("facilitators_raw", "").splitlines()) if ci.get("facilitators_raw") else "",
+        placeholder="Jane Smith | IR Lead | Security Operations | Planet IT\nJohn Roe | Facilitator | Governance | Planet IT"
+    )
+    par_text = st.text_area(
+        "Participants (Name | Role | Function | Organisation)",
+        value="\n".join(ci.get("participants_raw", "").splitlines()) if ci.get("participants_raw") else "",
+        placeholder="John Doe | IT Manager | IT Operations | Example Co\nEmily Johnson | Finance Director | Finance | Example Co"
+    )
+
+    def _parse_people(raw: str):
+        out = []
+        for line in (raw or "").splitlines():
+            parts = [p.strip() for p in line.split("|")]
+            if not parts or len([p for p in parts if p]) == 0:
+                continue
+            name = parts[0] if len(parts) >= 1 else ""
+            role = parts[1] if len(parts) >= 2 else ""
+            function = parts[2] if len(parts) >= 3 else ""
+            org = parts[3] if len(parts) >= 4 else ""
+            out.append({"name": name, "role": role, "function": function, "organisation": org})
+        return out
+
+    # Store raw then parsed versions
+    ci["facilitators_raw"] = fac_text
+    ci["participants_raw"] = par_text
+
+    facilitators_list = []
+    participants_list = []
+    for p in _parse_people(fac_text):
+        p["participation_type"] = "Facilitator"
+        facilitators_list.append(p)
+    for p in _parse_people(par_text):
+        p["participation_type"] = "Participant"
+        participants_list.append(p)
+
+    # Save lists into session for optional downstream use
+    st.session_state["client_facilitators"] = facilitators_list
+    st.session_state["client_participants"] = participants_list
+
+    # Optional: show a quick preview block
+    if st.checkbox("Show feeder preview", value=False):
+        preview = []
+        preview.append(f"Client\t{ci.get('customer_name','')}")
+        preview.append(f"Exercise\t{ci.get('exercise_title','')} ({ci.get('exercise_id','')})")
+        preview.append(f"Date, time and location\t{ci.get('exercise_date','')} | {ci.get('start_time','')}–{ci.get('end_time','')} | {ci.get('exercise_location','')}")
+        preview.append(f"Delivery and audience\t{ci.get('delivery_mode','')} | {ci.get('audience_profile','')}")
+        if facilitators_list:
+                preview.append("Facilitators\t" + "; ".join([f"{p.get('name','')} — {p.get('role','')} ({p.get('function','')})" for p in facilitators_list]))
+        if participants_list:
+            funcs = [p.get('function','') for p in participants_list if p.get('function')]
+            if funcs:
+                preview.append("Functions represented\t" + ", ".join(funcs))
+        st.code("\n".join(preview), language="text")
 
 if not st.session_state.get("tabletop_plan"):
     st.info("Please generate or load a tabletop scenario in the Designer page before facilitating.")
@@ -141,6 +236,21 @@ with st.expander("🎲 Need a Dynamic Pivot? (Inject Consequence)", expanded=Fal
                     st.markdown("**Urgent Probes:**")
                     for q in pivot.urgent_pivot_questions:
                         st.write(f"- {q}")
+                    # Persist immediate inject for AAR/export
+                    try:
+                        st.session_state.setdefault("immediate_injects", [])
+                        st.session_state["immediate_injects"].append({
+                            "scenario_index": s_idx,
+                            "inject_index": i_idx,
+                            "scenario_title": current_scenario.get("scenario_title"),
+                            "phase_title": current_inject.get("phase_title"),
+                            "consequence_narrative": pivot.consequence_narrative,
+                            "new_technical_indicators": getattr(pivot, "new_technical_indicators", []),
+                            "urgent_pivot_questions": getattr(pivot, "urgent_pivot_questions", []),
+                            "facilitator_guidance": getattr(pivot, "facilitator_guidance", "")
+                        })
+                    except Exception:
+                        pass
                 except Exception:
                     # Fallback if pivot is dict-like
                     st.warning("**CONSEQUENCE:** See generated pivot above.")
@@ -171,6 +281,23 @@ with col_b2:
             st.session_state["live_scenario_idx"] += 1
             st.session_state["live_inject_idx"] = 0
         else:
-            st.success("Exercise completed! Proceed to AAR page.")
-            st.page_link("pages/05_After_Action_Review.py", label="Proceed to AAR ➡️", icon="📋")
+            # Persist complete session (if configured) and redirect to AAR
+            try:
+                saved_path = persist_tabletop_session(
+                    st.session_state.get("tabletop_plan", {}),
+                    st.session_state.get("tabletop_notes", []),
+                    st.session_state.get("client_inputs", {}),
+                    st.session_state.get("tabletop_audience", "Blended"),
+                    st.session_state.get("immediate_injects", []),
+                )
+            except Exception:
+                saved_path = None
+            st.session_state["tabletop_saved_file"] = saved_path
+            try:
+                st.success("Exercise completed! Redirecting to AAR...")
+                st.switch_page("pages/05_After_Action_Review.py")
+            except Exception:
+                # Fallback: provide a link if switch_page is unavailable
+                st.success("Exercise completed! Proceed to AAR page.")
+                st.page_link("pages/05_After_Action_Review.py", label="Proceed to AAR ➡️", icon="📋")
         st.rerun()

@@ -1970,7 +1970,12 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
                     with st.spinner("Calculating environmental consequence..."):
                         client = LLMEngine.get_client()
                         deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-                        p_prompt = build_tabletop_pivot_prompt(current_scenario, current_inject, room_decision)
+                        p_prompt = build_tabletop_pivot_prompt(
+                            current_scenario,
+                            current_inject,
+                            room_decision,
+                            audience=st.session_state.get("tabletop_audience","Blended"),
+                        )
                         pivot = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, p_prompt, TabletopPivotResponse)
                         if pivot:
                             st.warning(f"**CONSEQUENCE:** {pivot.consequence_narrative}")
@@ -2004,20 +2009,71 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
                         st.success("Exercise completed! Proceed to Tab 3 for the After-Action Report.")
                     st.rerun()
 
-    with tab_aar:
-        st.subheader("Post-Exercise Review & Maturity Delta")
-        if not st.session_state.get("tabletop_notes"):
-            st.info("No exercise notes captured yet. Conduct the live facilitation in Tab 2 to populate findings.")
-        else:
-            if st.button("Generate After-Action Report (AAR)", type="primary"):
-                with st.spinner("Evaluating room performance and synthesising AAR..."):
-                    client = LLMEngine.get_client()
-                    deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-                    aar_prompt = build_tabletop_aar_prompt(st.session_state["tabletop_plan"], st.session_state["tabletop_notes"], st.session_state["client_inputs"])
-                    aar_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, aar_prompt, TabletopAAR)
-                    if aar_obj:
-                        st.session_state["aar_result"] = aar_obj
-                        st.success("After-Action Report generated!")
+            with tab_aar:
+                st.subheader("Post-Exercise Review & Maturity Delta")
+                # Exercise Metadata (captures session date, audience, participants, objectives, scope, assumptions)
+                with st.expander("Exercise Metadata", expanded=True):
+                    import datetime as _dt
+                    _dflt = st.session_state.get("tabletop_session_date") or _dt.date.today()
+                    session_date = st.date_input("Session Date", value=_dflt)
+                    start_time = st.time_input("Start Time", value=st.session_state.get("tabletop_start_time", None))
+                    end_time = st.time_input("End Time", value=st.session_state.get("tabletop_end_time", None))
+                    audience = st.radio("Audience", ["Board", "Technical", "Blended"], index={"Board":0,"Technical":1,"Blended":2}.get(st.session_state.get("tabletop_audience","Blended"), 2))
+                    delivery_mode = st.radio("Delivery Mode", ["In person", "Remote", "Hybrid"], index=0)
+                    location = st.text_input("Location", value=st.session_state.get("tabletop_location", ""))
+                    facilitator = st.text_input("Facilitator", value=st.session_state.get("tabletop_facilitator", ""))
+                    participants_text = st.text_area("Participants (name|role|function|org|type)", value="\\n".join(st.session_state.get("tabletop_participants_raw", [])))
+                    observers_text = st.text_area("Observers (name|role|function|org|type)", value="\\n".join(st.session_state.get("tabletop_observers_raw", [])))
+                    expected_functions_text = st.text_input("Expected Functions (comma-separated)", value=", ".join(st.session_state.get("tabletop_expected_functions", [])))
+                    unrepresented_functions_text = st.text_input("Unrepresented Functions (comma-separated)", value=", ".join(st.session_state.get("tabletop_unrepresented_functions", [])))
+                    objectives_text = st.text_area("Objectives (one per line)", value="\\n".join(st.session_state.get("tabletop_objectives", [])))
+                    scope_text = st.text_area("Scope (one per line)", value="\\n".join(st.session_state.get("tabletop_scope", [])))
+                    assumptions_text = st.text_area("Assumptions (one per line)", value="\\n".join(st.session_state.get("tabletop_assumptions", [])))
+                    exclusions_text = st.text_area("Exclusions (one per line)", value="\\n".join(st.session_state.get("tabletop_exclusions", [])))
+                    # Persist normalised fields
+                    st.session_state.update({
+                        "tabletop_session_date": session_date,
+                        "tabletop_start_time": start_time,
+                        "tabletop_end_time": end_time,
+                        "tabletop_audience": audience,
+                        "tabletop_delivery_mode": delivery_mode,
+                        "tabletop_location": location,
+                        "tabletop_facilitator": facilitator,
+                        "tabletop_participants_raw": [l for l in participants_text.splitlines() if l.strip()],
+                        "tabletop_observers_raw": [l for l in observers_text.splitlines() if l.strip()],
+                        "tabletop_objectives": [o.strip() for o in objectives_text.splitlines() if o.strip()],
+                        "tabletop_scope": [s.strip() for s in scope_text.splitlines() if s.strip()],
+                        "tabletop_assumptions": [a.strip() for a in assumptions_text.splitlines() if a.strip()],
+                        "tabletop_exclusions": [e.strip() for e in exclusions_text.splitlines() if e.strip()],
+                        "tabletop_expected_functions": [s.strip() for s in expected_functions_text.split(",") if s.strip()],
+                        "tabletop_unrepresented_functions": [s.strip() for s in unrepresented_functions_text.split(",") if s.strip()],
+                    })
+                    # Expose to client_inputs for deterministic prompting
+                    st.session_state["client_inputs"]["tabletop_session_date"] = str(session_date)
+                    st.session_state["client_inputs"]["tabletop_participants"] = st.session_state["tabletop_participants_raw"]
+                    st.session_state["client_inputs"]["tabletop_objectives"] = st.session_state["tabletop_objectives"]
+                    st.session_state["client_inputs"]["tabletop_scope"] = st.session_state["tabletop_scope"]
+                    st.session_state["client_inputs"]["tabletop_assumptions"] = st.session_state["tabletop_assumptions"]
+                    st.session_state["client_inputs"]["tabletop_exclusions"] = st.session_state["tabletop_exclusions"]
+                    st.session_state["client_inputs"]["tabletop_delivery_mode"] = delivery_mode
+                    st.session_state["client_inputs"]["tabletop_location"] = location
+                if not st.session_state.get("tabletop_notes"):
+                    st.info("No exercise notes captured yet. Conduct the live facilitation in Tab 2 to populate findings.")
+                else:
+                    if st.button("Generate After-Action Report (AAR)", type="primary"):
+                        with st.spinner("Evaluating room performance and synthesising AAR..."):
+                            client = LLMEngine.get_client()
+                            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+                            aar_prompt = build_tabletop_aar_prompt(
+                                st.session_state["tabletop_plan"],
+                                st.session_state["tabletop_notes"],
+                                st.session_state["client_inputs"],
+                                audience=st.session_state.get("tabletop_audience","Blended"),
+                            )
+                            aar_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, aar_prompt, TabletopAAR)
+                            if aar_obj:
+                                st.session_state["aar_result"] = aar_obj
+                                st.success("After-Action Report generated!")
 
             if st.session_state.get("aar_result"):
                 aar = st.session_state["aar_result"]
