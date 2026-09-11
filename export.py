@@ -343,6 +343,236 @@ def _xml_escape_dict(d, _depth=0):
     return _escape_str(d) if isinstance(d, str) else d
 
 
+# --- CONSULTANT DERIVATIONS & RENDER HELPERS (deterministic; no schema changes) ---
+def _priority_weight(p: str) -> int:
+    try:
+        order = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+        return order.get(str(p).strip().title(), 0)
+    except Exception:
+        return 0
+
+def _compute_top_priorities_text(improvement_actions) -> str:
+    try:
+        items = []
+        for a in improvement_actions or []:
+            try:
+                aid = a.get("id") or a.get("Id") or ""
+            except Exception:
+                aid = ""
+            pr = a.get("priority") if isinstance(a, dict) else getattr(a, "priority", "")
+            rec = a.get("recommendation") if isinstance(a, dict) else getattr(a, "recommendation", "")
+            rat = a.get("rationale") if isinstance(a, dict) else getattr(a, "rationale", "")
+            wa = _priority_weight(pr)
+            items.append((wa, aid, rec, rat, pr))
+        items.sort(key=lambda x: (-x[0], x[1]))
+        top = items[:3]
+        lines = []
+        for idx, (_, aid, rec, rat, pr) in enumerate(top, 1):
+            rationale = rat or rec or ""
+            lines.append(f"{idx}. {aid} — {pr or 'Priority'}: {rationale}".strip())
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+def _generate_observation_commentary(obs: dict) -> str:
+    try:
+        t = str(obs.get("type", "")).strip().lower()
+        summary = str(obs.get("summary", "")).strip()
+        rationale = str(obs.get("rationale", "")).strip()
+        cap = str(obs.get("capability", "")).strip()
+        if t == "strength":
+            return ("During the exercise, this capability was demonstrated reliably. "
+                    "Sustaining this behaviour reduces operational uncertainty and provides a platform for iterative improvement.")
+        # gap commentary
+        base = ("During discussion, participants identified the issue but deferred immediate containment whilst further validation was undertaken. "
+                "Although understandable, this approach may allow an attacker additional time to establish persistence or move laterally.")
+        if cap:
+            return f"{base} The affected capability was {cap.lower()}, which increases time-to-contain where runbooks are untested."
+        return base
+    except Exception:
+        return ""
+
+def _build_capability_heatmap_text(capability_assessments) -> str:
+    try:
+        rows = []
+        # Header
+        rows.append("Capability\tMaturity")
+        for ca in capability_assessments or []:
+            if isinstance(ca, dict):
+                cap = ca.get("capability", "")
+                mat = ca.get("maturity", "")
+            else:
+                cap = getattr(ca, "capability", "")
+                mat = getattr(ca, "maturity", "")
+            if cap or mat:
+                rows.append(f"{cap}\t{mat}")
+        return "\n".join(rows)
+    except Exception:
+        return ""
+
+def _is_empty_value(v) -> bool:
+    try:
+        if v is None:
+            return True
+        if isinstance(v, (list, tuple, set, dict)):
+            return len(v) == 0
+        s = str(v).strip()
+        return s == "" or s.lower() in ("unknown", "n/a")
+    except Exception:
+        return True
+
+def _strip_empty_sections(doc, ctx: dict):
+    """
+    Remove labelled paragraphs for empty scalar/list sections to avoid blank tables/labels.
+    This operates best-effort; safe if anchors are absent.
+    """
+    try:
+        label_map = {
+            "Exercise ID": "exercise_id",
+            "Location": "exercise_location",
+            "Delivery mode": "delivery_mode",
+            "Facilitators": "facilitators",
+            "Participants": "participants",
+            "Report status": "report_status",
+            "Version": "report_version",
+        }
+        # Iterate over all paragraphs and drop those whose labels map to empty values
+        paragraphs = list(getattr(doc, "paragraphs", []) or [])
+        for p in paragraphs:
+            txt = (p.text or "").strip()
+            for label, key in label_map.items():
+                if txt.startswith(label) and _is_empty_value(ctx.get(key)):
+                    try:
+                        p._element.getparent().remove(p._element)
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+
+def _build_board_summary_text(overall_label: str, overall_percent: int, strengths: list, gaps: list, actions_top3_text: str) -> str:
+    try:
+        ks = [s.get("summary", "") if isinstance(s, dict) else str(s) for s in strengths or []]
+        kg = [g.get("summary", "") if isinstance(g, dict) else str(g) for g in gaps or []]
+        ks = [x for x in ks if x][:3]
+        kg = [x for x in kg if x][:3]
+        lines = []
+        lines.append("Overall Assessment")
+        lines.append(f"{overall_label} ({overall_percent}/100). The organisation’s cyber resilience reflects this position across core domains.")
+        if ks:
+            lines.append("\nKey Strengths")
+            for x in ks:
+                lines.append(f"- {x}")
+        if kg:
+            lines.append("\nKey Risks")
+            for x in kg:
+                lines.append(f"- {x}")
+        if actions_top3_text:
+            lines.append("\nPriority Actions")
+            lines.extend(actions_top3_text.splitlines())
+        lines.append("\nRecommended Follow-Up Exercise")
+        lines.append("Schedule a governance‑focused tabletop to validate incident declaration thresholds, authority pathways, and containment runbooks.")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+# --- DISPLAY DERIVATIONS (executive & *_display) ---
+def _safe_join(values, sep=", "):
+    try:
+        vals = []
+        for v in (values or []):
+            if v is None:
+                continue
+            vals.append(str(v))
+        return sep.join([x for x in vals if x]) if vals else "N/A"
+    except Exception:
+        return "N/A"
+
+def _first_sentence(text: str) -> str:
+    try:
+        s = (text or "").strip()
+        if not s:
+            return ""
+        for splitter in (". ", "! ", "? "):
+            idx = s.find(splitter)
+            if idx != -1:
+                return s[:idx+1]
+        return s
+    except Exception:
+        return ""
+
+def _audience_tailor(aud: str) -> str:
+    try:
+        a = (aud or "Blended").strip().title()
+        if a == "Board":
+            return "Audience: Board — emphasis on governance thresholds and risk framing."
+        if a == "Technical":
+            return "Audience: Technical — emphasis on evidence chains and containment runbooks."
+        return "Audience: Blended — balanced governance and technical depth."
+    except Exception:
+        return "Audience: Blended — balanced governance and technical depth."
+
+def _derive_action_displays(actions):
+    try:
+        for a in actions or []:
+            if isinstance(a, dict):
+                a.setdefault("supporting_owners_display", _safe_join(a.get("supporting_owners") or []))
+                tgt = a.get("target_date") or a.get("target_timeframe") or ""
+                a.setdefault("target_display", str(tgt) if str(tgt).strip() else "N/A")
+                rd = a.get("review_date") or ""
+                a.setdefault("review_date_display", str(rd) if str(rd).strip() else "N/A")
+                a.setdefault("dependencies_display", _safe_join(a.get("dependencies") or []))
+    except Exception:
+        pass
+    return actions
+
+def _derive_feedback_displays(feedback):
+    try:
+        for f in feedback or []:
+            if isinstance(f, dict):
+                try:
+                    cb = f.get("confidence_before")
+                    ca = f.get("confidence_after")
+                    if cb is not None and ca is not None:
+                        delta = float(ca) - float(cb)
+                        sign = "+" if delta >= 0 else ""
+                        f.setdefault("confidence_change_display", f"{sign}{int(delta)}")
+                    else:
+                        f.setdefault("confidence_change_display", "N/A")
+                except Exception:
+                    f.setdefault("confidence_change_display", "N/A")
+    except Exception:
+        pass
+    return feedback
+
+def _derive_followup_displays(fua):
+    try:
+        d = {}
+        if not fua:
+            d["outstanding_evidence_display"] = "N/A"
+            d["disputed_findings_display"] = "N/A"
+            d["retest_required_display"] = "N/A"
+            d["action_review_date_display"] = "N/A"
+            d["assurance_method_display"] = "N/A"
+            return d
+        getv = lambda name, default=None: getattr(fua, name, default) if hasattr(fua, name) else (fua.get(name, default) if isinstance(fua, dict) else default)
+        d["outstanding_evidence_display"] = _safe_join(getv("outstanding_evidence", []) or [])
+        d["disputed_findings_display"] = _safe_join(getv("disputed_findings", []) or [])
+        rr = getv("retest_required", None)
+        d["retest_required_display"] = "Yes" if bool(rr) else "No"
+        ard = getv("action_review_date", "")
+        d["action_review_date_display"] = str(ard) if str(ard).strip() else "N/A"
+        am = getv("assurance_method", "")
+        d["assurance_method_display"] = str(am) if str(am).strip() else "N/A"
+        return d
+    except Exception:
+        return {
+            "outstanding_evidence_display": "N/A",
+            "disputed_findings_display": "N/A",
+            "retest_required_display": "N/A",
+            "action_review_date_display": "N/A",
+            "assurance_method_display": "N/A",
+        }
+
 # --- TEXT CLEANER (UNICODE SAFE) ---
 def clean_text(text, mode="pdf"):
     if not text: return ""
@@ -811,6 +1041,47 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
         decisions_open = _to_dict_list(getattr(aar_obj, "decisions_and_open_items", []))
         participant_feedback = _to_dict_list(getattr(aar_obj, "participant_feedback", []))
         profile_changes = _to_dict_list(getattr(aar_obj, "profile_changes", []))
+        # Deterministic enrichments for AAR export (no schema changes)
+        try:
+            # Commentary for observations
+            for o in key_strengths:
+                if isinstance(o, dict) and not o.get("commentary"):
+                    o["commentary"] = _generate_observation_commentary(o)
+            for o in critical_gaps:
+                if isinstance(o, dict) and not o.get("commentary"):
+                    o["commentary"] = _generate_observation_commentary(o)
+        except Exception:
+            pass
+        # Compute Top 3 priorities text
+        try:
+            top_priorities_text = _compute_top_priorities_text(improvement_actions)
+        except Exception:
+            top_priorities_text = ""
+        # Capability heatmap text from capability assessments (if any)
+        try:
+            capability_heatmap_text = _build_capability_heatmap_text(capability_assessments)
+        except Exception:
+            capability_heatmap_text = ""
+        # Governance defaults (runtime only; no hardcoded secrets/paths)
+        try:
+            from datetime import datetime, timezone
+            _generated_at_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        except Exception:
+            _generated_at_iso = ""
+        # Derive displays for actions, feedback, and follow-up assurance
+        try:
+            improvement_actions = _derive_action_displays(improvement_actions)
+        except Exception:
+            pass
+        try:
+            participant_feedback = participant_feedback or _to_dict_list(getattr(aar_obj, "participant_feedback", []))
+            participant_feedback = _derive_feedback_displays(participant_feedback)
+        except Exception:
+            pass
+        try:
+            follow_up_assurance_display = _derive_followup_displays(getattr(aar_obj, "follow_up_assurance", None))
+        except Exception:
+            follow_up_assurance_display = {}
         scenarios_render = _to_dict_list(getattr(aar_obj, "scenarios", []))
         # Back-compat: map legacy remediation_recommendations into simple actions if improvement_actions empty
         recs = getattr(aar_obj, "remediation_recommendations", []) or []
@@ -839,6 +1110,10 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
             "executive_summary": getattr(aar_obj, "executive_summary", "") or "",
             "overall_maturity_observed": getattr(aar_obj, "overall_maturity_observed", "Unknown") or "Unknown",
             # Session metadata
+            "generated_at": getattr(aar_obj, "generated_at", "") or _generated_at_iso,
+            "report_version": getattr(aar_obj, "report_version", "") or "1.0",
+            "report_status": getattr(aar_obj, "report_status", "") or "Draft",
+            "facilitator_reviewed": getattr(aar_obj, "facilitator_reviewed", False) or False,
             "session_date": getattr(aar_obj, "session_date", "") or "",
             "location": getattr(aar_obj, "location", "") or "",
             "audience": getattr(aar_obj, "audience", "") or "",
@@ -912,6 +1187,78 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
             "critical_gap_pairs": [],
         }
 
+    # Inject executive/display summaries prior to reconcile
+    try:
+        # Executive top strength/risk
+        ets = ""
+        if key_strengths:
+            s1 = key_strengths[0]
+            ets = (s1.get("summary") if isinstance(s1, dict) else str(s1)) or ""
+        etr = ""
+        if critical_gaps:
+            g1 = critical_gaps[0]
+            etr = (g1.get("summary") if isinstance(g1, dict) else str(g1)) or ""
+        # Executive priority action
+        epa = ""
+        try:
+            if top_priorities_text:
+                lines = top_priorities_text.splitlines()
+                epa = lines[0] if lines else ""
+        except Exception:
+            epa = ""
+        if not epa and improvement_actions:
+            ia1 = improvement_actions[0]
+            epa = (ia1.get("recommendation") if isinstance(ia1, dict) else getattr(ia1, "recommendation", "")) or ""
+        # Follow-up position
+        try:
+            fr = ctx.get("facilitator_reviewed", False)
+        except Exception:
+            fr = False
+        try:
+            fra = getattr(aar_obj, "facilitator_reviewed_at", "") or ""
+        except Exception:
+            fra = ""
+        try:
+            fua = getattr(aar_obj, "follow_up_assurance", None)
+            val = getattr(fua, "factual_validation_status", None) if fua is not None else None
+            val = val if val is not None else (fua.get("factual_validation_status") if isinstance(fua, dict) else None)
+        except Exception:
+            val = None
+        executive_follow_up_position = "Validation: {v}; Retest: {r}; Approval: {a}".format(
+            v=(str(val) if val else "N/A"),
+            r=("Yes" if (follow_up_assurance_display.get("retest_required_display") == "Yes") else "No"),
+            a=(fra if str(fra).strip() else "N/A"),
+        )
+        # Business impact summary
+        bis = _first_sentence(ctx.get("maturity_rationale", "") or getattr(aar_obj, "maturity_rationale", "") or ctx.get("executive_summary", ""))
+        # Cost of inaction summary (fallback)
+        coi_sum = ctx.get("cost_of_inaction_summary", "") or getattr(aar_obj, "cost_of_inaction_summary", "") or ctx.get("cost_of_inaction", "")
+        # Priority actions summary
+        pas = top_priorities_text or ""
+        # Audience tailoring summary
+        aud = ctx.get("audience_profile") or getattr(aar_obj, "audience_profile", "") or ctx.get("audience", "")
+        ats = _audience_tailor(aud)
+        # Approved distribution and facilitator review displays
+        appr = getattr(aar_obj, "approved_distribution", None)
+        approved_distribution_display = _safe_join(appr or [])
+        facilitator_review_display = "Reviewed ({ts})".format(ts=fra) if fr else "Not reviewed"
+        # Inject into ctx
+        ctx.update({
+            "executive_top_strength": ets,
+            "executive_top_risk": etr,
+            "executive_priority_action": epa,
+            "executive_follow_up_position": executive_follow_up_position,
+            "business_impact_summary": bis,
+            "cost_of_inaction_summary": coi_sum or "",
+            "priority_actions_summary": pas,
+            "audience_tailoring_summary": ats,
+            "approved_distribution_display": approved_distribution_display,
+            "facilitator_review_display": facilitator_review_display,
+            "follow_up_assurance_display": follow_up_assurance_display,
+        })
+    except Exception:
+        pass
+
     # Reconcile aliases and escape XML-sensitive content
     try:
         debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
@@ -932,6 +1279,38 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
         # Fail closed; return empty payload if docxtpl render fails
         return b""
 
+    # Strip empty sections (labels) and attach derived sections before saving
+    try:
+        # Add AI-assisted board summary and Top 3 priorities into context if placeholders exist
+        ctx.setdefault("top_priorities", [])
+        ctx.setdefault("top_priorities_text", top_priorities_text)
+        # Build a concise board summary text (uses overall maturity label/score + strengths/gaps + priorities)
+        try:
+            overall_label = ctx.get("overall_maturity_observed", "Unknown")
+            try:
+                # Attempt to reuse maturity gauge percent from maturity report where applicable; fallback empty
+                overall_percent = 0
+            except Exception:
+                overall_percent = 0
+            board_summary_text = _build_board_summary_text(
+                overall_label,
+                overall_percent,
+                ctx.get("key_strengths", []),
+                ctx.get("critical_gaps_identified", []),
+                top_priorities_text
+            )
+        except Exception:
+            board_summary_text = ""
+        if board_summary_text:
+            ctx.setdefault("board_summary", board_summary_text)
+        if capability_heatmap_text:
+            ctx.setdefault("capability_heatmap_text", capability_heatmap_text)
+    except Exception:
+        pass
+    try:
+        _strip_empty_sections(doc, ctx)
+    except Exception:
+        pass
     buf = io.BytesIO()
     try:
         doc.save(buf)
@@ -1753,6 +2132,38 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         f"Overall: {overall_category} ({overall_percent}/100) — approx. Pillar {approx_pillar} weighted across core domains"
     )
 
+    # Derived board summary and capability heatmap text (Maturity) prior to context assembly
+    try:
+        # Capability heatmap (Detection/Response/Recovery) derived from radar if available
+        def _pillar_label(v):
+            try:
+                fv = float(v)
+            except Exception:
+                fv = 1.0
+            if fv <= 1.5:
+                return "Reactive"
+            elif fv <= 2.5:
+                return "Proactive"
+            return "Adaptive"
+        capability_heatmap_text_maturity = ""
+        if labels and values:
+            # Map representative capabilities
+            radar_map = dict(zip(labels, values))
+            det = _pillar_label(radar_map.get("secops", 1))
+            resp = _pillar_label(radar_map.get("secops", 1))
+            rec = _pillar_label(radar_map.get("resilience", 1))
+            capability_heatmap_text_maturity = "Capability\tMaturity\nDetection\t{d}\nResponse\t{r}\nRecovery\t{rc}".format(
+                d=det, r=resp, rc=rec
+            )
+        # Board summary for maturity report (uses gauge category/percent and executive actions)
+        try:
+            actions_top3_text = "\n".join([f"{i+1}. {x}" for i, x in enumerate(getattr(report_data, "executive_summary_actions", [])[:3])])
+        except Exception:
+            actions_top3_text = ""
+        board_summary_text_maturity = _build_board_summary_text(overall_category, overall_percent, [], [], actions_top3_text)
+    except Exception:
+        capability_heatmap_text_maturity = ""
+        board_summary_text_maturity = ""
     # 2) Domains & Roadmap derivation with safe defaults
     domains_list = []
 
@@ -1901,6 +2312,9 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         # Threat_scenarios" : "{{ threat_scenarios }}",
         # Also support templates using capitalised placeholder name
         "Threat_scenarios": "{{ threat_scenarios }}",
+        # New derived executive sections (optional placeholders)
+        "capability_heatmap_text": capability_heatmap_text_maturity,
+        "board_summary": board_summary_text_maturity,
         # CAP compact summary for overview section
         "cap_summary": format_critical_asset_profile(client_inputs.get("critical_asset_profile", {})),
         # Monte Carlo placeholder removed
