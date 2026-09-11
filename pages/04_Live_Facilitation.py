@@ -131,7 +131,7 @@ with st.expander("🎲 Need a Dynamic Pivot? (Inject Consequence)", expanded=Fal
         with st.spinner("Calculating environmental consequence..."):
             client = LLMEngine.get_client()
             deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            p_prompt = build_tabletop_pivot_prompt(current_scenario, current_inject, room_decision)
+            p_prompt = build_tabletop_pivot_prompt(current_scenario, current_inject, room_decision, audience=st.session_state.get("tabletop_audience", "Blended"))
             pivot = LLMEngine.generate_structured_report(
                 client, deployment, SYSTEM_PERSONA_TABLETOP, p_prompt, TabletopPivotResponse
             )

@@ -698,15 +698,11 @@ with st.container():
             st.session_state['workflow'] = None
             st.rerun()
     with colh2:
-        if st.button("📈 Maturity", use_container_width=True):
-            st.session_state['workflow'] = "📈 Cybersecurity Maturity Assessment"
-            st.rerun()
+        st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
     with colh3:
         st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop", icon=None)
     with colh4:
-        if st.button("🔥 Threats", use_container_width=True):
-            st.session_state['workflow'] = "🔥 Tactical Threat Simulator"
-            st.rerun()
+        st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
@@ -1850,6 +1846,11 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                 )
 
 elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
+    try:
+        st.switch_page("pages/03_Tabletop_Designer.py")
+    except Exception:
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Open Tabletop Designer ➡️")
+    st.stop()
     # Lightweight keepalive: keep websocket alive during facilitation to avoid idle timeouts
     st.markdown(
         "<script>setInterval(()=>{fetch(window.location.href,{cache:'no-store'}).catch(()=>{})},60000);</script>",

@@ -376,6 +376,12 @@ SYSTEM_PERSONA_TABLETOP = """
  - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold.
  - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
  - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
+ 
+ FACILITATOR PROBE DESIGN (STRICT):
+ - Question ladder: Start with evidence validation (What log/alert proves this? Where would you find it?), escalate to governance thresholds (Are we declaring a Major Incident? Has the ICO 72‑hour clock started?), then to containment and authority (Who is authorised to isolate systems? Under which runbook?), and finally to communications and stakeholder impact (Who must be informed now and why?).
+ - Each facilitator_probe_questions list must avoid yes/no phrasing; require justification and a specific artefact reference (e.g., SIEM query, EDR alert, ticket ID).
+ - Include at least one “what‑if” variant that forces the room to consider an adverse branch (e.g., backup immutability fails; second account compromise is detected).
+ - Keep probes grounded in the client’s declared stack and governance model; do not invent tooling they do not have.
  """
  
  # ==========================================
@@ -881,7 +887,7 @@ class TabletopAAR(BaseModel):
 # ==========================================
 # PROMPT BUILDERS: TABLETOP EXERCISE
 # ==========================================
-def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list) -> str:
+def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list, custom_brief: Optional[str] = None, audience: str = "Blended") -> str:
     cust = client_inputs.get('customer_name', 'Client')
     infra = client_inputs.get('critical_infra', 'Crown Jewels')
     mdr = client_inputs.get('mdr_provider', 'None')
@@ -893,6 +899,12 @@ def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list) -> st
     tra = client_inputs.get('incident_response_assurance_profile', {}).get('technical_response_authority', 'Unknown')
     banned = ", ".join(client_inputs.get('banned_vendors', []))
     themes_str = ", ".join(selected_themes) if selected_themes else "Cyber Attack, Unauthorised Access"
+    
+    custom_clause = ""
+    if custom_brief:
+        custom_clause = f"""
+4. Include exactly one bespoke scenario reflecting this operator-provided brief: "{custom_brief}". Treat it as a theme override if not listed. Ensure injects follow the same schema rules and are grounded in the client's stack.
+"""
 
     return f"""Act as ROLE 1 & ROLE 2 (Senior Cyber Security Incident Response Consultant at Planet IT). Generate a bespoke, multi-scenario Tabletop Exercise Plan for {cust}.
 CLIENT ESTATE GROUNDING:
@@ -904,22 +916,60 @@ CLIENT ESTATE GROUNDING:
 EXERCISE REQUIREMENTS:
 1. Generate scenarios reflecting these themes: {themes_str}. Directly test the client's ACTUAL stack and governance models.
 2. Every scenario must contain between 3 and 5 progressive injects.
-3. Language: British English strictly (e.g., analyse, behaviour, programme).
-"""
+    3. Language: British English strictly (e.g., analyse, behaviour, programme).
 
-def build_tabletop_pivot_prompt(scenario_context: dict, current_inject: dict, room_decision: str) -> str:
+    AUDIENCE PROFILE (STRICT):
+    - Audience: {audience}
+    - Board: Simplify labelling of technical artefacts; foreground governance decisions, risk/impact, communications, and stakeholder management. Keep technical_indicators concise but present.
+    - Technical: Provide deeper artefact references and procedure steps; foreground containment actions, runbooks, and evidence chains; governance noted but subordinate.
+    - Blended: Balance both profiles; maintain both artefacts and governance thresholds in probes and narratives.
+
+    FACILITATOR PROBES (STRICT):
+    - Each inject’s facilitator_probe_questions must cover: Evidence validation; Governance thresholds; Containment/Authority; Communications/Stakeholders. Avoid yes/no; require justification and cite a specific artefact.
+    - Add one “what‑if” probe to test adverse branches where the room’s answer is weak or deviates.
+
+    INJECT DESIGN HINTS (STRICT):
+    - technical_indicators should be concrete (e.g., Sophos MDR alert name, Entra sign‑in risk event, firewall log), 1–4 items.
+    - common_pitfalls should capture cognitive biases and typical missteps (e.g., assuming backups are immutable without evidence).
+    - decision_threshold must be explicit (e.g., Major Incident declaration, ICO 72h, invoke retainer).
+
+    {custom_clause}
+    """
+
+def build_tabletop_pivot_prompt(scenario_context: dict, current_inject: dict, room_decision: str, audience: str = "Blended") -> str:
     return f"""Act as an Incident Commander and Facilitator at Planet IT. The client is participating in a live tabletop exercise.
 SCENARIO: {scenario_context.get('scenario_title')} | CURRENT INJECT: {current_inject.get('scenario_narrative')}
 EXPECTED ACTION: {current_inject.get('expected_mature_response')}
 ROOM'S ACTUAL DECISION: "{room_decision}"
 TASK: Generate an immediate dynamic consequence / pivot inject based on the room's reaction. British English.
+
+AUDIENCE: {audience}. Adjust tone and focus accordingly:
+- Board: Prioritise governance thresholds, risk/impact, and communications decisions; keep artefact references concise.
+- Technical: Prioritise evidence collection, containment steps, and runbook authority; include specific artefacts and their locations.
+- Blended: Balance governance decisions with technical evidence and actions.
+
+OUTPUT: Return a TabletopPivotResponse with:
+- consequence_narrative describing immediate fallout, grounded in the client’s estate;
+- new_technical_indicators (1–3) with specific artefact names and where to find them;
+- urgent_pivot_questions (2–3) that include at least one governance-threshold probe and at least one evidence-validation probe; avoid yes/no; require justification;
+- facilitator_guidance with steering advice to realign to learning objectives.
+
+QUESTION DESIGN RULES:
+- Use British English.
+- Keep questions short, provocative, and specific to the client’s declared stack and authority model.
+- Do not introduce tools the client does not have.
 """
 
-def build_tabletop_aar_prompt(master_plan: dict, session_notes: list, client_inputs: dict) -> str:
+def build_tabletop_aar_prompt(master_plan: dict, session_notes: list, client_inputs: dict, audience: str = "Blended") -> str:
     notes_dump = "\\n".join([f"- Phase: {n['phase']} | Action: {n['decision']} | Facilitator Observations: {n['notes']}" for n in session_notes])
     return f"""Act as a vCISO at Planet IT. Generate a formal Executive After-Action Report (AAR) for {client_inputs.get('customer_name')}.
 WORKSHOP: {master_plan.get('exercise_title')} | NOTES CAPTURED:
 {notes_dump}
+AUDIENCE: {audience}. Adjust narrative emphasis accordingly:
+- Board: Emphasise decision governance, risk and impact framing, and business outcomes; keep technical references concise.
+- Technical: Emphasise evidence chains, runbooks, and containment/remediation steps; governance noted but subordinate.
+- Blended: Balance governance and technical depth for a mixed audience.
+
 TASK: Produce an evaluative After-Action Report. Assess whether performance reflects Pillar 1, 2, or 3. Provide actionable recommendations. British English.
 """
 

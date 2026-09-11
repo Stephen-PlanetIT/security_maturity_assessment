@@ -12,6 +12,15 @@ from config import get_config, ConfigKey
 from catalog import PLANET_IT_PORTFOLIO
 from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections
 
+# Version tracker (for JSON export parity)
+import os
+try:
+    _version_path = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+    with open(_version_path, "r") as _vf:
+        APP_VERSION = _vf.read().strip()
+except Exception:
+    APP_VERSION = "dev"
+
 def _safe_index(options, value):
     """Return index of value in options; 0 if missing or invalid."""
     try:
@@ -83,6 +92,45 @@ with st.container():
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
 st.header("🛠️ Tabletop Exercise Designer & Editor")
+
+with st.expander("Profile: Export / Import", expanded=False):
+    import json as _json
+    col_e1, col_e2 = st.columns([1, 1])
+
+    export_profile = st.session_state.get("client_inputs", {})
+    file_customer_name = (export_profile or {}).get("customer_name", "Client")
+
+    with col_e1:
+        if export_profile:
+            st.download_button(
+                "⬇️ Export current options (.json)",
+                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=f"{str(file_customer_name).replace(' ', '_')}_options.json",
+                mime="application/json",
+            )
+        else:
+            st.info("Provide inputs to enable export.")
+
+    with col_e2:
+        uploaded = st.file_uploader("Import options (.json)", type=["json"], key="tt_profile_import_json")
+        if uploaded is not None:
+            try:
+                raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
+                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                if not isinstance(profile, dict):
+                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                else:
+                    try:
+                        from consultation_helpers import migrate_profile
+                        profile = migrate_profile(profile)
+                    except Exception:
+                        pass
+                    st.session_state["client_inputs"] = profile
+                    st.success("Profile imported. Applying to UI...")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to import profile: {e}")
 
 with st.expander("Customer Estate & Engagement Profile (Quick Capture)", expanded=False):
     qc_name = st.text_input("Customer Name", value=st.session_state.get("client_inputs", {}).get("customer_name", ""))
@@ -350,32 +398,50 @@ with col_sc1:
     selected_themes = st.multiselect(
         "Select Scenarios to Include:",
         [
-            "Cyber Attack (Ransomware / BEC)",
-            "Unauthorised Access (Social Engineering / Service Desk)",
-            "Cloud / M365 Outage (DR & Business Continuity)",
+            "Ransomware (Double Extortion)",
+            "Business Email Compromise (Payment Fraud)",
+            "OAuth Consent Grant Attack",
+            "Unauthorised Access (Insider / Social Engineering / Service Desk)",
+            "Third-Party Access Abuse (Supplier)",
+            "Public Web App/API Exploitation",
+            "Cloud Incident (M365/Azure Outage or Misconfiguration)",
+            "Identity Attack (AiTM Session Hijack / MFA Fatigue)",
+            "Endpoint Lateral Movement (EDR Telemetry)",
+            "Backup Destruction & DR Failure",
         ],
         default=[
-            "Cyber Attack (Ransomware / BEC)",
-            "Unauthorised Access (Social Engineering / Service Desk)",
+            "Ransomware (Double Extortion)",
+            "Unauthorised Access (Insider / Social Engineering / Service Desk)",
         ],
     )
 with col_sc2:
     st.markdown(f"**Target Customer:** `{cached_customer_name}`")
     st.markdown(f"**Key Assets:** `{key_assets}`")
+    custom_brief = st.text_area(
+        "Custom scenario brief (optional)",
+        help="Provide 1–3 sentences describing a bespoke scenario to include (30–400 characters).",
+        value=st.session_state.get("custom_tabletop_brief", ""),
+        placeholder="e.g., Overnight outage in M365 Exchange Online with downstream impacts to customer support and finance approvals.",
+    )
+    custom_brief = (custom_brief or "").strip()
+    if custom_brief and len(custom_brief) < 30:
+        st.warning("Custom brief is too short; provide at least 30 characters for meaningful context.")
+    st.session_state["custom_tabletop_brief"] = custom_brief
+    audience_options = ["Board", "Technical", "Blended"]
+    audience = st.selectbox("Tabletop Audience", audience_options, index=_safe_index(audience_options, st.session_state.get("tabletop_audience", "Blended")))
+    st.session_state["tabletop_audience"] = audience
 
 if st.button("Generate Bespoke Tabletop Plan", type="primary"):
     with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
         client = LLMEngine.get_client()
         deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-        prompt = build_tabletop_plan_prompt(client_inputs, selected_themes)
+        prompt = build_tabletop_plan_prompt(client_inputs, selected_themes, custom_brief=st.session_state.get("custom_tabletop_brief"), audience=st.session_state.get("tabletop_audience", "Blended"))
         plan = LLMEngine.generate_structured_report(
             client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan
         )
         if plan:
             st.session_state["tabletop_plan"] = plan.model_dump()
-            st.success("Tabletop scenario compiled. You can now customise below.")
-            # Navigate to Live Facilitation (full-page) after generation
-            st.page_link("pages/04_Live_Facilitation.py", label="Go to Live Facilitation ➡️")
+            st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:
             st.error("Generation failed. Check Azure configuration.")
 
@@ -437,3 +503,37 @@ if st.session_state.get("tabletop_plan"):
             file_name=f"{cached_customer_name}_Facilitator_Guide.pdf",
             mime="application/pdf",
         )
+
+    st.divider()
+    if st.button("Confirm & Start Facilitation ➡️", type="primary"):
+        try:
+            st.switch_page("pages/04_Live_Facilitation.py")  # type: ignore[attr-defined]
+        except Exception:
+            st.page_link("pages/04_Live_Facilitation.py", label="Go to Live Facilitation ➡️")
+
+with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
+    col_dev1, col_dev2 = st.columns(2)
+    if col_dev1.button("Load Sample Profile"):
+        try:
+            import json as _json
+            sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_profile_full.json")
+            with open(sample_path, "r", encoding="utf-8") as _sf:
+                profile = _json.load(_sf)
+            if isinstance(profile, dict):
+                try:
+                    from consultation_helpers import migrate_profile
+                    profile = migrate_profile(profile)
+                except Exception:
+                    pass
+                st.session_state["client_inputs"] = profile
+                st.success("Sample profile loaded into Tabletop context.")
+                st.rerun()
+            else:
+                st.error("Sample profile file format invalid.")
+        except Exception as e:
+            st.error(f"Failed to load sample profile: {e}")
+    if col_dev2.button("Clear All Fields"):
+        st.session_state["client_inputs"] = {}
+        st.session_state["tabletop_plan"] = None
+        st.success("Cleared all fields.")
+        st.rerun()

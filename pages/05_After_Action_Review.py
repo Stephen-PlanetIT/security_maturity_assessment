@@ -72,6 +72,7 @@ else:
                 st.session_state["tabletop_plan"],
                 st.session_state["tabletop_notes"],
                 st.session_state.get("client_inputs", {}),
+                audience=st.session_state.get("tabletop_audience", "Blended"),
             )
             aar_obj = LLMEngine.generate_structured_report(
                 client,

@@ -56,6 +56,25 @@ def _resolve_custom(selection, custom):
     return selection
 
 
+def _coerce_multiselect_default(value, options, none_aliases=None, map_none_to=None):
+    try:
+        if isinstance(value, list):
+            return [v for v in value if v in options]
+        if isinstance(value, str):
+            tokens = [t.strip() for t in value.split(",") if t.strip()]
+            seq = tokens if tokens else ([value] if value else [])
+            result = []
+            for t in seq:
+                if none_aliases and t in none_aliases and map_none_to:
+                    result.append(map_none_to)
+                elif t in options:
+                    result.append(t)
+            return [v for v in result if v in options]
+    except Exception:
+        pass
+    return []
+
+
 def render_ai_usage_and_governance():
     """
     Render AI Usage & Governance section and return a dict for client_inputs patch.
@@ -71,10 +90,17 @@ def render_ai_usage_and_governance():
         help="State of AI acceptable use policy and governance."
     )
 
+    _approved_opts = ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"]
+    approved_defaults = _coerce_multiselect_default(
+        defaults.get('approved_ai_tools', []),
+        _approved_opts,
+        none_aliases={"None"},
+        map_none_to="None / Unapproved"
+    )
     approved_ai_tools = st.multiselect(
         "Approved Company AI Tools",
-        ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"],
-        default=defaults.get('approved_ai_tools', []),
+        _approved_opts,
+        default=approved_defaults,
         help="Approved AI assistants or models in use."
     )
 
@@ -86,10 +112,17 @@ def render_ai_usage_and_governance():
         help="Discovery and control of unsanctioned AI usage."
     )
 
+    _dlp_opts = ["Microsoft Purview DLP", "Defender for Cloud Apps (CASB)", "CASB/SSE (Netskope)", "Proxy controls", "None"]
+    dlp_defaults = _coerce_multiselect_default(
+        defaults.get('ai_dlp_controls', []),
+        _dlp_opts,
+        none_aliases={"None"},
+        map_none_to="None"
+    )
     ai_dlp_controls = st.multiselect(
         "AI Data Loss Controls",
-        ["Microsoft Purview DLP", "Defender for Cloud Apps (CASB)", "CASB/SSE (Netskope)", "Proxy controls", "None"],
-        default=defaults.get('ai_dlp_controls', []),
+        _dlp_opts,
+        default=dlp_defaults,
         help="Controls applied to prompts/responses and AI interactions."
     )
 
