@@ -4,7 +4,7 @@ from prompts import build_tabletop_aar_prompt, SYSTEM_PERSONA_TABLETOP, Tabletop
 from config import get_config, ConfigKey
 from consultation_helpers import load_latest_tabletop_session
 
-st.set_page_config(page_title="After-Action Review (AAR)", layout="wide")
+st.set_page_config(page_title="After-Action Review (AAR)", layout="wide", initial_sidebar_state="collapsed")
 
 # Auth-aware guard: if login is enabled and user not signed-in, route to app.py sign-in
 def _is_auth_enabled():
@@ -50,7 +50,7 @@ with st.container():
     with colh2:
         st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
     with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop", icon=None)
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
     with colh4:
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
