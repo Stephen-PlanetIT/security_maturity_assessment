@@ -29,74 +29,79 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
 
 ```
                           ┌──────────────────────────────────────┐
-                          │            app.py (ENTRY)             │
-                          │       Streamlit UI · Session State    │
-                          │  ┌──────────┬──────────┬──────────┐   │
-                          │  │ Threat   │ MDR      │ Maturity │   │
-                          │  │ Simulator│ Case     │ Assess   │   │
-                          │  └────┬─────┴────┬─────┴────┬─────┘   │
-                          └───────┼──────────┼──────────┼─────────┘
-                                  │          │          │
-                    ┌─────────────┼──────────┼──────────┼─────────────┐
-                    │             ▼          ▼          ▼             │
-                    │           core.py (LLM ENGINE)                  │
-                    │     AzureOpenAI · max_completion_tokens         │
-                    │     Exponential backoff · 300s timeout          │
-                    │     generate_structured_report()   ─────────┐   │
-                    │     generate_text_report()                   │   │
-                    └──────────────────┬───────────────────────────┼───┘
-                                       │                           │
-                    ┌──────────────────▼───────────────────────────┼───┐
-                    │          prompts.py (SCHEMA LAYER)            │   │
-                    │  Pydantic BaseModel · strict min_items/max    │◄──┘
-                    │  ScenarioReport · MaturityReport              │   │
-                    │  DomainAssessment · PhasedRoadmap             │   │
-                    │  No open dict · pillar caps hardcoded         │   │
-                    └──────────────────┬────────────────────────────┘   │
-                                       │                                │
-          ┌────────────────────────────┼────────────────────────────┐   │
-          │                            ▼                            │   │
-          │  ┌──────────────────┐  ┌──────────────────┐            │   │
-          │  │   data.py        │  │  catalog.py      │            │   │
-          │  │ ATTACK_VECTORS   │  │ PLANET_IT_       │            │   │
-          │  │ SIMULATED_OSINT  │  │ PORTFOLIO        │            │   │
-          │  │ MATURITY_        │  │ vendor→domain    │            │   │
-          │  │ FRAMEWORK        │  │ mapping          │            │   │
-          │  │ ASSESSMENT_      │  │ tier→triggers    │            │   │
-          │  │ DOMAINS          │  │                  │            │   │
-          │  │ RECOMMENDED_     │  │                  │            │   │
-          │  │ SOLUTION_MAP ◄───┼──┤ (auto-generated) │            │   │
-          │  └──────────────────┘  └──────────────────┘            │   │
-          │                                                        │   │
-          │  ┌──────────────────┐  ┌──────────────────┐            │   │
-          │  │  config.py       │  │  context.txt     │            │   │
-          │  │ st.secrets→os.   │  │ MDR knowledge    │            │   │
-          │  │ environ fallback │  │ base (disk)      │            │   │
-          │  └──────────────────┘  └──────────────────┘            │   │
-          │                                                        │   │
-          └────────────────────────┬───────────────────────────────┘   │
-                                   │                                    │
-                    ┌──────────────▼────────────────────────────────────┘
-                    │          export.py (RENDER LAYER)
-                    │  PDF (fpdf) · DOCX (docxtpl) · PPTX (python-pptx)
-                    │  Matplotlib radar chart · HARD-CAPPED radius=3
-                    │  clean_text() → ASCII-safe
+                          │            app.py (ENTRY)            │
+                          │   Streamlit Multi‑Page Router        │
+                          │       Session State Management       │
+                          │  ┌────────────┬────────────┬────────┐│
+                          │  │01 Maturity │02 Threats  │03      ││
+                          │  │   Relay    │   Relay    │Tabletop││
+                          │  └─────┬──────┴────┬───────┴──┬─────┘│
+                          │        │           │          │      │
+                          │        │           │          │      │
+                          │   ┌────▼────┐ ┌────▼────┐ ┌───▼───┐ │
+                          │   │04 Live  │ │05 After │ │Shared │ │
+                          │   │Facilita-│ │ Action  │ │ UI    │ │
+                          │   │ tion    │ │ Review  │ │Sections│ │
+                          │   └─────────┘ └─────────┘ └────────┘ │
+                          └──────────────┬─────────────┬──────────┘
+                                         │             │
+                    ┌────────────────────▼─────────────▼──────────┐
+                    │                 core.py (LLM ENGINE)         │
+                    │ AzureOpenAI · max_completion_tokens · 300s   │
+                    │ Exponential backoff · structured parsing     │
+                    │ generate_structured_report()   ─────────┐    │
+                    │ generate_text_report()                   │    │
+                    └──────────────────┬───────────────────────┼────┘
+                                       │                       │
+                    ┌──────────────────▼───────────────────────┼────┐
+                    │           prompts.py (SCHEMA LAYER)       │   │
+                    │ Pydantic BaseModel · strict min/max       │◄──┘
+                    │ ScenarioReport · MaturityReport           │   │
+                    │ DomainAssessment · PhasedRoadmap          │   │
+                    │ ConsultationSchema (via consultation_*)   │   │
+                    └───────────────┬───────────────────────────┘   │
+                                    │                               │
+          ┌─────────────────────────▼──────────────┐  ┌─────────────▼─────────────┐
+          │           data.py                      │  │         catalog.py         │
+          │ ATTACK_VECTORS · SIMULATED_OSINT       │  │ PLANET_IT_PORTFOLIO       │
+          │ MATURITY_FRAMEWORK · DOMAINS           │  │ vendor→domain mapping     │
+          │ RECOMMENDED_SOLUTION_MAP               │  │ tier→triggers             │
+          └─────────────────────────┬──────────────┘  └─────────────┬─────────────┘
+                                    │                               │
+          ┌─────────────────────────▼──────────────┐  ┌─────────────▼─────────────┐
+          │ consultation_schema.py                 │  │ consultation_helpers.py    │
+          │ Evidence model · assurance statuses    │  │ Normalisers · builders     │
+          └─────────────────────────┬──────────────┘  └─────────────┬─────────────┘
+                                    │                               │
+          ┌─────────────────────────▼──────────────┐  ┌─────────────▼─────────────┐
+          │ scenario_selection.py                  │  │ risk.py                   │
+          │ Scenario tagging · selection logic     │  │ Risk scoring helpers      │
+          └─────────────────────────┬──────────────┘  └─────────────┬─────────────┘
+                                    │                               │
+                    ┌───────────────▼───────────────────────────────┘
+                    │            export.py (RENDER LAYER)           │
+                    │ PDF (fpdf) · DOCX (docxtpl) · PPTX (python‑pptx) │
+                    │ Matplotlib radar chart · HARD‑CAPPED radius=3 │
+                    │ clean_text() → ASCII‑safe                     │
                     └──────────────────┬──────────────────┘
                                        │
                                        ▼
                               ┌─────────────────┐
-                              │   OUTPUT FILES   │
-                              │  .pdf · .docx    │
-                              │  .pptx · .png    │
+                              │   OUTPUT FILES  │
+                              │ .pdf · .docx    │
+                              │ .pptx · .png    │
                               └─────────────────┘
 
-                    ┌─────────────────────────────────┐
-                    │         INFRASTRUCTURE          │
-                    │  Dockerfile (multi-stage)       │
-                    │  docker-compose.yml (watchtower)│
-                    │  .streamlit/secrets.toml (dev)  │
-                    │  Azure Container Apps (prod)    │
-                    └─────────────────────────────────┘
+                    ┌──────────────────────────────────────────────┐
+                    │                 INFRASTRUCTURE               │
+                    │ Dockerfile (multi‑stage) · docker‑compose   │
+                    │ .streamlit/secrets.toml (dev) · Azure CA    │
+                    └──────────────────────────────────────────────┘
+
+                    ┌──────────────────────────────────────────────┐
+                    │             QUALITY & TESTING                │
+                    │ tests/ · quality_pipeline.py · tools/       │
+                    └──────────────────────────────────────────────┘
 ```
 
 **Data Flow:**

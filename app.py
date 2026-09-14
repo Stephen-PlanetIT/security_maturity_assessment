@@ -704,6 +704,35 @@ with st.container():
     with colh4:
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
+# Maturity Export — always show when a maturity report exists
+if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and (st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')):
+    with st.expander("Export", expanded=True):
+        try:
+            bytes_docx = get_maturity_docx_bytes()
+        except Exception:
+            bytes_docx = None
+        if bytes_docx and isinstance(bytes_docx, (bytes, bytearray)) and len(bytes_docx) > 1000:
+            ci = st.session_state.get('client_inputs', {}) or {}
+            fname = f"{ci.get('customer_name','Client').replace(' ', '_')}_Cybersecurity_Maturity_Report.docx"
+            st.download_button(
+                "📄 Download Cybersecurity Maturity Report (Word)",
+                data=bytes_docx,
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="dl_maturity_docx_main"
+            )
+        else:
+            st.warning("Export not ready. You can retry rendering the report.")
+            if st.button("Retry Export", key="retry_export_docx_main"):
+                try:
+                    bytes_docx = get_maturity_docx_bytes()
+                    if bytes_docx and len(bytes_docx) > 1000:
+                        st.experimental_rerun()
+                    else:
+                        st.error("Export still not available. Please try again.")
+                except Exception:
+                    st.error("Export failed. Please try again.")
+
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
     col_e1, col_e2 = st.columns([1, 1])
@@ -2107,25 +2136,39 @@ elif st.session_state['workflow'] == "📈 Cybersecurity Maturity Assessment":
     st.header("Cybersecurity Maturity Assessment")
     # Hint: evidence controls are rendered above as top-level sections
     st.caption("Use the top-level Governance & Assurance Evidence sections above to capture domain evidence before generating.")
+
+    # Generation Engine toggles (in-page)
+    # Simplified workflow: unify engine selection and default to Staged v3 (no per-page selector)
+    st.session_state['maturity_generation_engine'] = "Staged v3 (header→batched domains→exec/roadmap)"
+    # New Maturity-only toggles
+    st.session_state['lean_mode'] = st.checkbox(
+        "Lean mode (low-latency; deterministic fillers)",
+        value=bool(st.session_state.get('lean_mode', False)),
+        help="Reduces LLM calls by using deterministic text for long sections; still consultative."
+    )
+    st.session_state['deterministic_only'] = st.checkbox(
+        "Deterministic only (no LLM enrichment)",
+        value=bool(st.session_state.get('deterministic_only', False)),
+        help="Skip LLM enrichment entirely; assemble using composite skeleton deterministically."
+    )
 if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and st.button("Generate Maturity Roadmap", type="primary"):
-    if bool(st.session_state.get('staged_enabled', False)):
-        st.session_state["_last_generation_ts"] = time.time()
-        with st.spinner("Compiling Cybersecurity Maturity Assessment (staged)..."):
-            client = LLMEngine.get_client()
-            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            header_prompt = build_maturity_header_prompt(st.session_state["client_inputs"])
-            header_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, header_prompt, MaturityHeader)
-            if header_obj:
-                st.session_state["maturity_obj"] = header_obj
-    else:
-        st.session_state["_last_generation_ts"] = time.time()
-        with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
-            client = LLMEngine.get_client()
-            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            maturity_prompt = build_maturity_prompt(st.session_state["client_inputs"])
-            maturity_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, maturity_prompt, MaturityReport)
-            if maturity_obj:
-                st.session_state["maturity_obj"] = maturity_obj
+    st.session_state["_last_generation_ts"] = time.time()
+    with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
+        client = LLMEngine.get_client()
+        deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+        # Propagate Lean/Deterministic flags to core; set a default batch size
+        st.session_state["client_inputs"]["lean_mode"] = bool(st.session_state.get("lean_mode", False))
+        st.session_state["client_inputs"]["staged_v2_domain_batch_size"] = 5
+        # Simplified orchestrator: Staged v3 primary, deterministic composite fallback (ignore per-page engine selection)
+        deterministic_only = bool(st.session_state.get("deterministic_only", False))
+        if deterministic_only:
+            maturity_obj = LLMEngine.generate_maturity_report_composite(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityReport)
+        else:
+            maturity_obj = LLMEngine.generate_maturity_report_staged_v3(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityHeader, MaturityReport)
+            if not maturity_obj:
+                maturity_obj = LLMEngine.generate_maturity_report_composite(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityReport)
+        if maturity_obj:
+            st.session_state["maturity_obj"] = maturity_obj
             
 
     try:
@@ -2214,7 +2257,7 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
         else:
             attack_vector = "Multi-Stage Intrusion via Business Email Compromise — Initial access through a compromised executive email account (despite MFA) via adversary-in-the-middle (AiTM) proxy. Sophisticated threat actor leverages internal trust relationships to authorise fraudulent wire transfers or data exfiltration, evading standard detection through legitimate tooling"
 
-        pillar = getattr(mr, 'resiliency_matrix_mapping', 'Pillar 1')
+        pillar = getattr(mr, 'resiliency_matrix_mapping', 'Pillar 1') if mr else 'Pillar 1'
         crown_jewels = client_inputs.get('critical_infra', 'Unknown')
         rto = client_inputs.get('rto', 'Unknown')
         insurance = client_inputs.get('insurance', 'Unknown')
@@ -2255,19 +2298,42 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
             accumulated += token
 
-        if accumulated.strip():
-            from prompts import ThreatScenarioItem
-            threat_scenarios = [
-                ThreatScenarioItem(
-                    id="ts-maturity-1",
-                    name=f"{pillar} Maturity-Aligned Threat Scenario",
-                    incident_type=pillar,
-                    narrative=accumulated.strip(),
-                )
-            ]
-            mr.threat_scenarios = threat_scenarios
-            st.session_state['maturity_threat_scenarios'] = threat_scenarios
-            st.session_state['maturity_obj'] = mr
+        # Safeguard: minimum narrative length; deterministic fallback based on telemetry
+        narrative = (accumulated or "").strip()
+        if len(narrative) < 800:
+            # Deterministic fallback using telemetry gaps
+            derived_gaps = []
+            if mfa_status in ('None','Privileged Accounts Only'):
+                derived_gaps.append("Absence of universal MFA enables session hijack and credential replay across cloud identity.")
+            if patching == 'Manual / Ad-hoc':
+                derived_gaps.append("Unpatched CVEs on exposed services enable opportunistic footholds and lateral movement.")
+            if backups in ('No Formal Backups','On-Premise Only'):
+                derived_gaps.append("Non-immutable backups allow ransomware to eliminate local recovery options.")
+            mitre = ["T1078 Valid Accounts","T1190 Exploit Public-Facing Application","T1486 Data Encrypted for Impact"]
+            narrative = (
+                f"Threat Actor & Initial Access: The actor targets known weaknesses in authentication and patch management. "
+                f"Initial access leverages {'; '.join(derived_gaps) if derived_gaps else 'environmental weaknesses identified during consultation'}. "
+                f"MITRE: {', '.join(mitre)}. \n\n"
+                f"Attacker Progression: Lateral movement proceeds towards {crown_jewels}, exploiting weak segmentation and inconsistent detection runbooks. "
+                f"Without tested IR authority, containment is delayed. \n\n"
+                f"Sophos MDR Interception: Behavioural anomalies are detected mid-chain. MDR isolates affected identities and endpoints, "
+                f"neutralising the threat before exfiltration or encryption. \n\n"
+                f"Recommended Solutions: Enforce universal MFA, adopt immutable offsite backups with restore testing cadence, "
+                f"and automate patching. Tighten runbooks and authority pathways to reduce MTTR. British English; consultative."
+            )
+
+        from prompts import ThreatScenarioItem
+        threat_scenarios = [
+            ThreatScenarioItem(
+                id="ts-maturity-1",
+                name=f"{pillar} Maturity-Aligned Threat Scenario",
+                incident_type=pillar,
+                narrative=narrative,
+            )
+        ]
+        mr.threat_scenarios = threat_scenarios
+        st.session_state['maturity_threat_scenarios'] = threat_scenarios
+        st.session_state['maturity_obj'] = mr
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
@@ -2293,6 +2359,21 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
     else:
         st.error("Engine failed to generate the roadmap.")
+        # Offer a skeleton export based on current inputs to unblock delivery (best-effort)
+        try:
+            from types import SimpleNamespace
+            sk_obj = SimpleNamespace()
+            sk_bytes = create_maturity_docx(st.session_state['client_inputs'], sk_obj)
+            if sk_bytes:
+                st.warning("LLM generation failed. You can still export a skeleton report from the current inputs.")
+                st.download_button(
+                    "📄 Download Maturity Skeleton (Word)",
+                    data=sk_bytes,
+                    file_name=f"{cached_customer_name.replace(' ','_')}_Maturity_Skeleton.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+        except Exception:
+            pass
         
     if st.session_state.get('maturity_obj'):
         st.subheader("📥 Export Deliverables")

@@ -19,14 +19,19 @@ def _format_threat_scenarios(ts):
             if isinstance(it, dict):
                 name = it.get("name") or it.get("title") or it.get("id", "")
                 narrative = it.get("narrative", "")
-                if name and narrative:
-                    lines.append(f"{name}: {narrative}")
-                elif narrative:
-                    lines.append(narrative)
-                elif name:
-                    lines.append(str(name))
             else:
-                lines.append(str(it))
+                # Handle Pydantic/BaseModel-style objects gracefully
+                try:
+                    name = getattr(it, "name", None) or getattr(it, "title", None) or getattr(it, "id", "") or ""
+                    narrative = getattr(it, "narrative", "") or ""
+                except Exception:
+                    name, narrative = "", str(it)
+            if name and narrative:
+                lines.append(f"{name}: {narrative}")
+            elif narrative:
+                lines.append(narrative)
+            elif name:
+                lines.append(str(name))
         return "\n\n".join([l for l in lines if l])
     except Exception:
         return ""
@@ -108,6 +113,13 @@ def _reconcile_context_for_template(doc, context: dict, extra_alias: dict = None
         "ComplianceAlignment": "compliance_alignment_render",
         "Compliance_Framework": "compliance_alignment_render",
         "Compliance": "compliance_alignment_render",
+        # Reinforce common maturity aliases if present in context
+        "Exec_Summary": "exec_summary",
+        "ExecutiveSummary": "exec_summary",
+        "Matrix_Mapping": "matrix_mapping",
+        "Roadmap": "roadmap",
+        "Radar_Chart": "radar_chart",
+        "Maturity_Gauge": "maturity_gauge",
     }
     if isinstance(extra_alias, dict):
         fixed_alias.update(extra_alias)
@@ -1607,7 +1619,12 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
             print("DOCX_RENDER_FAIL", repr(e))
         except Exception:
             pass
-        raise
+        # Fallback: render with minimal, safely-escaped context instead of crashing
+        minimal = {k: (context.get(k, "") or "") for k in context.keys()}
+        try:
+            doc.render(_xml_escape_dict(minimal))
+        except Exception:
+            return b""
     else:
         print("DOCX_RENDER_FINISH")
     # Post-render: inject threat scenarios into the final document if any are present
@@ -2308,10 +2325,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
     context = {
-        # Keep {{ threat_scenarios }} as a literal placeholder for post-render injection
-        # Threat_scenarios" : "{{ threat_scenarios }}",
-        # Also support templates using capitalised placeholder name
-        "Threat_scenarios": "{{ threat_scenarios }}",
+        "threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
+        "Threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
         # New derived executive sections (optional placeholders)
         "capability_heatmap_text": capability_heatmap_text_maturity,
         "board_summary": board_summary_text_maturity,
@@ -2472,6 +2487,22 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     context["proactive_testing_programme"] = getattr(report_data, "proactive_testing_programme", "") or ""
     context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
     context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
+
+    # Ensure required template variables have non-empty defaults from client_inputs or 'N/A'
+    try:
+        required_vars = set(doc.get_undeclared_template_variables() or [])
+    except Exception:
+        required_vars = set()
+    if isinstance(required_vars, set):
+        for var in required_vars:
+            if var not in context or context.get(var) in (None, "", []):
+                # Prefer client_inputs if available and non-empty
+                if isinstance(client_inputs, dict) and var in client_inputs:
+                    val = client_inputs.get(var)
+                    context[var] = val if val not in (None, "", []) else "N/A"
+                else:
+                    context[var] = "N/A"
+
     # Pre-render reconciliation to align template placeholders with context
     try:
         debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
@@ -2496,7 +2527,12 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             print("DOCX_RENDER_FAIL", repr(e))
         except Exception:
             pass
-        raise
+        # Fallback: attempt minimal safely-escaped context to avoid crashing export
+        minimal = {k: (context.get(k, "") or "") for k in context.keys()}
+        try:
+            doc.render(_xml_escape_dict(minimal))
+        except Exception:
+            return b""
     else:
         print("DOCX_RENDER_FINISH")
 
