@@ -484,7 +484,7 @@ def login_gate():
     st.stop()
 
 # --- UI CONFIGURATION ---
-st.set_page_config(page_title="Security Use Case Generator", layout="wide")
+st.set_page_config(page_title="Planet IT Advisory Engine", layout="wide", initial_sidebar_state="collapsed")
 
 # Inject Content Security Policy header via meta tag (static string, no user input)
 _CSP_META = (
@@ -622,7 +622,7 @@ if not st.session_state.get('workflow'):
             st.session_state['workflow'] = "📈 Cybersecurity Maturity Assessment"
             st.rerun()
     with col2:
-        if st.button("🎯 Tabletop Exercise (Designer) ➡️", use_container_width=True):
+        if st.button("🎯 Tabletop Exercise (Designer) (BETA) ➡️", use_container_width=True):
             st.session_state['workflow'] = "🎯 Tabletop Exercise & Facilitator"
             st.rerun()
     with col3:
@@ -634,7 +634,7 @@ if not st.session_state.get('workflow'):
     st.divider()
     st.markdown(
         "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-        "Security Use Case & Cybersecurity Maturity Assessment Generator"
+        "Planet IT Advisory Engine"
         "</div>",
         unsafe_allow_html=True
     )
@@ -685,10 +685,10 @@ if st.session_state.get('_legacy_sidebar', False):
 _title_map = {
     "📈 Cybersecurity Maturity Assessment": "Cybersecurity Maturity Assessment",
     "🔥 Tactical Threat Simulator": "Tactical Threat Simulator",
-    "🎯 Tabletop Exercise & Facilitator": "Tabletop Exercise Builder & Facilitator",
+    "🎯 Tabletop Exercise & Facilitator": "Tabletop Exercise Builder & Facilitator (BETA)",
 }
 _current_workflow = st.session_state.get('workflow', "📈 Cybersecurity Maturity Assessment")
-st.title(_title_map.get(_current_workflow, "Security Use Case & Cybersecurity Maturity Assessment Generator"))
+st.title(_title_map.get(_current_workflow, "Planet IT Advisory Engine"))
 
 # Top navigation (no sidebar) — quick links to Home and workflows
 with st.container():
@@ -700,7 +700,7 @@ with st.container():
     with colh2:
         st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
     with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop", icon=None)
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
     with colh4:
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
@@ -1878,14 +1878,14 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
     try:
         st.switch_page("pages/03_Tabletop_Designer.py")
     except Exception:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Open Tabletop Designer ➡️")
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Open Tabletop Designer (BETA) ➡️")
     st.stop()
     # Lightweight keepalive: keep websocket alive during facilitation to avoid idle timeouts
     st.markdown(
         "<script>setInterval(()=>{fetch(window.location.href,{cache:'no-store'}).catch(()=>{})},60000);</script>",
         unsafe_allow_html=True
     )
-    st.header("🎯 Tabletop Exercise Builder & Facilitator")
+    st.header("🎯 Tabletop Exercise Builder & Facilitator (BETA)")
 
     if "tabletop_plan" not in st.session_state:
         st.session_state["tabletop_plan"] = None
@@ -2527,13 +2527,13 @@ with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
 st.divider()
 st.markdown(
     "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-    f"Security Use Case & Cybersecurity Maturity Assessment Generator — v{APP_VERSION}"
+    "Planet IT Advisory Engine"
     "</div>",
     unsafe_allow_html=True
 )
 st.markdown(
-    "<div style='text-align: center; color: #23506A; font-size: 0.7rem; margin-top: 4px;'>"
-    "&copy; 2026 Bradley Collis. All rights reserved."
+    "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
+    f"Planet IT Advisory Engine — v{APP_VERSION}"
     "</div>",
     unsafe_allow_html=True
 )

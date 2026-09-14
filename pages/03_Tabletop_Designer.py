@@ -40,7 +40,7 @@ def _coerce_list(value, options):
         pass
     return []
 
-st.set_page_config(page_title="Tabletop Designer", layout="wide")
+st.set_page_config(page_title="Tabletop Designer (BETA)", layout="wide", initial_sidebar_state="collapsed")
 
 # Auth-aware guard: if login is enabled and user not signed-in, route to app.py sign-in
 from config import get_config
@@ -87,11 +87,11 @@ with st.container():
     with colh2:
         st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
     with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop", icon=None)
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
     with colh4:
         st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
 
-st.header("🛠️ Tabletop Exercise Designer & Editor")
+st.header("🛠️ Tabletop Exercise Designer & Editor (BETA)")
 
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
