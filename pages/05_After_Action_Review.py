@@ -3,6 +3,7 @@ from core import LLMEngine
 from prompts import build_tabletop_aar_prompt, SYSTEM_PERSONA_TABLETOP, TabletopAAR
 from config import get_config, ConfigKey
 from consultation_helpers import load_latest_tabletop_session
+from ui_shared_sections import render_top_nav
 
 st.set_page_config(page_title="After-Action Review (AAR)", layout="wide", initial_sidebar_state="collapsed")
 
@@ -19,40 +20,9 @@ if _is_auth_enabled() and not st.session_state.get("_auth_user"):
 
 # Branding header
 st.title("Planet IT Advisory Engine")
-# Top navigation CSS for uniform anchors
-st.markdown(
-    """
-    <style>
-    #topnav a, #topnav a:visited {
-        display: inline-block;
-        width: 100%;
-        box-sizing: border-box;
-        padding: 0.4rem 0.8rem;
-        border: 1px solid #c8d6df;
-        border-radius: 8px;
-        text-align: center;
-        color: #1e3a4c;
-        text-decoration: none;
-        background: white;
-    }
-    #topnav a:hover { background: #f5f9fb; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 # Top navigation (no sidebar)
-with st.container():
-    st.markdown("<div id='topnav'></div>", unsafe_allow_html=True)
-    colh1, colh2, colh3, colh4 = st.columns([1, 1, 1, 1])
-    with colh1:
-        st.page_link("app.py", label="🏠 Home")
-    with colh2:
-        st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
-    with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
-    with colh4:
-        st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
+render_top_nav(active="tabletop")
 
 st.header("📋 After-Action Review (AAR)")
 # Attempt to load a persisted session snapshot if session state is empty

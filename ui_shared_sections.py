@@ -670,3 +670,109 @@ def render_governance_assurance_sections():
         }
 
     return cap_dict, sr_dict, ip_dict, idg_dict, saas_dict, aa_dict, mon_dict, sup_dict, tpa_dict, rec_dict, ir_dict, as_map
+
+def render_top_nav(active: str = "Home"):
+    """
+    Render a consistent top-level navigation bar across all pages.
+    Items: Home | Maturity | Tabletop (BETA) | Threats
+
+    Behaviour:
+    - Home: clears workflow and reruns app.py landing
+    - Maturity: sets workflow → "📈 Cybersecurity Maturity Assessment" and reruns
+    - Tabletop: navigates to pages/03_Tabletop_Designer.py (switch_page with page_link fallback)
+    - Threats: sets workflow → "🔥 Tactical Threat Simulator" and reruns
+
+    Active item is highlighted using a primary button style; others use secondary style.
+    CSS for anchor links is injected once per session to preserve consistent styling.
+    """
+    # Inject minimal CSS once (idempotent)
+    if not st.session_state.get("_topnav_css_injected"):
+        primary = "#23506A"
+        border = "#c8d6df"
+        try:
+            # Pull palette if available
+            from config import get_planet_branding_palette  # type: ignore
+            _p = get_planet_branding_palette()
+            if _p:
+                primary = _p.get("textColor", primary) or primary
+                border = _p.get("secondaryBackgroundColor", border) or border
+        except Exception:
+            pass
+
+        st.markdown(
+            f"""
+            <style>
+              .topnav-anchor, .topnav-anchor:visited {{
+                  display: inline-block;
+                  width: 100%;
+                  box-sizing: border-box;
+                  padding: 0.4rem 0.8rem;
+                  border: 1px solid {border};
+                  border-radius: 8px;
+                  text-align: center;
+                  color: {primary};
+                  text-decoration: none;
+                  background: white;
+              }}
+              .topnav-anchor:hover {{ background: #f5f9fb; }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.session_state["_topnav_css_injected"] = True
+
+    # Normalise active label
+    _active = (active or "Home").strip().lower()
+
+    with st.container():
+        colh1, colh2, colh3, colh4 = st.columns([1, 1, 1, 1])
+
+        # Home
+        with colh1:
+            is_active = _active == "home"
+            if st.button("🏠 Home", use_container_width=True, type=("primary" if is_active else "secondary"), key="tn_home"):
+                st.session_state["workflow"] = None
+                try:
+                    st.switch_page("app.py")  # type: ignore[attr-defined]
+                except Exception:
+                    try:
+                        st.page_link("app.py", label="🏠 Home")
+                    except Exception:
+                        st.rerun()
+
+        # Maturity
+        with colh2:
+            is_active = _active == "maturity"
+            if st.button("📈 Maturity", use_container_width=True, type=("primary" if is_active else "secondary"), key="tn_maturity"):
+                st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"
+                try:
+                    st.switch_page("app.py")  # type: ignore[attr-defined]
+                except Exception:
+                    try:
+                        st.page_link("app.py", label="📈 Maturity")
+                    except Exception:
+                        st.rerun()
+
+        # Tabletop (navigate to dedicated page)
+        with colh3:
+            is_active = _active == "tabletop"
+            # Prefer a button for consistent styling; use programmatic navigation
+            if st.button("🎯 Tabletop (BETA)", use_container_width=True, type=("primary" if is_active else "secondary"), key="tn_tabletop"):
+                try:
+                    st.switch_page("pages/03_Tabletop_Designer.py")  # type: ignore[attr-defined]
+                except Exception:
+                    # Fallback anchor for manual click
+                    st.markdown("<a class='topnav-anchor' href='pages/03_Tabletop_Designer.py'>🎯 Tabletop (BETA)</a>", unsafe_allow_html=True)
+
+        # Threats
+        with colh4:
+            is_active = _active == "threats"
+            if st.button("🔥 Threats", use_container_width=True, type=("primary" if is_active else "secondary"), key="tn_threats"):
+                st.session_state["workflow"] = "🔥 Tactical Threat Simulator"
+                try:
+                    st.switch_page("app.py")  # type: ignore[attr-defined]
+                except Exception:
+                    try:
+                        st.page_link("app.py", label="🔥 Threats")
+                    except Exception:
+                        st.rerun()

@@ -12,7 +12,14 @@ from prompts import (
 )
 from export import create_maturity_docx
 
-st.set_page_config(page_title="Cybersecurity Maturity (Page)", layout="wide")
+st.set_page_config(page_title="Cybersecurity Maturity (Redirect)", layout="wide")
+# Redirect stub: unify navigation under app.py
+st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"
+try:
+    st.switch_page("app.py")  # type: ignore[attr-defined]
+except Exception:
+    st.page_link("app.py", label="📈 Switching to Maturity… (click if not redirected)")
+st.stop()
 
 # Page-scoped workflow intent
 st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"

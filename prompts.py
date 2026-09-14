@@ -1147,6 +1147,11 @@ EXERCISE REQUIREMENTS:
     - Technical: Provide deeper artefact references and procedure steps; foreground containment actions, runbooks, and evidence chains; governance noted but subordinate.
     - Blended: Balance both profiles; maintain both artefacts and governance thresholds in probes and narratives.
 
+    MDR REALITIES (STRICT):
+    - If MDR is not 'None' (current MDR/SOC provider: {mdr}): assume MDR/SOC will conduct a significant portion of investigation and containment actions within their authorised toolset; reflect MDR-led actions and escalation handoffs accordingly.
+    - Limitations: MDR does not perform full DFIR by default; the customer retains ownership of incident management/BCP, regulatory notifications, legal, HR, and communications. Full digital forensics may require a separate DFIR retainer/provider.
+    - Roles & Handoffs: Clearly separate MDR responsibilities vs customer responsibilities in expected_mature_response and facilitator_probe_questions, including when to invoke MDR authority, when to escalate to customer governance, and when to engage third-party DFIR.
+
     FACILITATOR PROBES (STRICT):
     - Each inject’s facilitator_probe_questions must cover: Evidence validation; Governance thresholds; Containment/Authority; Communications/Stakeholders. Avoid yes/no; require justification and cite a specific artefact.
     - Add one “what‑if” probe to test adverse branches where the room’s answer is weak or deviates.

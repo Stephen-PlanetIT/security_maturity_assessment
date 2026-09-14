@@ -10,7 +10,7 @@ from prompts import (
 from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from config import get_config, ConfigKey
 from catalog import PLANET_IT_PORTFOLIO
-from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections
+from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections, render_top_nav
 
 # Version tracker (for JSON export parity)
 import os
@@ -56,40 +56,8 @@ if _is_auth_enabled() and not st.session_state.get("_auth_user"):
 
 # Branding header
 st.title("Planet IT Advisory Engine")
-# Top navigation CSS for uniform anchors
-st.markdown(
-    """
-    <style>
-    #topnav a, #topnav a:visited {
-        display: inline-block;
-        width: 100%;
-        box-sizing: border-box;
-        padding: 0.4rem 0.8rem;
-        border: 1px solid #c8d6df;
-        border-radius: 8px;
-        text-align: center;
-        color: #1e3a4c;
-        text-decoration: none;
-        background: white;
-    }
-    #topnav a:hover { background: #f5f9fb; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
-# Top navigation (no sidebar)
-with st.container():
-    st.markdown("<div id='topnav'></div>", unsafe_allow_html=True)
-    colh1, colh2, colh3, colh4 = st.columns([1, 1, 1, 1])
-    with colh1:
-        st.page_link("app.py", label="🏠 Home")
-    with colh2:
-        st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
-    with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
-    with colh4:
-        st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
+render_top_nav(active="tabletop")
 
 st.header("🛠️ Tabletop Exercise Designer & Editor (BETA)")
 

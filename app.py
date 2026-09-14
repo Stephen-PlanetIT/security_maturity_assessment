@@ -21,6 +21,7 @@ from prompts import (
 )
 from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from catalog import PLANET_IT_PORTFOLIO
+from ui_shared_sections import render_top_nav
 from config import get_config, validate_config, ConfigKey
 from consultation_schema import (
     DEFAULT_CRITICAL_ASSET_PROFILE,
@@ -690,19 +691,15 @@ _title_map = {
 _current_workflow = st.session_state.get('workflow', "📈 Cybersecurity Maturity Assessment")
 st.title(_title_map.get(_current_workflow, "Planet IT Advisory Engine"))
 
-# Top navigation (no sidebar) — quick links to Home and workflows
+# Top navigation (no sidebar) — unified renderer
 with st.container():
-    colh1, colh2, colh3, colh4 = st.columns([1, 1, 1, 1])
-    with colh1:
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state['workflow'] = None
-            st.rerun()
-    with colh2:
-        st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
-    with colh3:
-        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop (BETA)", icon=None)
-    with colh4:
-        st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
+    _active = (
+        "maturity" if _current_workflow == "📈 Cybersecurity Maturity Assessment"
+        else "threats" if _current_workflow == "🔥 Tactical Threat Simulator"
+        else "tabletop" if _current_workflow == "🎯 Tabletop Exercise & Facilitator"
+        else "home"
+    )
+    render_top_nav(active=_active)
 
 # Maturity Export — always show when a maturity report exists
 if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and (st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')):
@@ -1921,7 +1918,11 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
             with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
                 client = LLMEngine.get_client()
                 deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-                prompt = build_tabletop_plan_prompt(st.session_state['client_inputs'], selected_themes)
+                prompt = build_tabletop_plan_prompt(
+                    st.session_state['client_inputs'],
+                    selected_themes,
+                    audience=st.session_state.get("tabletop_audience", "Blended")
+                )
                 plan = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan)
                 if plan:
                     st.session_state["tabletop_plan"] = plan.model_dump()

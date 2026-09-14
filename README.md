@@ -115,16 +115,17 @@ Conditional domains (rendered only when applicable):
 
 ## 🧭 Multi‑Page Streamlit Workflow
 
-The application is a multi‑page Streamlit app. Navigation is driven by `app.py` and the `pages/` directory:
+The application is a multi‑page Streamlit app. Navigation is unified under `app.py` as the single router, with dedicated pages under `pages/` only where page‑specific UI is substantial:
 
-- `pages/01_Maturity_Relay.py`: Drives the vCISO maturity assessment workflow.
-- `pages/02_Threats_Relay.py`: Orchestrates tactical threat simulation inputs and generation.
-- `pages/03_Tabletop_Designer.py`: Assists in designing tabletop exercises and artefacts.
+- `app.py`: Authoritative router and UI host for the vCISO Maturity Assessment and Tactical Threat Simulator workflows.
+- `pages/01_Maturity_Relay.py`: Redirect stub (preserves bookmarks) → sets workflow to Maturity and redirects to `app.py`.
+- `pages/02_Threats_Relay.py`: Redirect stub (preserves bookmarks) → sets workflow to Threats and redirects to `app.py`.
+- `pages/03_Tabletop_Designer.py`: Dedicated Tabletop Designer and artefact generator.
 - `pages/04_Live_Facilitation.py`: Live facilitation support for exercise execution.
 - `pages/05_After_Action_Review.py`: Captures outcomes and generates AAR reports.
 - `ui_shared_sections.py`: Shared UI components and sections used across pages.
 
-These pages leverage shared engines (`core.py`, `prompts.py`) and knowledge (`data.py`, `catalog.py`) while writing outputs via `export.py`.
+These modules leverage shared engines (`core.py`, `prompts.py`) and knowledge (`data.py`, `catalog.py`) while writing outputs via `export.py`.
 
 ---
 
