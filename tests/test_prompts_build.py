@@ -1,4 +1,4 @@
-from prompts import build_maturity_prompt
+from prompts import build_maturity_prompt, build_maturity_header_prompt
 
 def test_maturity_prompt_includes_evidence_sections():
     inputs = {'customer_name': 'Test', 'industry': 'Tech', 'users': 10}
