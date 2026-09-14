@@ -14,6 +14,12 @@ from data import FULLY_MANAGED_URL, CO_MANAGED_URL
 from data import MDR_COMPARISON, choose_mdr_recommendation
 from data import ATTACK_VECTORS, SIMULATED_OSINT
 from export import create_pdf, create_maturity_docx, create_threat_docx
+from prompts import (
+    TabletopMasterPlan, TabletopPivotResponse, TabletopAAR,
+    build_tabletop_plan_prompt, build_tabletop_pivot_prompt, build_tabletop_aar_prompt,
+    SYSTEM_PERSONA_TABLETOP
+)
+from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from catalog import PLANET_IT_PORTFOLIO
 from config import get_config, validate_config, ConfigKey
 from consultation_schema import (
@@ -326,6 +332,33 @@ def get_threat_docx_bytes():
             st.error("Word export failed. Please try regenerating the report.")
     return st.session_state.get('threat_docx_bytes')
 
+def get_threat_json_bytes():
+    """Lazy-generate and cache JSON bytes for the Threat Simulator structured data."""
+    if st.session_state.get('threat_json_bytes') is None and st.session_state.get('scenario_obj'):
+        try:
+            import json as _json
+            # Prefer Pydantic v2 model_dump; fallback to .dict(); else best-effort
+            _sc = st.session_state['scenario_obj']
+            if hasattr(_sc, 'model_dump'):
+                scenario_dump = _sc.model_dump()
+            elif hasattr(_sc, 'dict'):
+                scenario_dump = _sc.dict()
+            else:
+                scenario_dump = _sc
+            payload = {
+                "version": APP_VERSION,
+                "client_inputs": st.session_state.get('client_inputs', {}),
+                "scenario": scenario_dump,
+                "recommendations": st.session_state.get('recs', []),
+                "mdr_case": st.session_state.get('mdr_case', "")
+            }
+            st.session_state['threat_json_bytes'] = _json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("JSON export failed: %s", e, exc_info=True)
+            st.error("JSON export failed. Please try regenerating the report.")
+    return st.session_state.get('threat_json_bytes')
+
 def get_maturity_docx_bytes():
     """Lazy-generate and cache Cybersecurity Maturity Assessment Word Doc bytes."""
     if st.session_state.get('maturity_docx_bytes') is None and st.session_state.get('maturity_obj'):
@@ -465,9 +498,15 @@ _CSP_META = (
     'frame-ancestors \'none\';">'
 )
 st.markdown(_CSP_META, unsafe_allow_html=True)
+# Hide default Streamlit sidebar/navigation only on landing (preserve Pages sidebar elsewhere)
+if not st.session_state.get('workflow'):
+    st.markdown("<style>[data-testid='stSidebar']{display:none;} [data-testid='stSidebarNav']{display:none;}</style>", unsafe_allow_html=True)
 validate_platform_config() # Fails fast if keys are missing
 # Authentication gate (env-driven). If AUTH_ENABLED=true, blocks UI until sign-in.
 login_gate()
+
+# (Removed query-parameter router; navigation uses Streamlit-native page links to preserve session)
+
 # [PLANET BRANDING LOAD] Inject branding palette if provided (Azure/Env based)
 try:
     from config import get_planet_branding_palette
@@ -484,6 +523,15 @@ try:
             "</style>"
         )
         st.markdown(brand_css, unsafe_allow_html=True)
+except Exception:
+    pass
+
+# Minor layout tweaks: tighten radio spacing inside Programme Controls expander
+try:
+    st.markdown(
+        "<style>div[data-testid='stExpander'] div[role='radiogroup'] > label { margin-bottom: 0.15rem; }</style>",
+        unsafe_allow_html=True,
+    )
 except Exception:
     pass
 
@@ -536,37 +584,154 @@ TEST_DATA = {
     "banned_vendors": [],
 }
 
-# --- SIDEBAR & ENGINE CONFIGURATION ---
-with st.sidebar:
-    st.markdown("## 🛡️ Advisory Engine")
-    
-    # Engine is strictly Azure (Ollama support removed per July 2026 hardening)
-    st.session_state['ai_engine'] = "azure"
-    
-    
+# --- LANDING FRONT PAGE (no sidebar) ---
+if not st.session_state.get('workflow'):
+    # Header (consistent branding)
+    st.title("Planet IT Advisory Engine")
+    st.markdown("### Select a Workflow")
 
-    st.divider()
-    
-    workflow = st.radio(
-        "Select Workflow:", 
-        options=["📈 Cybersecurity Maturity Assessment", "🔥 Tactical Threat Simulator"], 
-        index=0
+    # Landing CSS for uniform tiles (buttons and links)
+    st.markdown(
+        """
+        <style>
+        #landing a, #landing a:visited {
+            display: inline-block;
+            width: 100%;
+            padding: 0.6rem 1rem;
+            border: 1px solid #c8d6df;
+            border-radius: 8px;
+            text-align: center;
+            color: #1e3a4c;
+            text-decoration: none;
+            background: white;
+        }
+        #landing a:hover {
+            background: #f5f9fb;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    st.session_state['workflow'] = workflow
-    
-    st.divider()
 
-    if workflow == "📈 Cybersecurity Maturity Assessment":
-        generation_mode = st.radio(
-            "Generation Mode",
-            options=["Monolithic (single-pass)", "Staged (header-first)"],
-            index=0,
-            help="Monolithic: single LLM pass to produce full report. Staged: header-first, then follow-ups."
+    st.markdown("<div id='landing'></div>", unsafe_allow_html=True)
+
+    # Centred grid: side spacers + three tiles
+    colL, col1, col2, col3, colR = st.columns([1, 2, 2, 2, 1])
+    with col1:
+        if st.button("📈 Cybersecurity Maturity Assessment", use_container_width=True):
+            st.session_state['workflow'] = "📈 Cybersecurity Maturity Assessment"
+            st.rerun()
+    with col2:
+        if st.button("🎯 Tabletop Exercise (Designer) ➡️", use_container_width=True):
+            st.session_state['workflow'] = "🎯 Tabletop Exercise & Facilitator"
+            st.rerun()
+    with col3:
+        if st.button("🔥 Tactical Threat Simulator", use_container_width=True):
+            st.session_state['workflow'] = "🔥 Tactical Threat Simulator"
+            st.rerun()
+
+    # Footer (copywriting footer, aligned to app-wide style)
+    st.divider()
+    st.markdown(
+        "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
+        "Security Use Case & Cybersecurity Maturity Assessment Generator"
+        "</div>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<div style='text-align: center; color: #23506A; font-size: 0.7rem; margin-top: 4px;'>"
+        "&copy; 2026 Bradley Collis. All rights reserved."
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    st.stop()
+
+# --- SIDEBAR & ENGINE CONFIGURATION ---
+if st.session_state.get('_legacy_sidebar', False):
+    with st.sidebar:
+        st.markdown("## 🛡️ Planet IT Advisory Engine")
+        
+        # Engine is strictly Azure (Ollama support removed per July 2026 hardening)
+        st.session_state['ai_engine'] = "azure"
+        
+        
+
+        st.divider()
+        
+        workflow = st.radio(
+            "Select Workflow:", 
+            options=[
+                "📈 Cybersecurity Maturity Assessment",
+                "🎯 Tabletop Exercise & Facilitator",
+                "🔥 Tactical Threat Simulator"   
+            ], 
+            index=0
         )
-        st.session_state['staged_enabled'] = (generation_mode == "Staged (header-first)")
+        st.session_state['workflow'] = workflow
+        
+        st.divider()
+
+        if workflow == "📈 Cybersecurity Maturity Assessment":
+            generation_mode = st.radio(
+                "Generation Mode",
+                options=["Monolithic (single-pass)", "Staged (header-first)"],
+                index=0,
+                help="Monolithic: single LLM pass to produce full report. Staged: header-first, then follow-ups."
+            )
+            st.session_state['staged_enabled'] = (generation_mode == "Staged (header-first)")
 
 # --- MAIN PAGE HEADER ---
-st.title("Security Use Case & Cybersecurity Maturity Assessment Generator")
+_title_map = {
+    "📈 Cybersecurity Maturity Assessment": "Cybersecurity Maturity Assessment",
+    "🔥 Tactical Threat Simulator": "Tactical Threat Simulator",
+    "🎯 Tabletop Exercise & Facilitator": "Tabletop Exercise Builder & Facilitator",
+}
+_current_workflow = st.session_state.get('workflow', "📈 Cybersecurity Maturity Assessment")
+st.title(_title_map.get(_current_workflow, "Security Use Case & Cybersecurity Maturity Assessment Generator"))
+
+# Top navigation (no sidebar) — quick links to Home and workflows
+with st.container():
+    colh1, colh2, colh3, colh4 = st.columns([1, 1, 1, 1])
+    with colh1:
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state['workflow'] = None
+            st.rerun()
+    with colh2:
+        st.page_link("pages/01_Maturity_Relay.py", label="📈 Maturity")
+    with colh3:
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Tabletop", icon=None)
+    with colh4:
+        st.page_link("pages/02_Threats_Relay.py", label="🔥 Threats")
+
+# Maturity Export — always show when a maturity report exists
+if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and (st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')):
+    with st.expander("Export", expanded=True):
+        try:
+            bytes_docx = get_maturity_docx_bytes()
+        except Exception:
+            bytes_docx = None
+        if bytes_docx and isinstance(bytes_docx, (bytes, bytearray)) and len(bytes_docx) > 1000:
+            ci = st.session_state.get('client_inputs', {}) or {}
+            fname = f"{ci.get('customer_name','Client').replace(' ', '_')}_Cybersecurity_Maturity_Report.docx"
+            st.download_button(
+                "📄 Download Cybersecurity Maturity Report (Word)",
+                data=bytes_docx,
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="dl_maturity_docx_main"
+            )
+        else:
+            st.warning("Export not ready. You can retry rendering the report.")
+            if st.button("Retry Export", key="retry_export_docx_main"):
+                try:
+                    bytes_docx = get_maturity_docx_bytes()
+                    if bytes_docx and len(bytes_docx) > 1000:
+                        st.experimental_rerun()
+                    else:
+                        st.error("Export still not available. Please try again.")
+                except Exception:
+                    st.error("Export failed. Please try again.")
 
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
@@ -1700,30 +1865,310 @@ if st.session_state['workflow'] == "🔥 Tactical Threat Simulator":
                     file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Report.docx", 
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
+            json_data = get_threat_json_bytes()
+            if json_data:
+                st.download_button(
+                    "🧾 Download Scenario Data (.json)",
+                    data=json_data,
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Threat_Scenario_Data.json",
+                    mime="application/json"
+                )
+
+elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
+    try:
+        st.switch_page("pages/03_Tabletop_Designer.py")
+    except Exception:
+        st.page_link("pages/03_Tabletop_Designer.py", label="🎯 Open Tabletop Designer ➡️")
+    st.stop()
+    # Lightweight keepalive: keep websocket alive during facilitation to avoid idle timeouts
+    st.markdown(
+        "<script>setInterval(()=>{fetch(window.location.href,{cache:'no-store'}).catch(()=>{})},60000);</script>",
+        unsafe_allow_html=True
+    )
+    st.header("🎯 Tabletop Exercise Builder & Facilitator")
+
+    if "tabletop_plan" not in st.session_state:
+        st.session_state["tabletop_plan"] = None
+    if "tabletop_notes" not in st.session_state:
+        st.session_state["tabletop_notes"] = []
+    if "live_scenario_idx" not in st.session_state:
+        st.session_state["live_scenario_idx"] = 0
+    if "live_inject_idx" not in st.session_state:
+        st.session_state["live_inject_idx"] = 0
+
+    tab_design, tab_facilitate, tab_aar = st.tabs([
+        "🛠️ 1. Scenario Designer & Editor", 
+        "🎙️ 2. Live Facilitation Console", 
+        "📋 3. After-Action Review (AAR)"
+    ])
+
+    with tab_design:
+        st.subheader("Generate & Customise Scenarios")
+        st.caption("Scenarios are compiled from the client's actual estate, IR readiness, and operational gaps.")
+
+        col_sc1, col_sc2 = st.columns(2)
+        with col_sc1:
+            selected_themes = st.multiselect(
+                "Select Scenarios to Include:",
+                ["Cyber Attack (Ransomware / BEC)", "Unauthorised Access (Social Engineering / Service Desk)", "Cloud / M365 Outage (DR & Business Continuity)"],
+                default=["Cyber Attack (Ransomware / BEC)", "Unauthorised Access (Social Engineering / Service Desk)"]
+            )
+        with col_sc2:
+            st.markdown(f"**Target Customer:** `{cached_customer_name}`")
+            st.markdown(f"**Key Assets:** `{client_inputs.get('critical_infra', 'Crown Jewels')}`")
+
+        if st.button("Generate Bespoke Tabletop Plan", type="primary"):
+            with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
+                client = LLMEngine.get_client()
+                deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+                prompt = build_tabletop_plan_prompt(st.session_state['client_inputs'], selected_themes)
+                plan = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan)
+                if plan:
+                    st.session_state["tabletop_plan"] = plan.model_dump()
+                    st.success("Tabletop scenario compiled. You can now customise below.")
+                else:
+                    st.error("Generation failed. Check Azure configuration.")
+
+        if st.session_state.get("tabletop_plan"):
+            st.divider()
+            st.subheader("Bespoke Customisation")
+            plan = st.session_state["tabletop_plan"]
+            plan["exercise_title"] = st.text_input("Exercise Title", value=plan.get("exercise_title", ""))
+
+            for s_idx, scn in enumerate(plan.get("scenarios", [])):
+                with st.expander(f"Scenario {s_idx + 1}: {scn.get('scenario_title')}", expanded=True):
+                    scn["scenario_title"] = st.text_input("Title", value=scn.get("scenario_title"), key=f"title_{s_idx}")
+                    scn["initial_vector"] = st.text_input("Initial Vector", value=scn.get("initial_vector"), key=f"vec_{s_idx}")
+                    
+                    for i_idx, inj in enumerate(scn.get("injects", [])):
+                        st.markdown(f"**Inject {i_idx + 1}: {inj.get('simulated_timestamp')}**")
+                        inj["scenario_narrative"] = st.text_area("Narrative", value=inj.get("scenario_narrative"), key=f"narr_{s_idx}_{i_idx}")
+                        inj["expected_mature_response"] = st.text_area("What Good Looks Like", value=inj.get("expected_mature_response"), key=f"resp_{s_idx}_{i_idx}")
+
+            col_lock1, col_lock2 = st.columns(2)
+            with col_lock1:
+                pptx_data = create_tabletop_pptx(plan)
+                st.download_button("📊 Download Presentation Deck (.pptx)", data=pptx_data, file_name=f"{cached_customer_name}_Tabletop_Deck.pptx", mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+            with col_lock2:
+                pdf_data = create_tabletop_facilitator_pdf(plan)
+                st.download_button("📑 Download Facilitator Guide (.pdf)", data=pdf_data, file_name=f"{cached_customer_name}_Facilitator_Guide.pdf", mime="application/pdf")
+
+    with tab_facilitate:
+        if not st.session_state.get("tabletop_plan"):
+            st.info("Please generate or load a tabletop scenario in Tab 1 before facilitating.")
+        else:
+            plan = st.session_state["tabletop_plan"]
+            scenarios = plan.get("scenarios", [])
+            s_idx = st.session_state["live_scenario_idx"]
+            current_scenario = scenarios[s_idx]
+            injects = current_scenario.get("injects", [])
+            i_idx = st.session_state["live_inject_idx"]
+            current_inject = injects[i_idx]
+
+            st.subheader(f"Scenario {s_idx + 1}: {current_scenario.get('scenario_title')}")
+            col_stat1, col_stat2 = st.columns([3, 1])
+            with col_stat1:
+                st.progress((i_idx + 1) / len(injects), text=f"Inject {i_idx + 1} of {len(injects)}: {current_inject.get('phase_title')}")
+            with col_stat2:
+                st.caption(f"Clock: **{current_inject.get('simulated_timestamp')}**")
+
+            st.info(f"### Situation Brief:\n{current_inject.get('scenario_narrative')}")
+
+            if current_inject.get("technical_indicators"):
+                st.markdown("**Technical Indicators & Telemetry:**")
+                for ind in current_inject.get("technical_indicators"):
+                    st.code(ind, language="bash")
+
+            with st.expander("🕵️ Facilitator Guidance & Evaluation Benchmark", expanded=True):
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    st.markdown("**🎯 What Good Looks Like:**")
+                    st.write(current_inject.get("expected_mature_response"))
+                with col_f2:
+                    st.markdown("**⚠️ Pitfalls to Probe:**")
+                    for pit in current_inject.get("common_pitfalls", []):
+                        st.markdown(f"- {pit}")
+
+            st.markdown("### 📝 Record Room Consensus & Action")
+            room_decision = st.text_area("What was the client's decision/response?", key=f"rec_dec_{s_idx}_{i_idx}", placeholder="e.g., Client decided not to isolate the endpoint; contacted user on personal phone...")
+            facilitator_notes = st.text_input("Facilitator assessment notes (for AAR)", key=f"rec_eval_{s_idx}_{i_idx}", placeholder="e.g., Hesitated for 25 mins on declaring severity...")
+
+            with st.expander("🎲 Need a Dynamic Pivot? (Inject Consequence)", expanded=False):
+                st.caption("If the room acted poorly or solved the problem too quickly, trigger an immediate adaptive consequence.")
+                if st.button("Generate Immediate Consequence"):
+                    with st.spinner("Calculating environmental consequence..."):
+                        client = LLMEngine.get_client()
+                        deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+                        p_prompt = build_tabletop_pivot_prompt(
+                            current_scenario,
+                            current_inject,
+                            room_decision,
+                            audience=st.session_state.get("tabletop_audience","Blended"),
+                        )
+                        pivot = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, p_prompt, TabletopPivotResponse)
+                        if pivot:
+                            st.warning(f"**CONSEQUENCE:** {pivot.consequence_narrative}")
+                            st.markdown("**Urgent Probes:**")
+                            for q in pivot.urgent_pivot_questions:
+                                st.write(f"- {q}")
+
+            col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
+            with col_b1:
+                if st.button("⬅️ Previous Inject", disabled=(i_idx == 0 and s_idx == 0)):
+                    if i_idx > 0:
+                        st.session_state["live_inject_idx"] -= 1
+                    elif s_idx > 0:
+                        st.session_state["live_scenario_idx"] -= 1
+                        st.session_state["live_inject_idx"] = len(scenarios[s_idx - 1]["injects"]) - 1
+                    st.rerun()
+            with col_b2:
+                if st.button("Save & Next ➡️", type="primary"):
+                    st.session_state["tabletop_notes"].append({
+                        "scenario": current_scenario.get("scenario_title"),
+                        "phase": current_inject.get("phase_title"),
+                        "decision": room_decision,
+                        "notes": facilitator_notes
+                    })
+                    if i_idx < len(injects) - 1:
+                        st.session_state["live_inject_idx"] += 1
+                    elif s_idx < len(scenarios) - 1:
+                        st.session_state["live_scenario_idx"] += 1
+                        st.session_state["live_inject_idx"] = 0
+                    else:
+                        st.success("Exercise completed! Proceed to Tab 3 for the After-Action Report.")
+                    st.rerun()
+
+            with tab_aar:
+                st.subheader("Post-Exercise Review & Maturity Delta")
+                # Exercise Metadata (captures session date, audience, participants, objectives, scope, assumptions)
+                with st.expander("Exercise Metadata", expanded=True):
+                    import datetime as _dt
+                    _dflt = st.session_state.get("tabletop_session_date") or _dt.date.today()
+                    session_date = st.date_input("Session Date", value=_dflt)
+                    start_time = st.time_input("Start Time", value=st.session_state.get("tabletop_start_time", None))
+                    end_time = st.time_input("End Time", value=st.session_state.get("tabletop_end_time", None))
+                    audience = st.radio("Audience", ["Board", "Technical", "Blended"], index={"Board":0,"Technical":1,"Blended":2}.get(st.session_state.get("tabletop_audience","Blended"), 2))
+                    delivery_mode = st.radio("Delivery Mode", ["In person", "Remote", "Hybrid"], index=0)
+                    location = st.text_input("Location", value=st.session_state.get("tabletop_location", ""))
+                    facilitator = st.text_input("Facilitator", value=st.session_state.get("tabletop_facilitator", ""))
+                    participants_text = st.text_area("Participants (name|role|function|org|type)", value="\\n".join(st.session_state.get("tabletop_participants_raw", [])))
+                    observers_text = st.text_area("Observers (name|role|function|org|type)", value="\\n".join(st.session_state.get("tabletop_observers_raw", [])))
+                    expected_functions_text = st.text_input("Expected Functions (comma-separated)", value=", ".join(st.session_state.get("tabletop_expected_functions", [])))
+                    unrepresented_functions_text = st.text_input("Unrepresented Functions (comma-separated)", value=", ".join(st.session_state.get("tabletop_unrepresented_functions", [])))
+                    objectives_text = st.text_area("Objectives (one per line)", value="\\n".join(st.session_state.get("tabletop_objectives", [])))
+                    scope_text = st.text_area("Scope (one per line)", value="\\n".join(st.session_state.get("tabletop_scope", [])))
+                    assumptions_text = st.text_area("Assumptions (one per line)", value="\\n".join(st.session_state.get("tabletop_assumptions", [])))
+                    exclusions_text = st.text_area("Exclusions (one per line)", value="\\n".join(st.session_state.get("tabletop_exclusions", [])))
+                    # Persist normalised fields
+                    st.session_state.update({
+                        "tabletop_session_date": session_date,
+                        "tabletop_start_time": start_time,
+                        "tabletop_end_time": end_time,
+                        "tabletop_audience": audience,
+                        "tabletop_delivery_mode": delivery_mode,
+                        "tabletop_location": location,
+                        "tabletop_facilitator": facilitator,
+                        "tabletop_participants_raw": [l for l in participants_text.splitlines() if l.strip()],
+                        "tabletop_observers_raw": [l for l in observers_text.splitlines() if l.strip()],
+                        "tabletop_objectives": [o.strip() for o in objectives_text.splitlines() if o.strip()],
+                        "tabletop_scope": [s.strip() for s in scope_text.splitlines() if s.strip()],
+                        "tabletop_assumptions": [a.strip() for a in assumptions_text.splitlines() if a.strip()],
+                        "tabletop_exclusions": [e.strip() for e in exclusions_text.splitlines() if e.strip()],
+                        "tabletop_expected_functions": [s.strip() for s in expected_functions_text.split(",") if s.strip()],
+                        "tabletop_unrepresented_functions": [s.strip() for s in unrepresented_functions_text.split(",") if s.strip()],
+                    })
+                    # Expose to client_inputs for deterministic prompting
+                    st.session_state["client_inputs"]["tabletop_session_date"] = str(session_date)
+                    st.session_state["client_inputs"]["tabletop_participants"] = st.session_state["tabletop_participants_raw"]
+                    st.session_state["client_inputs"]["tabletop_objectives"] = st.session_state["tabletop_objectives"]
+                    st.session_state["client_inputs"]["tabletop_scope"] = st.session_state["tabletop_scope"]
+                    st.session_state["client_inputs"]["tabletop_assumptions"] = st.session_state["tabletop_assumptions"]
+                    st.session_state["client_inputs"]["tabletop_exclusions"] = st.session_state["tabletop_exclusions"]
+                    st.session_state["client_inputs"]["tabletop_delivery_mode"] = delivery_mode
+                    st.session_state["client_inputs"]["tabletop_location"] = location
+                if not st.session_state.get("tabletop_notes"):
+                    st.info("No exercise notes captured yet. Conduct the live facilitation in Tab 2 to populate findings.")
+                else:
+                    if st.button("Generate After-Action Report (AAR)", type="primary"):
+                        with st.spinner("Evaluating room performance and synthesising AAR..."):
+                            client = LLMEngine.get_client()
+                            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+                            aar_prompt = build_tabletop_aar_prompt(
+                                st.session_state["tabletop_plan"],
+                                st.session_state["tabletop_notes"],
+                                st.session_state["client_inputs"],
+                                audience=st.session_state.get("tabletop_audience","Blended"),
+                            )
+                            aar_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, aar_prompt, TabletopAAR)
+                            if aar_obj:
+                                st.session_state["aar_result"] = aar_obj
+                                st.success("After-Action Report generated!")
+
+            if st.session_state.get("aar_result"):
+                aar = st.session_state["aar_result"]
+                st.markdown(f"### Evaluated Performance: `{aar.overall_maturity_observed}`")
+                st.write(aar.executive_summary)
+
+                col_res1, col_res2 = st.columns(2)
+                with col_res1:
+                    st.markdown("#### ✅ Demonstrated Strengths")
+                    for s in aar.key_strengths:
+                        st.markdown(f"- {s}")
+                with col_res2:
+                    st.markdown("#### ⚠️ Identified Critical Gaps")
+                    for g in aar.critical_gaps_identified:
+                        st.markdown(f"- {g}")
+
+                st.divider()
+                st.subheader("🔄 Sync Insights into Client Profile")
+                st.caption("Update the client's master profile with these findings to inform future maturity assessments and tabletops.")
+                if st.button("Apply Delta to Client Profile"):
+                    import datetime
+                    today_str = datetime.date.today().isoformat()
+                    st.session_state['client_inputs']['incident_response_assurance_profile']['tabletop_status'] = "Within the past year"
+                    existing_notes = st.session_state['client_inputs']['incident_response_assurance_profile'].get('notes', '')
+                    st.session_state['client_inputs']['incident_response_assurance_profile']['notes'] = (
+                        f"{existing_notes}\n[{today_str} Tabletop AAR]: {aar.delta_notes_for_profile}".strip()
+                    )
+                    st.success(f"Profile updated! The incident_response_assurance_profile now reflects the exercise conducted on {today_str}.")
 
 elif st.session_state['workflow'] == "📈 Cybersecurity Maturity Assessment":
     st.header("Cybersecurity Maturity Assessment")
     # Hint: evidence controls are rendered above as top-level sections
     st.caption("Use the top-level Governance & Assurance Evidence sections above to capture domain evidence before generating.")
-if st.button("Generate Maturity Roadmap", type="primary"):
-    if bool(st.session_state.get('staged_enabled', False)):
-        st.session_state["_last_generation_ts"] = time.time()
-        with st.spinner("Compiling Cybersecurity Maturity Assessment (staged)..."):
-            client = LLMEngine.get_client()
-            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            header_prompt = build_maturity_header_prompt(st.session_state["client_inputs"])
-            header_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, header_prompt, MaturityHeader)
-            if header_obj:
-                st.session_state["maturity_obj"] = header_obj
-    else:
-        st.session_state["_last_generation_ts"] = time.time()
-        with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
-            client = LLMEngine.get_client()
-            deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-            maturity_prompt = build_maturity_prompt(st.session_state["client_inputs"])
-            maturity_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA, maturity_prompt, MaturityReport)
-            if maturity_obj:
-                st.session_state["maturity_obj"] = maturity_obj
+
+    # Generation Engine toggles (in-page)
+    # Simplified workflow: unify engine selection and default to Staged v3 (no per-page selector)
+    st.session_state['maturity_generation_engine'] = "Staged v3 (header→batched domains→exec/roadmap)"
+    # New Maturity-only toggles
+    st.session_state['lean_mode'] = st.checkbox(
+        "Lean mode (low-latency; deterministic fillers)",
+        value=bool(st.session_state.get('lean_mode', False)),
+        help="Reduces LLM calls by using deterministic text for long sections; still consultative."
+    )
+    st.session_state['deterministic_only'] = st.checkbox(
+        "Deterministic only (no LLM enrichment)",
+        value=bool(st.session_state.get('deterministic_only', False)),
+        help="Skip LLM enrichment entirely; assemble using composite skeleton deterministically."
+    )
+if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and st.button("Generate Maturity Roadmap", type="primary"):
+    st.session_state["_last_generation_ts"] = time.time()
+    with st.spinner("Compiling Cybersecurity Maturity Assessment..."):
+        client = LLMEngine.get_client()
+        deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+        # Propagate Lean/Deterministic flags to core; set a default batch size
+        st.session_state["client_inputs"]["lean_mode"] = bool(st.session_state.get("lean_mode", False))
+        st.session_state["client_inputs"]["staged_v2_domain_batch_size"] = 5
+        # Simplified orchestrator: Staged v3 primary, deterministic composite fallback (ignore per-page engine selection)
+        deterministic_only = bool(st.session_state.get("deterministic_only", False))
+        if deterministic_only:
+            maturity_obj = LLMEngine.generate_maturity_report_composite(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityReport)
+        else:
+            maturity_obj = LLMEngine.generate_maturity_report_staged_v3(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityHeader, MaturityReport)
+            if not maturity_obj:
+                maturity_obj = LLMEngine.generate_maturity_report_composite(client, deployment, SYSTEM_PERSONA, st.session_state["client_inputs"], MaturityReport)
+        if maturity_obj:
+            st.session_state["maturity_obj"] = maturity_obj
             
 
     try:
@@ -1812,7 +2257,7 @@ if st.button("Generate Maturity Roadmap", type="primary"):
         else:
             attack_vector = "Multi-Stage Intrusion via Business Email Compromise — Initial access through a compromised executive email account (despite MFA) via adversary-in-the-middle (AiTM) proxy. Sophisticated threat actor leverages internal trust relationships to authorise fraudulent wire transfers or data exfiltration, evading standard detection through legitimate tooling"
 
-        pillar = getattr(mr, 'resiliency_matrix_mapping', 'Pillar 1')
+        pillar = getattr(mr, 'resiliency_matrix_mapping', 'Pillar 1') if mr else 'Pillar 1'
         crown_jewels = client_inputs.get('critical_infra', 'Unknown')
         rto = client_inputs.get('rto', 'Unknown')
         insurance = client_inputs.get('insurance', 'Unknown')
@@ -1853,19 +2298,42 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         for token in LLMEngine.generate_text_report_streaming(client, deployment, SYSTEM_PERSONA, threat_prompt, temperature=0.7):
             accumulated += token
 
-        if accumulated.strip():
-            from prompts import ThreatScenarioItem
-            threat_scenarios = [
-                ThreatScenarioItem(
-                    id="ts-maturity-1",
-                    name=f"{pillar} Maturity-Aligned Threat Scenario",
-                    incident_type=pillar,
-                    narrative=accumulated.strip(),
-                )
-            ]
-            mr.threat_scenarios = threat_scenarios
-            st.session_state['maturity_threat_scenarios'] = threat_scenarios
-            st.session_state['maturity_obj'] = mr
+        # Safeguard: minimum narrative length; deterministic fallback based on telemetry
+        narrative = (accumulated or "").strip()
+        if len(narrative) < 800:
+            # Deterministic fallback using telemetry gaps
+            derived_gaps = []
+            if mfa_status in ('None','Privileged Accounts Only'):
+                derived_gaps.append("Absence of universal MFA enables session hijack and credential replay across cloud identity.")
+            if patching == 'Manual / Ad-hoc':
+                derived_gaps.append("Unpatched CVEs on exposed services enable opportunistic footholds and lateral movement.")
+            if backups in ('No Formal Backups','On-Premise Only'):
+                derived_gaps.append("Non-immutable backups allow ransomware to eliminate local recovery options.")
+            mitre = ["T1078 Valid Accounts","T1190 Exploit Public-Facing Application","T1486 Data Encrypted for Impact"]
+            narrative = (
+                f"Threat Actor & Initial Access: The actor targets known weaknesses in authentication and patch management. "
+                f"Initial access leverages {'; '.join(derived_gaps) if derived_gaps else 'environmental weaknesses identified during consultation'}. "
+                f"MITRE: {', '.join(mitre)}. \n\n"
+                f"Attacker Progression: Lateral movement proceeds towards {crown_jewels}, exploiting weak segmentation and inconsistent detection runbooks. "
+                f"Without tested IR authority, containment is delayed. \n\n"
+                f"Sophos MDR Interception: Behavioural anomalies are detected mid-chain. MDR isolates affected identities and endpoints, "
+                f"neutralising the threat before exfiltration or encryption. \n\n"
+                f"Recommended Solutions: Enforce universal MFA, adopt immutable offsite backups with restore testing cadence, "
+                f"and automate patching. Tighten runbooks and authority pathways to reduce MTTR. British English; consultative."
+            )
+
+        from prompts import ThreatScenarioItem
+        threat_scenarios = [
+            ThreatScenarioItem(
+                id="ts-maturity-1",
+                name=f"{pillar} Maturity-Aligned Threat Scenario",
+                incident_type=pillar,
+                narrative=narrative,
+            )
+        ]
+        mr.threat_scenarios = threat_scenarios
+        st.session_state['maturity_threat_scenarios'] = threat_scenarios
+        st.session_state['maturity_obj'] = mr
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
@@ -1891,6 +2359,21 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
     else:
         st.error("Engine failed to generate the roadmap.")
+        # Offer a skeleton export based on current inputs to unblock delivery (best-effort)
+        try:
+            from types import SimpleNamespace
+            sk_obj = SimpleNamespace()
+            sk_bytes = create_maturity_docx(st.session_state['client_inputs'], sk_obj)
+            if sk_bytes:
+                st.warning("LLM generation failed. You can still export a skeleton report from the current inputs.")
+                st.download_button(
+                    "📄 Download Maturity Skeleton (Word)",
+                    data=sk_bytes,
+                    file_name=f"{cached_customer_name.replace(' ','_')}_Maturity_Skeleton.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+        except Exception:
+            pass
         
     if st.session_state.get('maturity_obj'):
         st.subheader("📥 Export Deliverables")

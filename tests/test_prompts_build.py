@@ -7,6 +7,9 @@ def test_maturity_prompt_includes_evidence_sections():
     assert 'Privileged Access & Identity Governance' in text
     assert 'SaaS, Application & Shadow IT Governance' in text
 
-def test_build_maturity_header_prompt_mentions_programme_controls():
+def test_build_maturity_header_prompt_contains_required_fields():
+    # Existing assertions remain
+    # New assertion for programme_controls mention
+    from prompts import build_maturity_header_prompt
     s = build_maturity_header_prompt({'customer_name': 'X', 'industry': 'Y'})
     assert 'programme_controls' in s

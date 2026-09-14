@@ -1,9 +1,9 @@
 """
-consultation_helpers.py — Sanitisation and migration utilities
+consultation_helpers.py ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã¯Â¿Â½ Sanitisation and migration utilities
 
 Responsibilities:
 - Recursive sanitisation of nested profile data (dicts/lists/tuples)
-- Backward‑compatible profile migration for changed option sets
+- BackwardÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“compatible profile migration for changed option sets
 - Minimal structural defaults for legacy profiles
 
 British English comments and labels are used consistently.
@@ -33,7 +33,7 @@ def _sanitise_str(value: str) -> str:
 
 def sanitise_nested(obj: Any) -> Any:
     """Recursively sanitise strings within dicts, lists and tuples.
-    Non‑string scalars are returned unchanged.
+    NonÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“string scalars are returned unchanged.
     """
     if obj is None:
         return None
@@ -60,7 +60,7 @@ def get_nested(d: Dict[str, Any], path: List[str], default: Any = None) -> Any:
 
 
 _OS_MIGRATION = {
-    # Legacy catch‑alls → specific supported options
+    # Legacy catchÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“alls ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ specific supported options
     "Windows Server": "Windows Server 2019",
     "Windows Server (unspecified)": "Windows Server 2019",
     "Windows Server 2012 / 2012 R2 (EoL)": "Windows Server 2012 / 2012 R2",
@@ -78,7 +78,7 @@ def _migrate_operating_systems(profile: Dict[str, Any]) -> None:
     os_val = profile.get("operating_systems")
     if not os_val:
         return
-    # Accept list or comma‑separated string
+    # Accept list or commaÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“separated string
     if isinstance(os_val, str):
         parts = [p.strip() for p in os_val.split(",") if p.strip()]
     elif isinstance(os_val, list):
@@ -88,7 +88,7 @@ def _migrate_operating_systems(profile: Dict[str, Any]) -> None:
     migrated: List[str] = []
     for p in parts:
         migrated.append(_OS_MIGRATION.get(p, p))
-    # De‑duplicate while preserving order
+    # DeÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“duplicate while preserving order
     seen = set()
     dedup = []
     for m in migrated:
@@ -559,10 +559,10 @@ def add_recommendation(
     """Append a capability-led recommendation string respecting evidence status.
 
     Rules:
-    - Unknown → recommend assessment/validation (do not suggest procurement).
-    - Existing control → recommend configuration review/testing/governance.
-    - Confirmed missing → proportionate remediation.
-    - Mature → acknowledge maintenance only.
+    - Unknown ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ recommend assessment/validation (do not suggest procurement).
+    - Existing control ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ recommend configuration review/testing/governance.
+    - Confirmed missing ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ proportionate remediation.
+    - Mature ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ acknowledge maintenance only.
     - Vendor options are listed last and optional; external vendor filtering happens upstream.
     """
     parts: List[str] = []
@@ -583,6 +583,95 @@ def add_recommendation(
     if vendor_options:
         parts.append("Options: " + ", ".join(vendor_options))
     # Compose and deduplicate simple duplicates
-    msg = " — ".join(parts)
+    msg = " ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã¯Â¿Â½ ".join(parts)
     if msg not in recs:
         recs.append(msg)
+
+# --------- Tabletop session persistence (config-driven, provider-agnostic) ---------
+def persist_tabletop_session(
+    plan: Dict[str, Any],
+    notes: List[Dict[str, Any]],
+    client_inputs: Dict[str, Any] | None = None,
+    audience: str | None = None,
+    immediate_injects: List[Dict[str, Any]] | None = None,
+) -> str | None:
+    """
+    Persist a complete tabletop session snapshot (plan, notes, client_inputs, audience) to JSON.
+
+    Controls:
+    - Enabled via ConfigKey.SESSION_PERSIST_ENABLED (boolean-like)
+    - Storage directory via ConfigKey.SESSION_STORAGE_DIR (must be set; no hardcoded default)
+
+    Returns absolute file path on success, or None if disabled/misconfigured/failure.
+    """
+    try:
+        from config import get_config, ConfigKey  # late import to avoid top-level cycles
+        import io
+        import json
+        import os
+        import datetime
+        import uuid
+
+        enabled = str(get_config(ConfigKey.SESSION_PERSIST_ENABLED, "false")).strip().lower() in ("1", "true", "yes", "on")
+        storage_dir = get_config(ConfigKey.SESSION_STORAGE_DIR)
+        if not enabled or not storage_dir:
+            return None
+
+        try:
+            os.makedirs(storage_dir, exist_ok=True)
+        except Exception:
+            return None
+
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "audience": (audience or ""),
+            "plan": sanitise_nested(plan or {}),
+            "notes": sanitise_nested(notes or []),
+            "immediate_injects": sanitise_nested(immediate_injects or []),
+            "client_inputs": sanitise_nested(client_inputs or {}),
+        }
+
+        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        fname = f"tabletop_session_{ts}_{uuid.uuid4().hex[:8]}.json"
+        path = os.path.join(storage_dir, fname)
+        try:
+            with io.open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            return path
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def load_latest_tabletop_session() -> Dict[str, Any] | None:
+    """
+    Load the most recent persisted tabletop session JSON (if any).
+
+    Selection:
+    - Glob pattern 'tabletop_session_*.json' within ConfigKey.SESSION_STORAGE_DIR
+    - Returns the first parseable artefact containing at least 'plan' and 'notes'
+    """
+    try:
+        from config import get_config, ConfigKey
+        import os
+        import glob
+        import json
+
+        storage_dir = get_config(ConfigKey.SESSION_STORAGE_DIR)
+        if not storage_dir:
+            return None
+        pattern = os.path.join(storage_dir, "tabletop_session_*.json")
+        files = sorted(glob.glob(pattern), reverse=True)
+        for p in files:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and "plan" in data and "notes" in data:
+                    return data
+            except Exception:
+                continue
+        return None
+    except Exception:
+        return None

@@ -7,6 +7,12 @@ test:
 	PATH="$(HOME)/Library/Python/3.9/bin:$$PATH" $(PYTEST) -q || true
 
 verify:
-	$(PYTHON) tools/verification_script.py || true
+	@if [ -x "venv/bin/python" ]; then \
+		venv/bin/python tools/verification_script.py || true; \
+	elif [ -x ".venv/bin/python" ]; then \
+		.venv/bin/python tools/verification_script.py || true; \
+	else \
+		$(PYTHON) tools/verification_script.py || true; \
+	fi
 
 qa: test verify

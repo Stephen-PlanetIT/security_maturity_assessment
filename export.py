@@ -1,3 +1,4 @@
+from __future__ import annotations
 # export.py
 import io
 import json
@@ -18,14 +19,19 @@ def _format_threat_scenarios(ts):
             if isinstance(it, dict):
                 name = it.get("name") or it.get("title") or it.get("id", "")
                 narrative = it.get("narrative", "")
-                if name and narrative:
-                    lines.append(f"{name}: {narrative}")
-                elif narrative:
-                    lines.append(narrative)
-                elif name:
-                    lines.append(str(name))
             else:
-                lines.append(str(it))
+                # Handle Pydantic/BaseModel-style objects gracefully
+                try:
+                    name = getattr(it, "name", None) or getattr(it, "title", None) or getattr(it, "id", "") or ""
+                    narrative = getattr(it, "narrative", "") or ""
+                except Exception:
+                    name, narrative = "", str(it)
+            if name and narrative:
+                lines.append(f"{name}: {narrative}")
+            elif narrative:
+                lines.append(narrative)
+            elif name:
+                lines.append(str(name))
         return "\n\n".join([l for l in lines if l])
     except Exception:
         return ""
@@ -107,6 +113,13 @@ def _reconcile_context_for_template(doc, context: dict, extra_alias: dict = None
         "ComplianceAlignment": "compliance_alignment_render",
         "Compliance_Framework": "compliance_alignment_render",
         "Compliance": "compliance_alignment_render",
+        # Reinforce common maturity aliases if present in context
+        "Exec_Summary": "exec_summary",
+        "ExecutiveSummary": "exec_summary",
+        "Matrix_Mapping": "matrix_mapping",
+        "Roadmap": "roadmap",
+        "Radar_Chart": "radar_chart",
+        "Maturity_Gauge": "maturity_gauge",
     }
     if isinstance(extra_alias, dict):
         fixed_alias.update(extra_alias)
@@ -341,6 +354,236 @@ def _xml_escape_dict(d, _depth=0):
     # If a non-dict is passed, escape if it's a string; otherwise return as-is
     return _escape_str(d) if isinstance(d, str) else d
 
+
+# --- CONSULTANT DERIVATIONS & RENDER HELPERS (deterministic; no schema changes) ---
+def _priority_weight(p: str) -> int:
+    try:
+        order = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+        return order.get(str(p).strip().title(), 0)
+    except Exception:
+        return 0
+
+def _compute_top_priorities_text(improvement_actions) -> str:
+    try:
+        items = []
+        for a in improvement_actions or []:
+            try:
+                aid = a.get("id") or a.get("Id") or ""
+            except Exception:
+                aid = ""
+            pr = a.get("priority") if isinstance(a, dict) else getattr(a, "priority", "")
+            rec = a.get("recommendation") if isinstance(a, dict) else getattr(a, "recommendation", "")
+            rat = a.get("rationale") if isinstance(a, dict) else getattr(a, "rationale", "")
+            wa = _priority_weight(pr)
+            items.append((wa, aid, rec, rat, pr))
+        items.sort(key=lambda x: (-x[0], x[1]))
+        top = items[:3]
+        lines = []
+        for idx, (_, aid, rec, rat, pr) in enumerate(top, 1):
+            rationale = rat or rec or ""
+            lines.append(f"{idx}. {aid} — {pr or 'Priority'}: {rationale}".strip())
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+def _generate_observation_commentary(obs: dict) -> str:
+    try:
+        t = str(obs.get("type", "")).strip().lower()
+        summary = str(obs.get("summary", "")).strip()
+        rationale = str(obs.get("rationale", "")).strip()
+        cap = str(obs.get("capability", "")).strip()
+        if t == "strength":
+            return ("During the exercise, this capability was demonstrated reliably. "
+                    "Sustaining this behaviour reduces operational uncertainty and provides a platform for iterative improvement.")
+        # gap commentary
+        base = ("During discussion, participants identified the issue but deferred immediate containment whilst further validation was undertaken. "
+                "Although understandable, this approach may allow an attacker additional time to establish persistence or move laterally.")
+        if cap:
+            return f"{base} The affected capability was {cap.lower()}, which increases time-to-contain where runbooks are untested."
+        return base
+    except Exception:
+        return ""
+
+def _build_capability_heatmap_text(capability_assessments) -> str:
+    try:
+        rows = []
+        # Header
+        rows.append("Capability\tMaturity")
+        for ca in capability_assessments or []:
+            if isinstance(ca, dict):
+                cap = ca.get("capability", "")
+                mat = ca.get("maturity", "")
+            else:
+                cap = getattr(ca, "capability", "")
+                mat = getattr(ca, "maturity", "")
+            if cap or mat:
+                rows.append(f"{cap}\t{mat}")
+        return "\n".join(rows)
+    except Exception:
+        return ""
+
+def _is_empty_value(v) -> bool:
+    try:
+        if v is None:
+            return True
+        if isinstance(v, (list, tuple, set, dict)):
+            return len(v) == 0
+        s = str(v).strip()
+        return s == "" or s.lower() in ("unknown", "n/a")
+    except Exception:
+        return True
+
+def _strip_empty_sections(doc, ctx: dict):
+    """
+    Remove labelled paragraphs for empty scalar/list sections to avoid blank tables/labels.
+    This operates best-effort; safe if anchors are absent.
+    """
+    try:
+        label_map = {
+            "Exercise ID": "exercise_id",
+            "Location": "exercise_location",
+            "Delivery mode": "delivery_mode",
+            "Facilitators": "facilitators",
+            "Participants": "participants",
+            "Report status": "report_status",
+            "Version": "report_version",
+        }
+        # Iterate over all paragraphs and drop those whose labels map to empty values
+        paragraphs = list(getattr(doc, "paragraphs", []) or [])
+        for p in paragraphs:
+            txt = (p.text or "").strip()
+            for label, key in label_map.items():
+                if txt.startswith(label) and _is_empty_value(ctx.get(key)):
+                    try:
+                        p._element.getparent().remove(p._element)
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+
+def _build_board_summary_text(overall_label: str, overall_percent: int, strengths: list, gaps: list, actions_top3_text: str) -> str:
+    try:
+        ks = [s.get("summary", "") if isinstance(s, dict) else str(s) for s in strengths or []]
+        kg = [g.get("summary", "") if isinstance(g, dict) else str(g) for g in gaps or []]
+        ks = [x for x in ks if x][:3]
+        kg = [x for x in kg if x][:3]
+        lines = []
+        lines.append("Overall Assessment")
+        lines.append(f"{overall_label} ({overall_percent}/100). The organisation’s cyber resilience reflects this position across core domains.")
+        if ks:
+            lines.append("\nKey Strengths")
+            for x in ks:
+                lines.append(f"- {x}")
+        if kg:
+            lines.append("\nKey Risks")
+            for x in kg:
+                lines.append(f"- {x}")
+        if actions_top3_text:
+            lines.append("\nPriority Actions")
+            lines.extend(actions_top3_text.splitlines())
+        lines.append("\nRecommended Follow-Up Exercise")
+        lines.append("Schedule a governance‑focused tabletop to validate incident declaration thresholds, authority pathways, and containment runbooks.")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+# --- DISPLAY DERIVATIONS (executive & *_display) ---
+def _safe_join(values, sep=", "):
+    try:
+        vals = []
+        for v in (values or []):
+            if v is None:
+                continue
+            vals.append(str(v))
+        return sep.join([x for x in vals if x]) if vals else "N/A"
+    except Exception:
+        return "N/A"
+
+def _first_sentence(text: str) -> str:
+    try:
+        s = (text or "").strip()
+        if not s:
+            return ""
+        for splitter in (". ", "! ", "? "):
+            idx = s.find(splitter)
+            if idx != -1:
+                return s[:idx+1]
+        return s
+    except Exception:
+        return ""
+
+def _audience_tailor(aud: str) -> str:
+    try:
+        a = (aud or "Blended").strip().title()
+        if a == "Board":
+            return "Audience: Board — emphasis on governance thresholds and risk framing."
+        if a == "Technical":
+            return "Audience: Technical — emphasis on evidence chains and containment runbooks."
+        return "Audience: Blended — balanced governance and technical depth."
+    except Exception:
+        return "Audience: Blended — balanced governance and technical depth."
+
+def _derive_action_displays(actions):
+    try:
+        for a in actions or []:
+            if isinstance(a, dict):
+                a.setdefault("supporting_owners_display", _safe_join(a.get("supporting_owners") or []))
+                tgt = a.get("target_date") or a.get("target_timeframe") or ""
+                a.setdefault("target_display", str(tgt) if str(tgt).strip() else "N/A")
+                rd = a.get("review_date") or ""
+                a.setdefault("review_date_display", str(rd) if str(rd).strip() else "N/A")
+                a.setdefault("dependencies_display", _safe_join(a.get("dependencies") or []))
+    except Exception:
+        pass
+    return actions
+
+def _derive_feedback_displays(feedback):
+    try:
+        for f in feedback or []:
+            if isinstance(f, dict):
+                try:
+                    cb = f.get("confidence_before")
+                    ca = f.get("confidence_after")
+                    if cb is not None and ca is not None:
+                        delta = float(ca) - float(cb)
+                        sign = "+" if delta >= 0 else ""
+                        f.setdefault("confidence_change_display", f"{sign}{int(delta)}")
+                    else:
+                        f.setdefault("confidence_change_display", "N/A")
+                except Exception:
+                    f.setdefault("confidence_change_display", "N/A")
+    except Exception:
+        pass
+    return feedback
+
+def _derive_followup_displays(fua):
+    try:
+        d = {}
+        if not fua:
+            d["outstanding_evidence_display"] = "N/A"
+            d["disputed_findings_display"] = "N/A"
+            d["retest_required_display"] = "N/A"
+            d["action_review_date_display"] = "N/A"
+            d["assurance_method_display"] = "N/A"
+            return d
+        getv = lambda name, default=None: getattr(fua, name, default) if hasattr(fua, name) else (fua.get(name, default) if isinstance(fua, dict) else default)
+        d["outstanding_evidence_display"] = _safe_join(getv("outstanding_evidence", []) or [])
+        d["disputed_findings_display"] = _safe_join(getv("disputed_findings", []) or [])
+        rr = getv("retest_required", None)
+        d["retest_required_display"] = "Yes" if bool(rr) else "No"
+        ard = getv("action_review_date", "")
+        d["action_review_date_display"] = str(ard) if str(ard).strip() else "N/A"
+        am = getv("assurance_method", "")
+        d["assurance_method_display"] = str(am) if str(am).strip() else "N/A"
+        return d
+    except Exception:
+        return {
+            "outstanding_evidence_display": "N/A",
+            "disputed_findings_display": "N/A",
+            "retest_required_display": "N/A",
+            "action_review_date_display": "N/A",
+            "assurance_method_display": "N/A",
+        }
 
 # --- TEXT CLEANER (UNICODE SAFE) ---
 def clean_text(text, mode="pdf"):
@@ -707,6 +950,387 @@ def create_pdf(inputs, scenario_obj, recs, mdr_case):
     # If it's a modern fpdf2 bytearray, safely cast it to bytes
     return bytes(raw_pdf)
 
+def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, immediate_injects: list | None = None) -> bytes:
+    """
+    Render an AAR using a docxtpl template (planet_it_tabletop_report_template.docx).
+    Context derives strictly from TabletopAAR and session notes; optional deterministic
+    enrichment is applied if process_tabletop_aar is available in quality_pipeline.
+    Returns bytes suitable for Streamlit download.
+    """
+    try:
+        template_path = os.path.join(os.path.dirname(__file__), "planet_it_tabletop_report_template.docx")
+        if not os.path.exists(template_path):
+            # Fail closed with empty payload if template is missing
+            return b""
+        doc = DocxTemplate(template_path)
+    except Exception:
+        return b""
+
+    # Extract safe scalars
+    try:
+        exercise_title = master_plan.get("exercise_title") if isinstance(master_plan, dict) else getattr(master_plan, "exercise_title", "")
+    except Exception:
+        exercise_title = ""
+    try:
+        client_name = master_plan.get("client_name") if isinstance(master_plan, dict) else getattr(master_plan, "client_name", "")
+    except Exception:
+        client_name = ""
+
+    # Lessons learned derived deterministically from session notes + immediate injects
+    lessons_learned = []
+    if isinstance(session_notes, list):
+        for n in session_notes:
+            try:
+                phase = (n.get("phase", "") if isinstance(n, dict) else "")
+                decision = (n.get("decision", "") if isinstance(n, dict) else "")
+                notes = (n.get("notes", "") if isinstance(n, dict) else "")
+                line = " | ".join([x for x in [phase, decision, notes] if str(x).strip()])
+                if line:
+                    lessons_learned.append(clean_text(line))
+            except Exception:
+                continue
+    # Append immediate injects to ensure presence in export even if template lacks placeholders
+    try:
+        if isinstance(immediate_injects, list):
+            for ii in immediate_injects:
+                try:
+                    s = ii.get("scenario_title", "")
+                    p = ii.get("phase_title", "")
+                    cn = ii.get("consequence_narrative", "")
+                    qs = ii.get("urgent_pivot_questions", []) or []
+                    line = "[IMMEDIATE INJECT] " + " | ".join([x for x in [s, p, cn, "; ".join([str(x) for x in qs])] if str(x).strip()])
+                    if line:
+                        lessons_learned.append(clean_text(line))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Optional deterministic enrichment (Option C)
+    critical_gap_pairs = []
+    evidence_map_override = []
+    try:
+        from quality_pipeline import process_tabletop_aar  # optional hook
+        if callable(process_tabletop_aar):
+            try:
+                # Provide client_inputs if available in context to aid deterministic reasons
+                client_inputs = {}
+                try:
+                    # Attempt to import from current session context if available at call sites
+                    client_inputs = {}
+                except Exception:
+                    client_inputs = {}
+                _result = process_tabletop_aar(master_plan, session_notes, aar_obj, client_inputs)
+                if isinstance(_result, tuple):
+                    if len(_result) >= 2 and isinstance(_result[1], list):
+                        critical_gap_pairs = _result[1]
+                    if len(_result) >= 3 and isinstance(_result[2], list):
+                        evidence_map_override = _result[2]
+            except Exception:
+                critical_gap_pairs = []
+                evidence_map_override = []
+    except Exception:
+        critical_gap_pairs = []
+        evidence_map_override = []
+
+    # Assemble render context for docxtpl
+    try:
+        def _to_dict_list(obj_list):
+            out = []
+            for o in obj_list or []:
+                try:
+                    out.append(o.model_dump() if hasattr(o, "model_dump") else dict(o))
+                except Exception:
+                    try:
+                        out.append(json.loads(str(o)))
+                    except Exception:
+                        out.append({"value": str(o)})
+            return out
+        key_strengths = _to_dict_list(getattr(aar_obj, "key_strengths", []))
+        critical_gaps = _to_dict_list(getattr(aar_obj, "critical_gaps_identified", []))
+        improvement_actions = _to_dict_list(getattr(aar_obj, "improvement_actions", []))
+        capability_assessments = _to_dict_list(getattr(aar_obj, "capability_assessments", []))
+        decisions_open = _to_dict_list(getattr(aar_obj, "decisions_and_open_items", []))
+        participant_feedback = _to_dict_list(getattr(aar_obj, "participant_feedback", []))
+        profile_changes = _to_dict_list(getattr(aar_obj, "profile_changes", []))
+        # Deterministic enrichments for AAR export (no schema changes)
+        try:
+            # Commentary for observations
+            for o in key_strengths:
+                if isinstance(o, dict) and not o.get("commentary"):
+                    o["commentary"] = _generate_observation_commentary(o)
+            for o in critical_gaps:
+                if isinstance(o, dict) and not o.get("commentary"):
+                    o["commentary"] = _generate_observation_commentary(o)
+        except Exception:
+            pass
+        # Compute Top 3 priorities text
+        try:
+            top_priorities_text = _compute_top_priorities_text(improvement_actions)
+        except Exception:
+            top_priorities_text = ""
+        # Capability heatmap text from capability assessments (if any)
+        try:
+            capability_heatmap_text = _build_capability_heatmap_text(capability_assessments)
+        except Exception:
+            capability_heatmap_text = ""
+        # Governance defaults (runtime only; no hardcoded secrets/paths)
+        try:
+            from datetime import datetime, timezone
+            _generated_at_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        except Exception:
+            _generated_at_iso = ""
+        # Derive displays for actions, feedback, and follow-up assurance
+        try:
+            improvement_actions = _derive_action_displays(improvement_actions)
+        except Exception:
+            pass
+        try:
+            participant_feedback = participant_feedback or _to_dict_list(getattr(aar_obj, "participant_feedback", []))
+            participant_feedback = _derive_feedback_displays(participant_feedback)
+        except Exception:
+            pass
+        try:
+            follow_up_assurance_display = _derive_followup_displays(getattr(aar_obj, "follow_up_assurance", None))
+        except Exception:
+            follow_up_assurance_display = {}
+        scenarios_render = _to_dict_list(getattr(aar_obj, "scenarios", []))
+        # Back-compat: map legacy remediation_recommendations into simple actions if improvement_actions empty
+        recs = getattr(aar_obj, "remediation_recommendations", []) or []
+        if not improvement_actions and isinstance(recs, list) and recs:
+            improvement_actions = [
+                {
+                    "id": f"ACT-{i+1:02d}",
+                    "category": "process",
+                    "recommendation": str(r),
+                    "priority": "Medium",
+                    "supporting_owners": [],
+                    "dependencies": [],
+                    "finding_references": [],
+                    "scenario_references": [],
+                    "rationale": "",
+                    "risk_addressed": "",
+                    "status": "Proposed",
+                    "acceptance_criteria": "",
+                    "closure_evidence": "",
+                    "validation_method": ""
+                } for i, r in enumerate(recs[:10])
+            ]
+        ctx = {
+            "customer_name": client_name or "",
+            "exercise_title": exercise_title or "",
+            "executive_summary": getattr(aar_obj, "executive_summary", "") or "",
+            "overall_maturity_observed": getattr(aar_obj, "overall_maturity_observed", "Unknown") or "Unknown",
+            # Session metadata
+            "generated_at": getattr(aar_obj, "generated_at", "") or _generated_at_iso,
+            "report_version": getattr(aar_obj, "report_version", "") or "1.0",
+            "report_status": getattr(aar_obj, "report_status", "") or "Draft",
+            "facilitator_reviewed": getattr(aar_obj, "facilitator_reviewed", False) or False,
+            "session_date": getattr(aar_obj, "session_date", "") or "",
+            "location": getattr(aar_obj, "location", "") or "",
+            "audience": getattr(aar_obj, "audience", "") or "",
+            "facilitator": getattr(aar_obj, "facilitator", "") or "",
+            "exercise_overview": getattr(aar_obj, "exercise_overview", "") or "",
+            "scenario_context": getattr(aar_obj, "scenario_context", "") or "",
+            # Objectives and boundaries
+            "objectives": getattr(aar_obj, "objectives", []) or [],
+            "scope": getattr(aar_obj, "scope", []) or [],
+            "assumptions": getattr(aar_obj, "assumptions", []) or [],
+            # Scenario/capability coverage
+            "scenarios_exercised": getattr(aar_obj, "scenarios_exercised", []) or [],
+            "capabilities_exercised": getattr(aar_obj, "capabilities_exercised", []) or [],
+            # Evidence-led evaluation
+            "key_strengths": key_strengths,
+            "critical_gaps_identified": critical_gaps,
+            "evidence_map": (evidence_map_override if evidence_map_override else getattr(aar_obj, "evidence_map", []) or []),
+            "maturity_rationale": getattr(aar_obj, "maturity_rationale", "") or "",
+            # Improvement plan
+            "remediation_recommendations": recs,
+            "improvement_opportunities": getattr(aar_obj, "improvement_opportunities", []) or [],
+            "improvement_plan": getattr(aar_obj, "improvement_plan", []) or [],
+            # Feedback and follow-ups
+            "participants_feedback": getattr(aar_obj, "participants_feedback", []) or [],
+            "facilitator_observations": getattr(aar_obj, "facilitator_observations", []) or [],
+            "follow_up_exercise_requirements": getattr(aar_obj, "follow_up_exercise_requirements", []) or [],
+            "follow_up_actions": getattr(aar_obj, "follow_up_actions", []) or [],
+            # Lessons learned & profile
+            "lessons_learned": lessons_learned,
+            "delta_notes_for_profile": getattr(aar_obj, "delta_notes_for_profile", "") or "",
+            # Optional enrichment pairs: [{"gap": "...", "reason": "..."}]
+            "critical_gap_pairs": critical_gap_pairs,
+        }
+        # Inject newly supported structured fields if present
+        try:
+            ctx.update({
+                "improvement_actions": improvement_actions,
+                "capability_assessments": capability_assessments,
+                "decisions_and_open_items": decisions_open,
+                "participant_feedback": participant_feedback or ctx.get("participants_feedback", []),
+                "profile_changes": profile_changes,
+                "scenarios": scenarios_render,
+                # Explicit feeder keys to align with DOCX placeholders
+                "exercise_id": getattr(aar_obj, "exercise_id", "") or "",
+                "exercise_date": getattr(aar_obj, "exercise_date", "") or "",
+                "start_time": getattr(aar_obj, "start_time", "") or "",
+                "end_time": getattr(aar_obj, "end_time", "") or "",
+                "exercise_location": getattr(aar_obj, "exercise_location", "") or "",
+                "delivery_mode": getattr(aar_obj, "delivery_mode", "") or "",
+                "audience_profile": getattr(aar_obj, "audience_profile", "") or "",
+                "report_status": getattr(aar_obj, "report_status", "") or "",
+                "report_version": getattr(aar_obj, "report_version", "") or "",
+                "information_classification": getattr(aar_obj, "information_classification", "") or "",
+                # Surface facilitators/participants for Jinja loops
+                "facilitators": _to_dict_list(getattr(aar_obj, "facilitators", [])),
+                "participants": _to_dict_list(getattr(aar_obj, "participants", [])),
+            })
+        except Exception:
+            pass
+    except Exception:
+        ctx = {
+            "customer_name": client_name or "",
+            "exercise_title": exercise_title or "",
+            "executive_summary": "",
+            "overall_maturity_observed": "Unknown",
+            "key_strengths": [],
+            "critical_gaps_identified": [],
+            "remediation_recommendations": [],
+            "lessons_learned": lessons_learned,
+            "delta_notes_for_profile": "",
+            "critical_gap_pairs": [],
+        }
+
+    # Inject executive/display summaries prior to reconcile
+    try:
+        # Executive top strength/risk
+        ets = ""
+        if key_strengths:
+            s1 = key_strengths[0]
+            ets = (s1.get("summary") if isinstance(s1, dict) else str(s1)) or ""
+        etr = ""
+        if critical_gaps:
+            g1 = critical_gaps[0]
+            etr = (g1.get("summary") if isinstance(g1, dict) else str(g1)) or ""
+        # Executive priority action
+        epa = ""
+        try:
+            if top_priorities_text:
+                lines = top_priorities_text.splitlines()
+                epa = lines[0] if lines else ""
+        except Exception:
+            epa = ""
+        if not epa and improvement_actions:
+            ia1 = improvement_actions[0]
+            epa = (ia1.get("recommendation") if isinstance(ia1, dict) else getattr(ia1, "recommendation", "")) or ""
+        # Follow-up position
+        try:
+            fr = ctx.get("facilitator_reviewed", False)
+        except Exception:
+            fr = False
+        try:
+            fra = getattr(aar_obj, "facilitator_reviewed_at", "") or ""
+        except Exception:
+            fra = ""
+        try:
+            fua = getattr(aar_obj, "follow_up_assurance", None)
+            val = getattr(fua, "factual_validation_status", None) if fua is not None else None
+            val = val if val is not None else (fua.get("factual_validation_status") if isinstance(fua, dict) else None)
+        except Exception:
+            val = None
+        executive_follow_up_position = "Validation: {v}; Retest: {r}; Approval: {a}".format(
+            v=(str(val) if val else "N/A"),
+            r=("Yes" if (follow_up_assurance_display.get("retest_required_display") == "Yes") else "No"),
+            a=(fra if str(fra).strip() else "N/A"),
+        )
+        # Business impact summary
+        bis = _first_sentence(ctx.get("maturity_rationale", "") or getattr(aar_obj, "maturity_rationale", "") or ctx.get("executive_summary", ""))
+        # Cost of inaction summary (fallback)
+        coi_sum = ctx.get("cost_of_inaction_summary", "") or getattr(aar_obj, "cost_of_inaction_summary", "") or ctx.get("cost_of_inaction", "")
+        # Priority actions summary
+        pas = top_priorities_text or ""
+        # Audience tailoring summary
+        aud = ctx.get("audience_profile") or getattr(aar_obj, "audience_profile", "") or ctx.get("audience", "")
+        ats = _audience_tailor(aud)
+        # Approved distribution and facilitator review displays
+        appr = getattr(aar_obj, "approved_distribution", None)
+        approved_distribution_display = _safe_join(appr or [])
+        facilitator_review_display = "Reviewed ({ts})".format(ts=fra) if fr else "Not reviewed"
+        # Inject into ctx
+        ctx.update({
+            "executive_top_strength": ets,
+            "executive_top_risk": etr,
+            "executive_priority_action": epa,
+            "executive_follow_up_position": executive_follow_up_position,
+            "business_impact_summary": bis,
+            "cost_of_inaction_summary": coi_sum or "",
+            "priority_actions_summary": pas,
+            "audience_tailoring_summary": ats,
+            "approved_distribution_display": approved_distribution_display,
+            "facilitator_review_display": facilitator_review_display,
+            "follow_up_assurance_display": follow_up_assurance_display,
+        })
+    except Exception:
+        pass
+
+    # Reconcile aliases and escape XML-sensitive content
+    try:
+        debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
+    except Exception:
+        debug = False
+    try:
+        ctx = _reconcile_context_for_template(doc, ctx, debug=debug)
+    except Exception:
+        pass
+    try:
+        safe_ctx = _xml_escape_dict(ctx)
+    except Exception:
+        safe_ctx = ctx
+
+    try:
+        doc.render(safe_ctx)
+    except Exception:
+        # Fail closed; return empty payload if docxtpl render fails
+        return b""
+
+    # Strip empty sections (labels) and attach derived sections before saving
+    try:
+        # Add AI-assisted board summary and Top 3 priorities into context if placeholders exist
+        ctx.setdefault("top_priorities", [])
+        ctx.setdefault("top_priorities_text", top_priorities_text)
+        # Build a concise board summary text (uses overall maturity label/score + strengths/gaps + priorities)
+        try:
+            overall_label = ctx.get("overall_maturity_observed", "Unknown")
+            try:
+                # Attempt to reuse maturity gauge percent from maturity report where applicable; fallback empty
+                overall_percent = 0
+            except Exception:
+                overall_percent = 0
+            board_summary_text = _build_board_summary_text(
+                overall_label,
+                overall_percent,
+                ctx.get("key_strengths", []),
+                ctx.get("critical_gaps_identified", []),
+                top_priorities_text
+            )
+        except Exception:
+            board_summary_text = ""
+        if board_summary_text:
+            ctx.setdefault("board_summary", board_summary_text)
+        if capability_heatmap_text:
+            ctx.setdefault("capability_heatmap_text", capability_heatmap_text)
+    except Exception:
+        pass
+    try:
+        _strip_empty_sections(doc, ctx)
+    except Exception:
+        pass
+    buf = io.BytesIO()
+    try:
+        doc.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return b""
+
 def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: str) -> bytes:
     """Generates a Microsoft Word (.docx) document for the Threat Simulator using docxtpl."""
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_threat_scenario_template.docx")
@@ -995,7 +1619,12 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
             print("DOCX_RENDER_FAIL", repr(e))
         except Exception:
             pass
-        raise
+        # Fallback: render with minimal, safely-escaped context instead of crashing
+        minimal = {k: (context.get(k, "") or "") for k in context.keys()}
+        try:
+            doc.render(_xml_escape_dict(minimal))
+        except Exception:
+            return b""
     else:
         print("DOCX_RENDER_FINISH")
     # Post-render: inject threat scenarios into the final document if any are present
@@ -1520,6 +2149,38 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         f"Overall: {overall_category} ({overall_percent}/100) — approx. Pillar {approx_pillar} weighted across core domains"
     )
 
+    # Derived board summary and capability heatmap text (Maturity) prior to context assembly
+    try:
+        # Capability heatmap (Detection/Response/Recovery) derived from radar if available
+        def _pillar_label(v):
+            try:
+                fv = float(v)
+            except Exception:
+                fv = 1.0
+            if fv <= 1.5:
+                return "Reactive"
+            elif fv <= 2.5:
+                return "Proactive"
+            return "Adaptive"
+        capability_heatmap_text_maturity = ""
+        if labels and values:
+            # Map representative capabilities
+            radar_map = dict(zip(labels, values))
+            det = _pillar_label(radar_map.get("secops", 1))
+            resp = _pillar_label(radar_map.get("secops", 1))
+            rec = _pillar_label(radar_map.get("resilience", 1))
+            capability_heatmap_text_maturity = "Capability\tMaturity\nDetection\t{d}\nResponse\t{r}\nRecovery\t{rc}".format(
+                d=det, r=resp, rc=rec
+            )
+        # Board summary for maturity report (uses gauge category/percent and executive actions)
+        try:
+            actions_top3_text = "\n".join([f"{i+1}. {x}" for i, x in enumerate(getattr(report_data, "executive_summary_actions", [])[:3])])
+        except Exception:
+            actions_top3_text = ""
+        board_summary_text_maturity = _build_board_summary_text(overall_category, overall_percent, [], [], actions_top3_text)
+    except Exception:
+        capability_heatmap_text_maturity = ""
+        board_summary_text_maturity = ""
     # 2) Domains & Roadmap derivation with safe defaults
     domains_list = []
 
@@ -1664,10 +2325,11 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
     context = {
-        # Keep {{ threat_scenarios }} as a literal placeholder for post-render injection
-        # Threat_scenarios" : "{{ threat_scenarios }}",
-        # Also support templates using capitalised placeholder name
-        "Threat_scenarios": "{{ threat_scenarios }}",
+        "threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
+        "Threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
+        # New derived executive sections (optional placeholders)
+        "capability_heatmap_text": capability_heatmap_text_maturity,
+        "board_summary": board_summary_text_maturity,
         # CAP compact summary for overview section
         "cap_summary": format_critical_asset_profile(client_inputs.get("critical_asset_profile", {})),
         # Monte Carlo placeholder removed
@@ -1825,6 +2487,22 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     context["proactive_testing_programme"] = getattr(report_data, "proactive_testing_programme", "") or ""
     context["incident_response_plan_outline"] = getattr(report_data, "incident_response_plan_outline", "") or ""
     context["disaster_recovery_plan_outline"] = getattr(report_data, "disaster_recovery_plan_outline", "") or ""
+
+    # Ensure required template variables have non-empty defaults from client_inputs or 'N/A'
+    try:
+        required_vars = set(doc.get_undeclared_template_variables() or [])
+    except Exception:
+        required_vars = set()
+    if isinstance(required_vars, set):
+        for var in required_vars:
+            if var not in context or context.get(var) in (None, "", []):
+                # Prefer client_inputs if available and non-empty
+                if isinstance(client_inputs, dict) and var in client_inputs:
+                    val = client_inputs.get(var)
+                    context[var] = val if val not in (None, "", []) else "N/A"
+                else:
+                    context[var] = "N/A"
+
     # Pre-render reconciliation to align template placeholders with context
     try:
         debug = str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on")
@@ -1849,7 +2527,12 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             print("DOCX_RENDER_FAIL", repr(e))
         except Exception:
             pass
-        raise
+        # Fallback: attempt minimal safely-escaped context to avoid crashing export
+        minimal = {k: (context.get(k, "") or "") for k in context.keys()}
+        try:
+            doc.render(_xml_escape_dict(minimal))
+        except Exception:
+            return b""
     else:
         print("DOCX_RENDER_FINISH")
 
@@ -1862,3 +2545,264 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     doc.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
+
+# ==========================================
+# TABLETOP EXPORT PIPELINE
+# ==========================================
+import io
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+# --- PPTX STYLE HELPERS (branding-safe) ---
+def _apply_para_style(p, font_size_pt=14, rgb=(50, 50, 50), bold=False):
+    try:
+        p.font.size = Pt(font_size_pt)
+        p.font.color.rgb = RGBColor(*rgb)
+        p.font.bold = bold
+    except Exception:
+        pass
+
+def _add_heading(tf, text, font_size_pt=15, rgb=(35, 80, 106)):
+    p = tf.add_paragraph()
+    p.text = text
+    _apply_para_style(p, font_size_pt=font_size_pt, rgb=rgb, bold=True)
+    try:
+        p.space_after = Pt(6)
+    except Exception:
+        pass
+    return p
+
+def _add_bullet(tf, text, font_size_pt=14, rgb=(50, 50, 50)):
+    p = tf.add_paragraph()
+    p.text = f"• {text}"
+    _apply_para_style(p, font_size_pt=font_size_pt, rgb=rgb, bold=False)
+    return p
+
+def _add_textbox(slide, left_in, top_in, width_in, height_in, text=""):
+    tx = slide.shapes.add_textbox(Inches(left_in), Inches(top_in), Inches(width_in), Inches(height_in))
+    tf = tx.text_frame
+    tf.text = text or ""
+    return tx, tf
+
+def _embed_picture(slide, image_path, left_in=6.0, top_in=1.5, width_in=3.0):
+    try:
+        if image_path and isinstance(image_path, str) and len(image_path) > 0 and os.path.exists(image_path):
+            slide.shapes.add_picture(image_path, Inches(left_in), Inches(top_in), width=Inches(width_in))
+            return True
+    except Exception:
+        pass
+    return False
+
+def create_tabletop_pptx(master_plan_data: dict) -> bytes:
+    """Generate a clean slide deck for presentation using python-pptx."""
+    template_path = os.path.join(os.path.dirname(__file__), "planet_it_master_template.pptx")
+
+    # Safe accessors (dict or object)
+    def _dict_get(obj, key, default=None):
+        try:
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            v = getattr(obj, key, default)
+            return v if v is not None else default
+        except Exception:
+            return default
+
+    # Remove all original slides from the template while preserving theme/masters
+    def _clear_all_template_slides(p):
+        try:
+            sld_id_lst = p.slides._sldIdLst
+            for sld_id in list(sld_id_lst):
+                rId = sld_id.rId
+                p.part.drop_rel(rId)
+                sld_id_lst.remove(sld_id)
+        except Exception:
+            # If this fails, continue using the template as-is
+            pass
+
+    if os.path.exists(template_path):
+        prs = Presentation(template_path)
+        _clear_all_template_slides(prs)
+    else:
+        prs = Presentation()
+
+    NAVY = RGBColor(35, 80, 106)
+    DARK_GRAY = RGBColor(50, 50, 50)
+
+    # Title slide
+    title_layout = prs.slide_layouts[0] if len(prs.slide_layouts) > 0 else prs.slide_layouts[0]
+    title_slide = prs.slides.add_slide(title_layout)
+    if title_slide.shapes.title:
+        title_slide.shapes.title.text = _dict_get(master_plan_data, "exercise_title", "Cyber Resilience Tabletop")
+    # Subtitle/secondary body: try placeholder, fallback to textbox
+    subtitle_text = f"Prepared for: {_dict_get(master_plan_data, 'client_name', 'Client')}\nFacilitated by Planet IT Strategic Advisory"
+    if len(title_slide.placeholders) > 1:
+        try:
+            title_slide.placeholders[1].text = subtitle_text
+        except Exception:
+            tx = title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+            tx.text_frame.text = subtitle_text
+    else:
+        tx = title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+        tx.text_frame.text = subtitle_text
+
+    # Housekeeping slide
+    hk_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
+    hk_slide = prs.slides.add_slide(hk_layout)
+    if hk_slide.shapes.title:
+        hk_slide.shapes.title.text = "Exercise Ground Rules"
+    rules = _dict_get(master_plan_data, "housekeeping_rules", []) or []
+    if len(hk_slide.placeholders) > 1:
+        tf = hk_slide.placeholders[1].text_frame
+        try:
+            tf.clear()
+        except Exception:
+            tf.text = ""
+        for rule in rules:
+            p = tf.add_paragraph()
+            p.text = f"• {rule}"
+            p.font.size = Pt(16)
+            p.font.color.rgb = DARK_GRAY
+    else:
+        tx = hk_slide.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(8.5), Inches(4.5))
+        tf = tx.text_frame
+        tf.text = ""
+        for rule in rules:
+            p = tf.add_paragraph()
+            p.text = f"• {rule}"
+            p.font.size = Pt(16)
+            p.font.color.rgb = DARK_GRAY
+
+    # Scenarios and injects
+    scenarios = _dict_get(master_plan_data, "scenarios", []) or []
+    for scn_idx, scn in enumerate(scenarios, 1):
+        scn_title = _dict_get(scn, "scenario_title", f"Scenario {scn_idx}")
+        scn_theme = _dict_get(scn, "scenario_theme", "")
+        initial_vector = _dict_get(scn, "initial_vector", "")
+
+        scn_title_slide = prs.slides.add_slide(title_layout)
+        if scn_title_slide.shapes.title:
+            scn_title_slide.shapes.title.text = f"Scenario {scn_idx}: {scn_title}"
+        subtitle = f"Theme: {scn_theme}\nInitial Vector: {initial_vector}"
+        if len(scn_title_slide.placeholders) > 1:
+            try:
+                scn_title_slide.placeholders[1].text = subtitle
+            except Exception:
+                tx = scn_title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+                tx.text_frame.text = subtitle
+        else:
+            tx = scn_title_slide.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(8.0), Inches(1.5))
+            tx.text_frame.text = subtitle
+
+        base_injects = _dict_get(scn, "injects", []) or []
+        client_injects = _dict_get(scn, "client_injects", []) or []
+        injects = base_injects + client_injects
+
+        for inj in injects:
+            inj_layout = hk_layout
+            slide = prs.slides.add_slide(inj_layout)
+            ts = _dict_get(inj, "simulated_timestamp", "")
+            phase = _dict_get(inj, "phase_title", "")
+            narrative = _dict_get(inj, "scenario_narrative", "")
+            qlist = _dict_get(inj, "facilitator_probe_questions", []) or []
+            artefact_img = _dict_get(inj, "artefact_image_path", "")
+            references = _dict_get(inj, "references", []) or []
+
+            if slide.shapes.title:
+                parts = [x for x in [ts, phase] if x]
+                slide.shapes.title.text = " — ".join(parts) if parts else ""
+
+            # Narrative + questions (with references)
+            if len(slide.placeholders) > 1:
+                tf = slide.placeholders[1].text_frame
+                try:
+                    tf.clear()
+                except Exception:
+                    tf.text = ""
+                p_narrative = tf.add_paragraph()
+                p_narrative.text = narrative or ""
+                _apply_para_style(p_narrative, font_size_pt=15, rgb=(50, 50, 50))
+                try:
+                    p_narrative.space_after = Pt(12)
+                except Exception:
+                    pass
+
+                _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
+                for q in qlist:
+                    _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+
+                if references:
+                    _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
+                    for r in references:
+                        _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+            else:
+                tx, tf = _add_textbox(slide, 1.0, 2.0, 8.5, 4.5, text=narrative or "")
+                _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
+                for q in qlist:
+                    _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+                if references:
+                    _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
+                    for r in references:
+                        _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+
+            # Optional artefact image (if path provided and exists)
+            _embed_picture(slide, artefact_img, left_in=6.0, top_in=1.5, width_in=3.0)
+
+    buffer = io.BytesIO()
+    prs.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
+    """Renders the comprehensive Facilitator Guide with probe cards and 'What Good Looks Like'."""
+    pdf = ReportPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 18)
+    robust_multi_cell(pdf, 0, 10, "Tabletop Facilitator & Evaluator Guide", align='C')
+    pdf.ln(2)
+    pdf.set_font("helvetica", "I", 11)
+    robust_multi_cell(pdf, 0, 6, f"Exercise: {master_plan_data.get('exercise_title')} | Client: {master_plan_data.get('client_name')}", align='C')
+    pdf.ln(6)
+    
+    draw_section_header(pdf, "Exercise Ground Rules & Housekeeping")
+    for r in master_plan_data.get("housekeeping_rules", []):
+        robust_multi_cell(pdf, 0, 5, f"- {r}")
+    pdf.ln(4)
+
+    for scn_idx, scn in enumerate(master_plan_data.get("scenarios", []), 1):
+        pdf.add_page()
+        draw_section_header(pdf, f"Scenario {scn_idx}: {scn.get('scenario_title')}")
+        robust_multi_cell(pdf, 0, 5, f"Theme: {scn.get('scenario_theme')} | Vector: {scn.get('initial_vector')}")
+        robust_multi_cell(pdf, 0, 5, f"Target Assets: {', '.join(scn.get('target_assets', []))}")
+        pdf.ln(4)
+
+        for inj in scn.get("injects", []):
+            pdf.ln(2)
+            pdf.set_font("helvetica", "B", 12)
+            pdf.set_text_color(35, 80, 106)
+            pdf.cell(0, 7, f"[{inj.get('simulated_timestamp')}] {inj.get('phase_title')} ({inj.get('inject_id')})", ln=True)
+            pdf.set_text_color(0, 0, 0)
+            
+            pdf.set_font("helvetica", "", 10)
+            robust_multi_cell(pdf, 0, 5, f"Situation: {inj.get('scenario_narrative')}")
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Expected Mature Action (What Good Looks Like):", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            robust_multi_cell(pdf, 0, 5, inj.get("expected_mature_response", ""))
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Facilitator Probes:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for q in inj.get("facilitator_probe_questions", []):
+                robust_multi_cell(pdf, 0, 5, f"• {q}")
+                
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Common Rabbit Holes / Traps to Watch For:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for pitfall in inj.get("common_pitfalls", []):
+                robust_multi_cell(pdf, 0, 5, f"! {pitfall}")
+            pdf.ln(3)
+
+    raw_pdf = pdf.output(dest='S')
+    return bytes(raw_pdf) if not isinstance(raw_pdf, str) else raw_pdf.encode('latin-1')
