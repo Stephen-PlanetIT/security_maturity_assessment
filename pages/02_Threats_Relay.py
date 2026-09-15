@@ -12,3 +12,9 @@ try:
 except Exception:
     # Fallback: explicit link for manual click if switch_page is unavailable.
     st.page_link("app.py", label="🔥 Switching to Threats… (click if not redirected)")
+    # Render footer in fallback view
+    try:
+        from ui_shared_sections import render_footer
+        render_footer(show_divider=True)
+    except Exception:
+        pass

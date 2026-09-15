@@ -56,7 +56,7 @@ import matplotlib.patheffects as pe
 import numpy as np
 import os
 import tempfile
-from config import get_config, ConfigKey
+from config import get_config, ConfigKey, is_tabletop_quality_strict
 import logging
 _LOGGER = logging.getLogger(__name__)
 # Suppress noisy third-party logs early to keep console readable
@@ -460,6 +460,92 @@ def _strip_empty_sections(doc, ctx: dict):
                         continue
     except Exception:
         pass
+
+def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
+    """
+    Deterministic validator for TabletopMasterPlan-like dicts.
+    Returns (ok, defects). Defect codes:
+    - TT-001: Missing exercise_title
+    - TT-010: scenarios count outside 2–4
+    - TT-101: Scenario missing required field (title/initial_vector/target_assets)
+    - TT-120: Injects count outside 3–5 for a scenario
+    - TT-201: Inject missing scenario_narrative or expected_mature_response
+    - TT-202: Inject missing technical_indicators (>=1) or facilitator_probe_questions (>=2)
+    - TT-203: Inject missing decision_threshold
+    - TT-301: success_criteria present but empty (advisory)
+    - TT-302: evaluation_evidence present but empty (advisory)
+    """
+    defects: list[str] = []
+    try:
+        if not isinstance(plan, dict):
+            return False, ["TT-000: Plan is not a dict"]
+        title = str(plan.get("exercise_title", "")).strip()
+        if not title:
+            defects.append("TT-001: Missing exercise_title")
+        scenarios = plan.get("scenarios") or []
+        if not isinstance(scenarios, list):
+            scenarios = []
+        if not (2 <= len(scenarios) <= 4):
+            defects.append("TT-010: scenarios count must be between 2 and 4")
+        for si, scn in enumerate(scenarios, 1):
+            try:
+                stitle = (scn.get("scenario_title", "") if isinstance(scn, dict) else "") or ""
+                iv = (scn.get("initial_vector", "") if isinstance(scn, dict) else "") or ""
+                ta = scn.get("target_assets", []) if isinstance(scn, dict) else []
+                if not stitle or not iv or not (isinstance(ta, list) and len(ta) >= 1):
+                    defects.append(f"TT-101: Scenario {si} missing title/initial_vector/target_assets")
+                injects = scn.get("injects", []) if isinstance(scn, dict) else []
+                if not (isinstance(injects, list) and 3 <= len(injects) <= 5):
+                    defects.append(f"TT-120: Scenario {si} injects count must be between 3 and 5")
+                for ji, inj in enumerate(injects, 1):
+                    try:
+                        narr = (inj.get('scenario_narrative', '') if isinstance(inj, dict) else '') or ''
+                        exp = (inj.get('expected_mature_response', '') if isinstance(inj, dict) else '') or ''
+                        if not narr or not exp:
+                            defects.append(f"TT-201: Scenario {si} Inject {ji} missing narrative/expected_mature_response")
+                        tis = inj.get('technical_indicators', []) if isinstance(inj, dict) else []
+                        fpq = inj.get('facilitator_probe_questions', []) if isinstance(inj, dict) else []
+                        if not (isinstance(tis, list) and len(tis) >= 1) or not (isinstance(fpq, list) and len(fpq) >= 2):
+                            defects.append(f"TT-202: Scenario {si} Inject {ji} missing indicators/probes")
+                        dt = (inj.get('decision_threshold', '') if isinstance(inj, dict) else '') or ''
+                        if not dt:
+                            defects.append(f"TT-203: Scenario {si} Inject {ji} missing decision_threshold")
+                        # Probing fields (strict)
+                        syschk = inj.get('systems_to_check', []) if isinstance(inj, dict) else []
+                        if not (isinstance(syschk, list) and len(syschk) >= 2):
+                            defects.append(f"TT-204: Scenario {si} Inject {ji} missing systems_to_check (>=2)")
+                        roles = inj.get('roles_to_engage', []) if isinstance(inj, dict) else []
+                        if not (isinstance(roles, list) and len(roles) >= 2):
+                            defects.append(f"TT-205: Scenario {si} Inject {ji} missing roles_to_engage (>=2)")
+                        runbooks = inj.get('runbook_references', []) if isinstance(inj, dict) else []
+                        if not (isinstance(runbooks, list) and len(runbooks) >= 1):
+                            defects.append(f"TT-206: Scenario {si} Inject {ji} missing runbook_references (>=1)")
+                        hunt = inj.get('evidence_hunt', []) if isinstance(inj, dict) else []
+                        if not (isinstance(hunt, list) and len(hunt) >= 2):
+                            defects.append(f"TT-207: Scenario {si} Inject {ji} missing evidence_hunt (>=2)")
+                        kchecks = inj.get('knowledge_checks', []) if isinstance(inj, dict) else []
+                        if not (isinstance(kchecks, list) and len(kchecks) >= 2):
+                            defects.append(f"TT-208: Scenario {si} Inject {ji} missing knowledge_checks (>=2)")
+                        tb = (inj.get('timebox_hint', '') if isinstance(inj, dict) else '') or ''
+                        if not tb:
+                            defects.append(f"TT-209: Scenario {si} Inject {ji} missing timebox_hint")
+                        # Advisory: if optional fields exist but empty
+                        if 'success_criteria' in inj:
+                            sc = inj.get('success_criteria') or []
+                            if isinstance(sc, list) and len(sc) == 0:
+                                defects.append(f"TT-301: Scenario {si} Inject {ji} success_criteria present but empty")
+                        if 'evaluation_evidence' in inj:
+                            ee = inj.get('evaluation_evidence') or []
+                            if isinstance(ee, list) and len(ee) == 0:
+                                defects.append(f"TT-302: Scenario {si} Inject {ji} evaluation_evidence present but empty")
+                    except Exception:
+                        defects.append(f"TT-299: Scenario {si} Inject {ji} parse error")
+            except Exception:
+                defects.append(f"TT-199: Scenario {si} parse error")
+    except Exception:
+        defects.append("TT-999: Unexpected validator error")
+    ok = not any(d.startswith(("TT-001","TT-010","TT-101","TT-120","TT-201","TT-202","TT-203","TT-204","TT-205","TT-206","TT-207","TT-208","TT-209")) for d in defects)
+    return ok, defects
 
 def _build_board_summary_text(overall_label: str, overall_percent: int, strengths: list, gaps: list, actions_top3_text: str) -> str:
     try:
@@ -2596,6 +2682,19 @@ def _embed_picture(slide, image_path, left_in=6.0, top_in=1.5, width_in=3.0):
 
 def create_tabletop_pptx(master_plan_data: dict) -> bytes:
     """Generate a clean slide deck for presentation using python-pptx."""
+    # Preflight validation (strict gating configurable)
+    try:
+        strict_flag = is_tabletop_quality_strict()
+    except Exception:
+        strict_flag = True
+    ok, defects = (True, [])
+    try:
+        ok, defects = validate_tabletop_master_plan(master_plan_data if isinstance(master_plan_data, dict) else {})
+    except Exception:
+        pass
+    if strict_flag and not ok:
+        # Fail closed to avoid distributing incomplete decks
+        return b""
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_master_template.pptx")
 
     # Safe accessors (dict or object)
@@ -2730,6 +2829,26 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                 _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
                 for q in qlist:
                     _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+                # Probing sections
+                _add_heading(tf, "Systems to Check:", font_size_pt=13, rgb=(35, 80, 106))
+                for s in (_dict_get(inj, "systems_to_check", []) or []):
+                    _add_bullet(tf, s, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Roles to Engage:", font_size_pt=13, rgb=(35, 80, 106))
+                for r in (_dict_get(inj, "roles_to_engage", []) or []):
+                    _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Runbooks:", font_size_pt=13, rgb=(35, 80, 106))
+                for rb in (_dict_get(inj, "runbook_references", []) or []):
+                    _add_bullet(tf, rb, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Evidence Hunt:", font_size_pt=13, rgb=(35, 80, 106))
+                for ev in (_dict_get(inj, "evidence_hunt", []) or []):
+                    _add_bullet(tf, ev, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Knowledge Checks:", font_size_pt=13, rgb=(35, 80, 106))
+                for kc in (_dict_get(inj, "knowledge_checks", []) or []):
+                    _add_bullet(tf, kc, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Timebox:", font_size_pt=13, rgb=(35, 80, 106))
+                tb = _dict_get(inj, "timebox_hint", "")
+                if tb:
+                    _add_bullet(tf, tb, font_size_pt=12, rgb=(50, 50, 50))
 
                 if references:
                     _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
@@ -2740,6 +2859,26 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                 _add_heading(tf, "Key Questions for the Room:", font_size_pt=15, rgb=(35, 80, 106))
                 for q in qlist:
                     _add_bullet(tf, q, font_size_pt=14, rgb=(50, 50, 50))
+                # Probing sections
+                _add_heading(tf, "Systems to Check:", font_size_pt=13, rgb=(35, 80, 106))
+                for s in (_dict_get(inj, "systems_to_check", []) or []):
+                    _add_bullet(tf, s, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Roles to Engage:", font_size_pt=13, rgb=(35, 80, 106))
+                for r in (_dict_get(inj, "roles_to_engage", []) or []):
+                    _add_bullet(tf, r, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Runbooks:", font_size_pt=13, rgb=(35, 80, 106))
+                for rb in (_dict_get(inj, "runbook_references", []) or []):
+                    _add_bullet(tf, rb, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Evidence Hunt:", font_size_pt=13, rgb=(35, 80, 106))
+                for ev in (_dict_get(inj, "evidence_hunt", []) or []):
+                    _add_bullet(tf, ev, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Knowledge Checks:", font_size_pt=13, rgb=(35, 80, 106))
+                for kc in (_dict_get(inj, "knowledge_checks", []) or []):
+                    _add_bullet(tf, kc, font_size_pt=12, rgb=(50, 50, 50))
+                _add_heading(tf, "Timebox:", font_size_pt=13, rgb=(35, 80, 106))
+                tb = _dict_get(inj, "timebox_hint", "")
+                if tb:
+                    _add_bullet(tf, tb, font_size_pt=12, rgb=(50, 50, 50))
                 if references:
                     _add_heading(tf, "References:", font_size_pt=13, rgb=(35, 80, 106))
                     for r in references:
@@ -2755,6 +2894,19 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
 
 def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
     """Renders the comprehensive Facilitator Guide with probe cards and 'What Good Looks Like'."""
+    # Preflight validation (strict gating configurable)
+    try:
+        strict_flag = is_tabletop_quality_strict()
+    except Exception:
+        strict_flag = True
+    ok, defects = (True, [])
+    try:
+        ok, defects = validate_tabletop_master_plan(master_plan_data if isinstance(master_plan_data, dict) else {})
+    except Exception:
+        pass
+    if strict_flag and not ok:
+        # Fail closed to avoid distributing incomplete guides
+        return b""
     pdf = ReportPDF()
     pdf.add_page()
     pdf.set_font("helvetica", "B", 18)
@@ -2796,7 +2948,39 @@ def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
             pdf.set_font("helvetica", "", 10)
             for q in inj.get("facilitator_probe_questions", []):
                 robust_multi_cell(pdf, 0, 5, f"• {q}")
-                
+            # Probing sections
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Systems to Check:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for s in inj.get("systems_to_check", []):
+                robust_multi_cell(pdf, 0, 5, f"- {s}")
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Roles to Engage:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for r in inj.get("roles_to_engage", []):
+                robust_multi_cell(pdf, 0, 5, f"- {r}")
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Runbooks:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for rb in inj.get("runbook_references", []):
+                robust_multi_cell(pdf, 0, 5, f"- {rb}")
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Evidence Hunt:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for ev in inj.get("evidence_hunt", []):
+                robust_multi_cell(pdf, 0, 5, f"- {ev}")
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 6, "Knowledge Checks:", ln=True)
+            pdf.set_font("helvetica", "", 10)
+            for kc in inj.get("knowledge_checks", []):
+                robust_multi_cell(pdf, 0, 5, f"- {kc}")
+            tb = inj.get("timebox_hint", "")
+            if tb:
+                pdf.set_font("helvetica", "B", 10)
+                pdf.cell(0, 6, "Timebox:", ln=True)
+                pdf.set_font("helvetica", "", 10)
+                robust_multi_cell(pdf, 0, 5, tb)
+            
             pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Common Rabbit Holes / Traps to Watch For:", ln=True)
             pdf.set_font("helvetica", "", 10)

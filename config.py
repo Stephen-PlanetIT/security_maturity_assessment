@@ -44,6 +44,9 @@ class ConfigKey:
     SESSION_PERSIST_ENABLED = "SESSION_PERSIST_ENABLED"
     SESSION_STORAGE_DIR = "SESSION_STORAGE_DIR"
     SESSION_AUTOSAVE_SEC = "SESSION_AUTOSAVE_SEC"
+    # Runtime environment and quality gate policy
+    ENVIRONMENT = "ENVIRONMENT"
+    TABLETOP_QUALITY_STRICT = "TABLETOP_QUALITY_STRICT"
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -204,3 +207,29 @@ def get_reference_sample() -> str:
     if len(sample_text) > 1500:
         sample_text = sample_text[:1500]
     return sample_text
+
+
+def _as_bool(val: Optional[str], default: bool = False) -> bool:
+    """
+    Normalise truthy strings: 1/true/yes/on (case-insensitive) → True; 0/false/no/off → False.
+    Any parsing error falls back to 'default'.
+    """
+    try:
+        if val is None:
+            return default
+        s = str(val).strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off"):
+            return False
+        return default
+    except Exception:
+        return default
+
+
+def is_tabletop_quality_strict() -> bool:
+    """
+    Tabletop Quality Gate policy: always enforce.
+    This helper is the single source of truth consumed by export.py and UI pages.
+    """
+    return True

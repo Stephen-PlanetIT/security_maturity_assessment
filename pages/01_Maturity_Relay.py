@@ -19,6 +19,12 @@ try:
     st.switch_page("app.py")  # type: ignore[attr-defined]
 except Exception:
     st.page_link("app.py", label="📈 Switching to Maturity… (click if not redirected)")
+    # Render footer in fallback view
+    try:
+        from ui_shared_sections import render_footer
+        render_footer(show_divider=True)
+    except Exception:
+        pass
 st.stop()
 
 # Page-scoped workflow intent

@@ -206,3 +206,10 @@ if st.session_state.get("aar_result"):
             st.warning(
                 "Failed to sync delta into client profile; ensure client_inputs structure is present."
             )
+
+# Standard footer
+try:
+    from ui_shared_sections import render_footer
+    render_footer(show_divider=True)
+except Exception:
+    pass

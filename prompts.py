@@ -408,16 +408,28 @@ SYSTEM_PERSONA_TABLETOP = """
  - Map observed performance to Pillar 1, 2, or 3.
  - Apply Capability Mismatch penalties where hygiene is absent irrespective of advanced tooling; do not inflate scores.
  
- OUTPUT DISCIPLINE:
- - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold.
- - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
- - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
+  OUTPUT DISCIPLINE:
+  - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold, success_criteria (1–3), evaluation_evidence (1–3), systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), timebox_hint.
+  - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
+  - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
  
  FACILITATOR PROBE DESIGN (STRICT):
  - Question ladder: Start with evidence validation (What log/alert proves this? Where would you find it?), escalate to governance thresholds (Are we declaring a Major Incident? Has the ICO 72‑hour clock started?), then to containment and authority (Who is authorised to isolate systems? Under which runbook?), and finally to communications and stakeholder impact (Who must be informed now and why?).
  - Each facilitator_probe_questions list must avoid yes/no phrasing; require justification and a specific artefact reference (e.g., SIEM query, EDR alert, ticket ID).
  - Include at least one “what‑if” variant that forces the room to consider an adverse branch (e.g., backup immutability fails; second account compromise is detected).
- - Keep probes grounded in the client’s declared stack and governance model; do not invent tooling they do not have.
+  - Keep probes grounded in the client’s declared stack and governance model; do not invent tooling they do not have.
+  - Populate the probe design fields for every inject:
+    • systems_to_check (2–6) • roles_to_engage (2–5) • runbook_references (1–3) • evidence_hunt (2–6) • knowledge_checks (2–4) • timebox_hint (single line).
+  
+  AUDIENCE ADAPTATIONS (STRICT):
+  - Board: Populate probe fields with governance‑centric content:
+    • systems_to_check: executive dashboards/summaries (MDR incident summary, CISO incident comms log), change/advisory decision records; avoid raw log queries.
+    • roles_to_engage: Executive Incident Owner, DPO, Legal Counsel, Communications Lead, Regulator Liaison.
+    • runbook_references: IR‑01 incident declaration, BCP‑Comms, Reg‑Notify, authority matrix.
+    • evidence_hunt: incident declaration record, comms approval trail, regulator notification drafts/records, stakeholder brief template.
+    • knowledge_checks: who approves external comms; what triggers ICO/contractual notifications; authority chain after hours.
+    • timebox_hint: 5–7 minutes to decision; escalate if authority unavailable.
+  - Technical: Populate with artefact‑specific items (SIEM queries, EDR alerts, firewall logs) and named technical roles/runbooks.
  """
  
  # ==========================================
@@ -905,6 +917,14 @@ class TabletopInject(BaseModel):
     expected_mature_response: str = Field(description="What 'Good' looks like according to Planet IT standards and the client's declared runbooks.")
     common_pitfalls: List[str] = Field(description="Typical client rabbit holes, oversights, or unverified assumptions to challenge.", min_items=2, max_items=4)
     decision_threshold: str = Field(description="Key governance decision point (e.g., Declaring a Major Incident, 72h ICO clock, Invoking Retainer).")
+    success_criteria: Optional[List[str]] = Field(default=None, description="Measurable acceptance tests tied to the client's runbooks (e.g., declaring incident within threshold; regulator notification).", min_items=1, max_items=3)
+    evaluation_evidence: Optional[List[str]] = Field(default=None, description="Evidence artefacts to capture (e.g., SIEM query, ticket ID, comms record) and where to find them.", min_items=0, max_items=5)
+    systems_to_check: List[str] = Field(description="Exact consoles/logs/queries to consult (grounded in their stack), e.g., Sophos Central alert, Entra sign‑in, firewall UTM.", min_items=2, max_items=6)
+    roles_to_engage: List[str] = Field(description="Roles to involve or escalate to, aligned to RACI/authority model.", min_items=2, max_items=5)
+    runbook_references: List[str] = Field(description="Runbook IDs/titles governing actions and decisions.", min_items=1, max_items=3)
+    evidence_hunt: List[str] = Field(description="Concrete artefacts to collect and where to find them (ticket IDs, SIEM exports, comms records).", min_items=2, max_items=6)
+    knowledge_checks: List[str] = Field(description="Short, probing checks to verify process knowledge and evidence locations.", min_items=2, max_items=4)
+    timebox_hint: str = Field(description="Facilitator timebox guidance for this inject, e.g., '7 minutes to decision'.")
 
 class TabletopScenario(BaseModel):
     scenario_id: str = Field(description="Unique scenario ID, e.g., 'SCN-01'")
@@ -1146,6 +1166,22 @@ EXERCISE REQUIREMENTS:
     - Board: Simplify labelling of technical artefacts; foreground governance decisions, risk/impact, communications, and stakeholder management. Keep technical_indicators concise but present.
     - Technical: Provide deeper artefact references and procedure steps; foreground containment actions, runbooks, and evidence chains; governance noted but subordinate.
     - Blended: Balance both profiles; maintain both artefacts and governance thresholds in probes and narratives.
+    
+    Probe field population by audience (STRICT):
+    - Board:
+      • systems_to_check: executive dashboards/summaries (MDR incident summary, CISO incident comms log), change/advisory decision records; avoid raw log queries.
+      • roles_to_engage: Executive Incident Owner, DPO, Legal, Communications, Regulator Liaison.
+      • runbook_references: IR‑01 declaration, BCP‑Comms, Reg‑Notify, authority matrix.
+      • evidence_hunt: incident declaration record, comms approval trail, regulator notification drafts/records, stakeholder brief template.
+      • knowledge_checks: approval authority for external comms; triggers for ICO/contractual notifications; after‑hours authority chain.
+      • timebox_hint: 5–7 minutes to decision; escalate if authority unavailable.
+    - Technical:
+      • systems_to_check: named SIEM queries, EDR alert names, firewall/UTM logs, Entra sign‑in queries.
+      • roles_to_engage: SOC Analyst, Incident Manager, Network Lead, IAM Lead, Backup/DR Owner.
+      • runbook_references: IR‑Containment, IR‑Forensics, DR‑Failover, Access‑Revocation runbooks.
+      • evidence_hunt: ticket IDs, SIEM exports, EDR case references, config change records.
+      • knowledge_checks: ownership of tools/runbooks; evidence locations; isolation authority.
+      • timebox_hint: 5–10 minutes depending on phase; require a commit to action.
 
     MDR REALITIES (STRICT):
     - If MDR is not 'None' (current MDR/SOC provider: {mdr}): assume MDR/SOC will conduct a significant portion of investigation and containment actions within their authorised toolset; reflect MDR-led actions and escalation handoffs accordingly.
@@ -1155,11 +1191,15 @@ EXERCISE REQUIREMENTS:
     FACILITATOR PROBES (STRICT):
     - Each inject’s facilitator_probe_questions must cover: Evidence validation; Governance thresholds; Containment/Authority; Communications/Stakeholders. Avoid yes/no; require justification and cite a specific artefact.
     - Add one “what‑if” probe to test adverse branches where the room’s answer is weak or deviates.
+    - For every inject, also include: systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), and a timebox_hint.
 
     INJECT DESIGN HINTS (STRICT):
     - technical_indicators should be concrete (e.g., Sophos MDR alert name, Entra sign‑in risk event, firewall log), 1–4 items.
     - common_pitfalls should capture cognitive biases and typical missteps (e.g., assuming backups are immutable without evidence).
     - decision_threshold must be explicit (e.g., Major Incident declaration, ICO 72h, invoke retainer).
+    - success_criteria must be measurable and tied to runbooks/governance (e.g., declare incident within 10 minutes under IR‑01; notify regulator if threshold crossed), 1–3 items.
+    - evaluation_evidence should list specific artefacts and where to locate them (e.g., SIEM query path, ticket ID, comms record).
+    - systems_to_check: list exact consoles/queries in the client stack; roles_to_engage: list accountable/consulted roles; runbook_references: cite IR/BCP/DR IDs; evidence_hunt: list artefacts to collect and their locations; knowledge_checks: short checks that force recall of ownership and evidence paths; timebox_hint: force rapid decision-making (e.g., 5–7 minutes).
 
     {custom_clause}
     """

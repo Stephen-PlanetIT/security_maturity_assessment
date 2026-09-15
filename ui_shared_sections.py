@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+import datetime
 from consultation_schema import (
     DEFAULT_CRITICAL_ASSET_PROFILE,
     DEFAULT_SERVICE_RESILIENCE_PROFILE,
@@ -776,3 +778,44 @@ def render_top_nav(active: str = "Home"):
                         st.page_link("app.py", label="🔥 Threats")
                     except Exception:
                         st.rerun()
+
+def _read_app_version() -> str:
+    """
+    Read the application version string from the VERSION file located at project root.
+    Falls back to 'dev' if unavailable.
+    """
+    try:
+        _root = os.path.dirname(__file__)
+        _ver_path = os.path.join(_root, "VERSION")
+        with open(_ver_path, "r") as vf:
+            return vf.read().strip()
+    except Exception:
+        return "dev"
+
+
+def render_footer(show_divider: bool = True) -> None:
+    """
+    Render a standardised footer across all pages:
+    - Top line: 'Planet IT Advisory Engine — vX.Y.Z'
+    - Second line: '© YYYY Bradley Collis. All rights reserved.'
+    Sizing and colour aligned to existing app style.
+    """
+    if show_divider:
+        try:
+            st.divider()
+        except Exception:
+            pass
+    version = _read_app_version()
+    primary_colour = "#23506A"
+    st.markdown(
+        f"<div style='text-align: center; color: {primary_colour}; font-size: 0.8rem;'>"
+        f"Planet IT Advisory Engine — v{version}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='text-align: center; color: {primary_colour}; font-size: 0.7rem; margin-top: 4px;'>"
+        f"&copy; {datetime.date.today().year} Bradley Collis. All rights reserved."
+        "</div>",
+        unsafe_allow_html=True,
+    )

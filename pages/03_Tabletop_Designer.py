@@ -8,7 +8,7 @@ from prompts import (
     SYSTEM_PERSONA_TABLETOP,
 )
 from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
-from config import get_config, ConfigKey
+from config import get_config, ConfigKey, is_tabletop_quality_strict
 from catalog import PLANET_IT_PORTFOLIO
 from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections, render_top_nav
 
@@ -20,6 +20,7 @@ try:
         APP_VERSION = _vf.read().strip()
 except Exception:
     APP_VERSION = "dev"
+from ui_shared_sections import render_footer
 
 def _safe_index(options, value):
     """Return index of value in options; 0 if missing or invalid."""
@@ -456,12 +457,31 @@ if st.session_state.get("tabletop_plan"):
     st.divider()
     col_lock1, col_lock2 = st.columns(2)
     with col_lock1:
+        # Run preflight validation
+        try:
+            from export import validate_tabletop_master_plan
+            strict_flag = is_tabletop_quality_strict()
+        except Exception:
+            strict_flag = True
+            validate_tabletop_master_plan = None
+        ok, defects = (True, [])
+        try:
+            if callable(validate_tabletop_master_plan):
+                ok, defects = validate_tabletop_master_plan(plan)
+        except Exception:
+            ok, defects = (True, [])
+        if not ok:
+            st.warning("Quality Gate: The plan has defects. Resolve the issues below before export.")
+            with st.expander("Defects", expanded=True):
+                for d in defects:
+                    st.markdown(f"- {d}")
         pptx_data = create_tabletop_pptx(plan)
         st.download_button(
             "📊 Download Presentation Deck (.pptx)",
             data=pptx_data,
             file_name=f"{cached_customer_name}_Tabletop_Deck.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            disabled=bool((not ok) and strict_flag),
         )
     with col_lock2:
         pdf_data = create_tabletop_facilitator_pdf(plan)
@@ -470,6 +490,7 @@ if st.session_state.get("tabletop_plan"):
             data=pdf_data,
             file_name=f"{cached_customer_name}_Facilitator_Guide.pdf",
             mime="application/pdf",
+            disabled=bool((not ok) and strict_flag),
         )
 
     st.divider()
@@ -505,3 +526,9 @@ with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
         st.session_state["tabletop_plan"] = None
         st.success("Cleared all fields.")
         st.rerun()
+
+# Standard footer
+try:
+    render_footer(show_divider=True)
+except Exception:
+    pass

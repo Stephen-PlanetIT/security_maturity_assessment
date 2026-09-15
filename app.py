@@ -133,6 +133,7 @@ def _resolve_custom(selection: str, custom: str) -> str:
 # --- VERSION TRACKER ---
 with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
     APP_VERSION = f.read().strip()
+from ui_shared_sections import render_footer
 
 def validate_platform_config():
     """Validates that necessary Azure secrets exist before runtime."""
@@ -631,20 +632,8 @@ if not st.session_state.get('workflow'):
             st.session_state['workflow'] = "🔥 Tactical Threat Simulator"
             st.rerun()
 
-    # Footer (copywriting footer, aligned to app-wide style)
-    st.divider()
-    st.markdown(
-        "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-        "Planet IT Advisory Engine"
-        "</div>",
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        "<div style='text-align: center; color: #23506A; font-size: 0.7rem; margin-top: 4px;'>"
-        "&copy; 2026 Bradley Collis. All rights reserved."
-        "</div>",
-        unsafe_allow_html=True
-    )
+    # Footer (standardised)
+    render_footer(show_divider=True)
 
     st.stop()
 
@@ -2525,16 +2514,4 @@ with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
         st.session_state['use_test_data'] = False
         st.rerun()
 
-st.divider()
-st.markdown(
-    "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-    "Planet IT Advisory Engine"
-    "</div>",
-    unsafe_allow_html=True
-)
-st.markdown(
-    "<div style='text-align: center; color: #23506A; font-size: 0.8rem;'>"
-    f"Planet IT Advisory Engine — v{APP_VERSION}"
-    "</div>",
-    unsafe_allow_html=True
-)
+render_footer(show_divider=True)

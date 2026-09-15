@@ -271,3 +271,10 @@ with col_b2:
                 st.success("Exercise completed! Proceed to AAR page.")
                 st.page_link("pages/05_After_Action_Review.py", label="Proceed to AAR ➡️", icon="📋")
         st.rerun()
+
+# Standard footer
+try:
+    from ui_shared_sections import render_footer
+    render_footer(show_divider=True)
+except Exception:
+    pass
