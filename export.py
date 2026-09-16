@@ -538,6 +538,77 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                             ee = inj.get('evaluation_evidence') or []
                             if isinstance(ee, list) and len(ee) == 0:
                                 defects.append(f"TT-302: Scenario {si} Inject {ji} evaluation_evidence present but empty")
+                        # Artefact presence and body integrity (strict but advisory gating configurable)
+                        arts = inj.get('artefacts', []) if isinstance(inj, dict) else []
+                        if not (isinstance(arts, list) and len(arts) >= 1):
+                            defects.append(f"TT-210: Scenario {si} Inject {ji} missing artefacts (>=1 required)")
+                        else:
+                            allowed_types = {"log", "email", "code", "ticket", "screenshot", "configuration"}
+                            for idx, ar in enumerate(arts, 1):
+                                try:
+                                    at = (ar.get('artefact_type') if isinstance(ar, dict) else "") or ""
+                                    if at and at not in allowed_types:
+                                        defects.append(f"TT-212: Scenario {si} Inject {ji} artefact {idx} has invalid type '{at}'")
+                                    body = (ar.get('body') if isinstance(ar, dict) else "") or ""
+                                    if len(str(body).strip()) < 60:
+                                        defects.append(f"TT-211: Scenario {si} Inject {ji} artefact {idx} body too short or missing (min ~60 chars)")
+                                    # TT-213: line-count enforcement by type/profile (heuristic)
+                                    try:
+                                        lines = [ln for ln in str(body).splitlines() if str(ln).strip()]
+                                        lc = len(lines)
+                                    except Exception:
+                                        lines, lc = [], 0
+                                    # Extract profile from metadata if present
+                                    prof = ""
+                                    try:
+                                        meta = ar.get('metadata') if isinstance(ar, dict) else []
+                                        if isinstance(meta, list):
+                                            for m in meta:
+                                                s = str(m).lower()
+                                                if s.startswith("profile:"):
+                                                    prof = s.split(":", 1)[1].strip()
+                                                    break
+                                    except Exception:
+                                        prof = ""
+                                    # Determine minimum lines
+                                    min_lines = None
+                                    if prof == "sophos/mdr/case":
+                                        min_lines = 6
+                                    elif at == "log":
+                                        min_lines = 5
+                                    elif at == "code":
+                                        min_lines = 6
+                                    elif at == "email":
+                                        min_lines = 4
+                                    if isinstance(min_lines, int) and lc < min_lines:
+                                        defects.append(f"TT-213: Scenario {si} Inject {ji} artefact {idx} insufficient lines for type/profile (min {min_lines})")
+                                    # TT-214: required fields for known profiles (contains-check heuristics)
+                                    try:
+                                        if prof == "sophos/mdr/case":
+                                            required_labels = ["Decoded command line:", "Command path:", "Sophos PID:", "Purpose:"]
+                                            for lbl in required_labels:
+                                                if not any(lbl in ln for ln in lines):
+                                                    defects.append(f"TT-214: Scenario {si} Inject {ji} artefact {idx} missing required field '{lbl}' for sophos/mdr/case")
+                                                    break
+                                        elif prof == "entra/signin":
+                                            req_tokens = ["UserPrincipalName=", "AppDisplayName=", "IPAddress="]
+                                            joined = "\n".join(lines)
+                                            if not all(tok in joined for tok in req_tokens):
+                                                defects.append(f"TT-214: Scenario {si} Inject {ji} artefact {idx} missing required tokens for entra/signin")
+                                        elif prof == "fortigate/traffic":
+                                            req_tokens = ["srcip=", "dstip=", "srcport=", "dstport="]
+                                            joined = "\n".join(lines)
+                                            if not all(tok in joined for tok in req_tokens):
+                                                defects.append(f"TT-214: Scenario {si} Inject {ji} artefact {idx} missing required tokens for fortigate/traffic")
+                                        elif prof in ("defender/alert", "sophos/edr"):
+                                            req_tokens = ['"timeUtc"', '"alertId"', '"severity"']
+                                            joined = "\n".join(lines)
+                                            if not all(tok in joined for tok in req_tokens):
+                                                defects.append(f"TT-214: Scenario {si} Inject {ji} artefact {idx} missing required fields for {prof}")
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    defects.append(f"TT-211: Scenario {si} Inject {ji} artefact {idx} body too short or missing (min ~60 chars)")
                     except Exception:
                         defects.append(f"TT-299: Scenario {si} Inject {ji} parse error")
             except Exception:
@@ -2835,77 +2906,11 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
 
 
     # Scenarios and injects
-    # Agenda slide (Objectives, Scope, Flow)
-    agenda_layout = prs.slide_layouts[1] if len(prs.slide_layouts) > 1 else prs.slide_layouts[0]
-    # Do not hard-fail on layout name; proceed best-effort
-    agenda_slide = _insert_slide(agenda_layout)
-    if agenda_slide.shapes.title:
-        agenda_slide.shapes.title.text = "Agenda"
-    if len(agenda_slide.placeholders) > 1:
-        atf = agenda_slide.placeholders[1].text_frame
-        try:
-            atf.clear()
-        except Exception:
-            atf.text = ""
-        # Merge ground rules into Agenda when present
-        rules = _dict_get(master_plan_data, "housekeeping_rules", []) or []
-        if rules:
-            _add_heading(atf, "Ground Rules:", font_size_pt=15, rgb=(35, 80, 106))
-            for rule in rules:
-                _add_bullet(atf, str(rule), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(atf, "Objectives:", font_size_pt=15, rgb=(35, 80, 106))
-        for obj in (_dict_get(master_plan_data, "objectives", []) or []):
-            _add_bullet(atf, str(obj), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(atf, "Scope:", font_size_pt=15, rgb=(35, 80, 106))
-        _scope_ctx = _dict_get(master_plan_data, "scope", []) or []
-        if isinstance(_scope_ctx, dict):
-            for _label, _key in (("Included", "included"), ("Excluded", "excluded"), ("Assumptions", "assumptions")):
-                _items = _scope_ctx.get(_key, []) or []
-                if _items:
-                    _add_heading(atf, f"{_label}:", font_size_pt=13, rgb=(35, 80, 106))
-                    for sc in _items:
-                        _add_bullet(atf, str(sc), font_size_pt=12, rgb=(50, 50, 50))
-        else:
-            for sc in _scope_ctx:
-                _add_bullet(atf, str(sc), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(atf, "Scenarios:", font_size_pt=15, rgb=(35, 80, 106))
-        for si, scn in enumerate(_dict_get(master_plan_data, "scenarios", []) or [], 1):
-            _add_bullet(atf, f"{si}. " + str(_dict_get(scn, "scenario_title", f"Scenario {si}")), font_size_pt=14, rgb=(50, 50, 50))
-    else:
-        tx, tf = _add_textbox(agenda_slide, 1.0, 2.0, 8.5, 4.5, text="")
-        # Merge ground rules into Agenda when present
-        rules = _dict_get(master_plan_data, "housekeeping_rules", []) or []
-        if rules:
-            _add_heading(tf, "Ground Rules:", font_size_pt=15, rgb=(35, 80, 106))
-            for rule in rules:
-                _add_bullet(tf, str(rule), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(tf, "Objectives:", font_size_pt=15, rgb=(35, 80, 106))
-        for obj in (_dict_get(master_plan_data, "objectives", []) or []):
-            _add_bullet(tf, str(obj), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(tf, "Scope:", font_size_pt=15, rgb=(35, 80, 106))
-        _scope_ctx = _dict_get(master_plan_data, "scope", []) or []
-        if isinstance(_scope_ctx, dict):
-            for _label, _key in (("Included", "included"), ("Excluded", "excluded"), ("Assumptions", "assumptions")):
-                _items = _scope_ctx.get(_key, []) or []
-                if _items:
-                    _add_heading(tf, f"{_label}:", font_size_pt=13, rgb=(35, 80, 106))
-                    for sc in _items:
-                        _add_bullet(tf, str(sc), font_size_pt=12, rgb=(50, 50, 50))
-        else:
-            for sc in _scope_ctx:
-                _add_bullet(tf, str(sc), font_size_pt=14, rgb=(50, 50, 50))
-        _add_heading(tf, "Scenarios:", font_size_pt=15, rgb=(35, 80, 106))
-        for si, scn in enumerate(_dict_get(master_plan_data, "scenarios", []) or [], 1):
-            _add_bullet(tf, f"{si}. " + str(_dict_get(scn, "scenario_title", f"Scenario {si}")), font_size_pt=14, rgb=(50, 50, 50))
+    # Agenda slide disabled — use static agenda slide present in the template; no dynamic agenda generation.
+    # Dynamic agenda disabled (placeholders branch removed)
+    # Dynamic agenda disabled (else branch removed)
 
-    # Ensure at least one slide contains facilitator cue in speaker notes to satisfy verification tools
-    try:
-        ns0 = agenda_slide.notes_slide
-        ntf0 = ns0.notes_text_frame
-        if not (ntf0.text or "").strip():
-            ntf0.text = "What Good Looks Like: See facilitator guide"
-    except Exception:
-        pass
+    # Dynamic agenda disabled (agenda speaker notes removed)
     # Optional Maturity Overview slide (if radar_chart_data present)
     try:
         _radar_data = _dict_get(master_plan_data, "radar_chart_data", None)
@@ -3039,6 +3044,65 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                         p.space_after = Pt(12)
                     except Exception:
                         pass
+                # Render structured artefacts (if provided)
+                arts = _dict_get(inj, "artefacts", []) or []
+                if arts:
+                    try:
+                        _add_heading(tf_a, "Evidence Artefacts:", font_size_pt=13, rgb=(35, 80, 106))
+                        for ar in arts[:3]:
+                            try:
+                                at = _dict_get(ar, "artefact_type", "")
+                                ttl = _dict_get(ar, "title", "")
+                                src = _dict_get(ar, "source_system", "")
+                                line = f"[{at}] {ttl or '(untitled)'} — {src}".strip()
+                                _add_bullet(tf_a, line, font_size_pt=12, rgb=(50, 50, 50))
+                                # Add an excerpt from the artefact body (wrapped/truncated)
+                                excerpt = ""
+                                body = _dict_get(ar, "body", "") or ""
+                                if isinstance(body, str) and body.strip():
+                                    try:
+                                        # Keep first N non-empty lines (configurable); cap ~500 chars
+                                        lines = [ln for ln in body.splitlines() if str(ln).strip()]
+                                        try:
+                                            max_lines = int(get_config("TABLETOP_ARTEFACT_MAX_LINES", 8))
+                                        except Exception:
+                                            max_lines = 8
+                                        excerpt = "\n".join(lines[:max_lines])[:500]
+                                    except Exception:
+                                        excerpt = body[:500]
+                                if not excerpt:
+                                    # Synthesize a safe [SIMULATED] excerpt as fallback
+                                    if at == "log":
+                                        excerpt = "[SIMULATED]\n2026-09-16T08:12:31Z EXO: Suspicious sign-in detected for user [REDACTED] from IP 203.0.113.24 (Anomalous Location)\n2026-09-16T08:12:59Z CA: Conditional Access policy triggered — Session flagged (High risk)"
+                                    elif at == "email":
+                                        excerpt = "[SIMULATED]\nFrom: finance@company.example\nTo: ap@vendor.example\nSubject: Urgent: Payment Update\nX-Simulated: true\nBody: Requesting invoice reroute to new account ending *4321. [REDACTED]"
+                                    elif at == "code":
+                                        excerpt = "[SIMULATED]\n#!/bin/bash\n# Downloader (benign sample)\ncurl -fsSL http://example.invalid/ioc -o /tmp/ioc.txt\nsha256sum /tmp/ioc.txt # [REDACTED]"
+                                    elif at == "ticket":
+                                        excerpt = "[SIMULATED]\nID: SR-20260916-1042 | Status: Open | Queue: Incident Management\nSummary: Unusual sign-ins observed; evaluate MFA enforcement and block risk session."
+                                    else:
+                                        excerpt = "[SIMULATED] Evidence excerpt not provided by LLM; facilitator to reference guide."
+                                # Render excerpt as a small paragraph(s)
+                                # Render excerpt lines (monospaced for logs/code/configuration or when render_hint=monospace)
+                                try:
+                                    max_lines_render = int(get_config("TABLETOP_ARTEFACT_MAX_LINES", 8))
+                                except Exception:
+                                    max_lines_render = 8
+                                rh = _dict_get(ar, "render_hint", "")
+                                mono = (str(rh).strip().lower() == "monospace") or (at in ("log", "code", "configuration"))
+                                for ln in str(excerpt).splitlines()[:max_lines_render]:
+                                    pex = tf_a.add_paragraph()
+                                    pex.text = ln
+                                    _apply_para_style(pex, font_size_pt=11, rgb=(50, 50, 50))
+                                    if mono:
+                                        try:
+                                            pex.font.name = "Courier New"
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
             else:
                 txa, tf_a = _add_textbox(slide_a, 1.0, 2.0, 8.5, 4.5, text=narrative or "")
             # Optional artefact image on A
@@ -3052,6 +3116,19 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                 if emr: lines_a.append("What Good Looks Like: " + str(emr))
                 dt = _dict_get(inj, "decision_threshold", "")
                 if dt: lines_a.append("Decision Threshold: " + str(dt))
+                arts = _dict_get(inj, "artefacts", []) or []
+                if isinstance(arts, list) and arts:
+                    lines_a.append("Artefacts:")
+                    for ar in arts[:3]:
+                        at = _dict_get(ar, "artefact_type", "")
+                        ttl = _dict_get(ar, "title", "")
+                        src = _dict_get(ar, "source_system", "")
+                        lines_a.append(f"- {at}: {ttl} ({src})")
+                        # Append full artefact body for facilitator reference
+                        body_full = _dict_get(ar, "body", "") or ""
+                        if body_full:
+                            lines_a.append("Artefact Body (full):")
+                            lines_a.append(str(body_full))
                 lines_a.append(f"DYNAMIC_SLIDE_TYPE: INJECT_EVIDENCE_A")
                 lines_a.append(f"SCENARIO_ORDINAL: {scn_idx}")
                 lines_a.append(f"INJECT_ORDINAL: {inj_idx}")
@@ -3363,6 +3440,23 @@ def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
             
             pdf.set_font("helvetica", "", 10)
             robust_multi_cell(pdf, 0, 5, f"Situation: {inj.get('scenario_narrative')}")
+            # Evidence Artefacts (optional)
+            try:
+                arts = inj.get("artefacts", []) or []
+                if isinstance(arts, list) and arts:
+                    pdf.set_font("helvetica", "B", 10)
+                    pdf.cell(0, 6, "Evidence Artefacts:", ln=True)
+                    pdf.set_font("helvetica", "", 10)
+                    for ar in arts[:3]:
+                        kind = str(ar.get("artefact_type", ""))
+                        ttl = str(ar.get("title", "") or "(untitled)")
+                        src = str(ar.get("source_system", "") or "")
+                        robust_multi_cell(pdf, 0, 5, f"- [{kind}] {ttl} — {src}")
+                        body = str(ar.get("body", "") or "")
+                        if body:
+                            robust_multi_cell(pdf, 0, 5, body)
+            except Exception:
+                pass
             
             pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 6, "Expected Mature Action (What Good Looks Like):", ln=True)

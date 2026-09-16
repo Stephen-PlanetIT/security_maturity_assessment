@@ -713,6 +713,7 @@ if show_customise and st.session_state.get("tabletop_plan"):
         plan["_exercise_profile"] = st.session_state.get("exercise_profile", "blended")
         plan["_presentation_detail_profile"] = st.session_state.get("presentation_detail_profile", "standard")
         plan["_migration_notices"] = st.session_state.get("_migration_notices", [])
+        # Dynamic agenda disabled: do not inject default 'sections' or 'agenda' keys; rely on static template slide.
         pptx_data = create_tabletop_pptx(plan)
         st.download_button(
             "📊 Download Presentation Deck (.pptx)",

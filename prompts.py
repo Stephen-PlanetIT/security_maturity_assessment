@@ -409,7 +409,7 @@ SYSTEM_PERSONA_TABLETOP = """
  - Apply Capability Mismatch penalties where hygiene is absent irrespective of advanced tooling; do not inflate scores.
  
   OUTPUT DISCIPLINE:
-  - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold, success_criteria (1–3), evaluation_evidence (1–3), systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), timebox_hint.
+  - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), artefacts (1–3), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold, success_criteria (1–3), evaluation_evidence (1–3), systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), timebox_hint.
   - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
   - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
  
@@ -907,12 +907,21 @@ except Exception:
 # ==========================================
 # PYDANTIC MODELS: TABLETOP EXERCISE
 # ==========================================
+class InjectArtefact(BaseModel):
+    artefact_type: str = Field(description="One of: 'log', 'email', 'code', 'ticket', 'screenshot', 'configuration'.")
+    title: Optional[str] = Field(default=None, description="Short label for the artefact (e.g., Alert name, Email subject).")
+    source_system: Optional[str] = Field(default=None, description="System/source where the artefact originates (e.g., 'Sophos Central', 'Microsoft Entra').")
+    body: str = Field(description="Content of the artefact: for 'log' include a realistic excerpt; for 'email' include headers + body; for 'code' include the snippet.")
+    metadata: Optional[List[str]] = Field(default=None, description="Additional contextual hints (e.g., case ID, query path).", min_items=0, max_items=6)
+    render_hint: Optional[str] = Field(default=None, description="Short hint to the renderer for formatting (e.g., 'monospace', 'wrap-80').")
+
 class TabletopInject(BaseModel):
     inject_id: str = Field(description="Unique identifier, e.g., 'INJ-1.1'")
     phase_title: str = Field(description="Phase title, e.g., 'Initial Anomaly Detection' or 'Interim Escalation'")
     simulated_timestamp: str = Field(description="Relative or clock timestamp, e.g., 'Day 1 - 08:15 UTC'")
     scenario_narrative: str = Field(description="The event presented to the room. Grounded in their actual estate.")
     technical_indicators: List[str] = Field(description="Specific logs, alerts, cmdlines, or console indicators (e.g., Sophos MDR alert, Entra sign-in).", min_items=1, max_items=4)
+    artefacts: Optional[List[InjectArtefact]] = Field(default=None, description="1–3 realistic artefacts enhancing the inject (logs, emails, code, tickets).", min_items=1, max_items=3)
     facilitator_probe_questions: List[str] = Field(description="Challenging, provocative questions for the facilitator to pose to the room.", min_items=2, max_items=5)
     expected_mature_response: str = Field(description="What 'Good' looks like according to Planet IT standards and the client's declared runbooks.")
     common_pitfalls: List[str] = Field(description="Typical client rabbit holes, oversights, or unverified assumptions to challenge.", min_items=2, max_items=4)
@@ -1196,6 +1205,16 @@ CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentat
 
     INJECT DESIGN HINTS (STRICT):
     - technical_indicators should be concrete (e.g., Sophos MDR alert name, Entra sign‑in risk event, firewall log), 1–4 items.
+    - artefacts: Provide 1–3 realistic, SIMULATED items per inject, using vendor‑aware micro‑templates. Populate InjectArtefact.body with multi‑line excerpts; set render_hint='monospace' for logs/code/configuration; include metadata entries such as 'profile: sophos/mdr/case'. Minimums and structures:
+      • Logs (5–8 lines): choose profile by the client’s declared stack:
+        – sophos/mdr/case (preferred when MDR is Sophos): include labelled lines exactly — 'Decoded command line:', 'Command path:', 'Sophos PID:', 'Purpose:', plus 'Observed MITRE Techniques:' and one ISO 8601 'Timeline:' line. Mark sensitive tokens as [REDACTED].
+        – entra/signin: key=value lines including UserPrincipalName=, AppDisplayName=, IPAddress=, ResultType=, RiskDetail=, Location=.
+        – fortigate/traffic: key=value lines including srcip=, dstip=, srcport=, dstport=, policyid=, action=.
+        – defender/alert or sophos/edr (JSONL): fields such as "timeUtc", "alertId", "severity", "category", "machineId" (redact hashes).
+      • Email (4–6 total lines): headers (From/To/Subject/X‑Simulated: true) plus 2–4 body lines; redact secrets; include verdict/policy if known.
+      • Code (8–12 lines): specify language and include a concise snippet with a single clear IoC/behaviour; include one comment line; do not include real credentials/keys.
+      • Ticket (2–3 lines): include ID, status, queue plus 1–2 summary lines.
+      STRICT: Do NOT include real secrets/PII; label sensitive tokens as [REDACTED]. Keep aligned to the client's stack; do not invent tools. For Board audience, collateral (email/ticket) may be included (not mandatory) when it aids decision/governance realism; structure these realistically with headers/status fields and concise bodies.
     - common_pitfalls should capture cognitive biases and typical missteps (e.g., assuming backups are immutable without evidence).
     - decision_threshold must be explicit (e.g., Major Incident declaration, ICO 72h, invoke retainer).
     - success_criteria must be measurable and tied to runbooks/governance (e.g., declare incident within 10 minutes under IR‑01; notify regulator if threshold crossed), 1–3 items.
