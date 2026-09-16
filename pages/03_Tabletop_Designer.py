@@ -11,6 +11,7 @@ from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from config import get_config, ConfigKey, is_tabletop_quality_strict
 from catalog import PLANET_IT_PORTFOLIO
 from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections, render_top_nav
+from data import TABLETOP_OBJECTIVE_PRESETS
 
 # Version tracker (for JSON export parity)
 import os
@@ -61,6 +62,12 @@ st.title("Planet IT Advisory Engine")
 render_top_nav(active="tabletop")
 
 st.header("🛠️ Tabletop Exercise Designer & Editor (BETA)")
+# Workflow navigation removed — render all sections unconditionally
+st.divider()
+show_setup = True
+show_themes = True
+show_customise = True
+show_export = True
 
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
@@ -101,25 +108,161 @@ with st.expander("Profile: Export / Import", expanded=False):
             except Exception as e:
                 st.error(f"Failed to import profile: {e}")
 
-with st.expander("Customer Estate & Engagement Profile (Quick Capture)", expanded=False):
-    qc_name = st.text_input("Customer Name", value=st.session_state.get("client_inputs", {}).get("customer_name", ""))
-    qc_industry = st.text_input("Industry", value=st.session_state.get("client_inputs", {}).get("industry", ""))
-    qc_users = st.number_input("Headcount", min_value=0, value=int(st.session_state.get("client_inputs", {}).get("users", 0)))
-    qc_crown = st.text_input("Crown Jewels", value=st.session_state.get("client_inputs", {}).get("critical_infra", ""))
-    if st.button("Apply Quick Profile"):
-        st.session_state.setdefault("client_inputs", {})
-        st.session_state["client_inputs"].update({
-            "customer_name": qc_name.strip(),
-            "industry": (qc_industry or "").strip() or "Unknown",
-            "users": qc_users,
-            "critical_infra": (qc_crown or "").strip(),
-        })
-        st.success("Quick profile applied to Tabletop context.")
+st.subheader("Setup")
+st.caption("These required fields appear on the Agenda and drive validation. Supply Objectives and the three-part Scope before generation.")
+if show_setup:
+    # Ensure client_inputs available before presets toolbar
+    client_inputs = st.session_state.get("client_inputs") or {}
+    # Presets toolbar (outside the form to avoid form button errors)
+    cols_preset = st.columns([1, 1, 2])
+    with cols_preset[0]:
+        if st.button("Apply recommended objectives"):
+            _aud = (st.session_state.get("tabletop_audience") or "Blended").strip().lower()
+            _key = "board" if _aud == "board" else ("technical" if _aud == "technical" else "blended")
+            _presets = TABLETOP_OBJECTIVE_PRESETS.get(_key, [])
+            st.session_state["tt_obj_text"] = "\n".join(_presets[:5])
+    with cols_preset[1]:
+        if st.button("Apply scope suggestions"):
+            def _suggest_scope(audience: str, inputs: dict) -> dict:
+                aud = (audience or "Blended").strip().lower()
+                included = []
+                excluded = ["Production system changes", "Live customer or regulator contact", "Irreversible or destructive commands"]
+                assumptions = ["All artefacts are simulated", "Decisions are timeboxed", "Use capability‑level language for unknowns"]
+                if aud == "board":
+                    included.extend([
+                        "Incident command process",
+                        "Executive communications workflow",
+                        "Service continuity and recovery governance",
+                    ])
+                elif aud == "technical":
+                    included.extend([
+                        "EDR telemetry for affected hosts",
+                        "Firewall/flow logs",
+                        "Backup catalogues",
+                    ])
+                else:
+                    included.extend([
+                        "SOC/SIEM telemetry",
+                        "Endpoint EDR",
+                        "Change control process",
+                    ])
+                try:
+                    if (client_inputs.get("identity") or "").strip():
+                        included.append("Identity provider sign‑in logs")
+                    if (client_inputs.get("endpoint") or "").strip():
+                        included.append("Endpoint security platform telemetry")
+                    if (client_inputs.get("firewall") or "").strip():
+                        included.append("Firewall logs and blocks")
+                    if (client_inputs.get("saas_backup") or "").strip():
+                        included.append("SaaS/backup platform catalogues")
+                    if ((client_inputs.get("mdr_provider") or "None").strip() != "None"):
+                        included.append("MDR case hand‑off and escalation flow")
+                except Exception:
+                    pass
+                seen = set()
+                def _uniq(seq):
+                    out = []
+                    for x in seq:
+                        k = (x or "").strip()
+                        if not k or k in seen:
+                            continue
+                        seen.add(k)
+                        out.append(k)
+                    return out
+                return {"included": _uniq(included), "excluded": _uniq(excluded), "assumptions": _uniq(assumptions)}
+            _rs = _suggest_scope(st.session_state.get("tabletop_audience", "Blended"), client_inputs)
+            st.session_state["tt_scope_included"] = "\n".join(_rs["included"])
+            st.session_state["tt_scope_excluded"] = "\n".join(_rs["excluded"])
+            st.session_state["tt_scope_assumptions"] = "\n".join(_rs["assumptions"])
+    st.caption("Presets are editable; click Save Required Setup to persist.")
+    # Required Exercise Setup form (Objectives + Scope)
+    with st.form("tt_required_setup"):
+        st.markdown("**Objectives** — :red[Required]")
+        _obj_text = st.text_area(
+            "Objectives (one per line)",
+            value=st.session_state.get("tt_obj_text", ""),
+            key="tt_obj_text",
+            height=120,
+        )
+        st.markdown("**Scope** — :red[Required]")
+        cols_sc = st.columns(3)
+        with cols_sc[0]:
+            _inc_text = st.text_area(
+                "Included (one per line)",
+                value=st.session_state.get("tt_scope_included", ""),
+                key="tt_scope_included",
+                height=120,
+            )
+        with cols_sc[1]:
+            _exc_text = st.text_area(
+                "Excluded (one per line)",
+                value=st.session_state.get("tt_scope_excluded", ""),
+                key="tt_scope_excluded",
+                height=120,
+            )
+        with cols_sc[2]:
+            _ass_text = st.text_area(
+                "Assumptions (one per line)",
+                value=st.session_state.get("tt_scope_assumptions", ""),
+                key="tt_scope_assumptions",
+                height=120,
+            )
+        _saved = st.form_submit_button("Save Required Setup")
+        if _saved:
+            st.session_state["tt_required_setup_data"] = {
+                "objectives": [x.strip() for x in (st.session_state.get("tt_obj_text", "")).splitlines() if x.strip()],
+                "scope": {
+                    "included": [x.strip() for x in (st.session_state.get("tt_scope_included", "")).splitlines() if x.strip()],
+                    "excluded": [x.strip() for x in (st.session_state.get("tt_scope_excluded", "")).splitlines() if x.strip()],
+                    "assumptions": [x.strip() for x in (st.session_state.get("tt_scope_assumptions", "")).splitlines() if x.strip()],
+                },
+            }
+            st.success("Required setup saved.")
+    with st.expander("Customer Estate & Engagement Profile (Quick Capture)", expanded=False):
+        qc_name = st.text_input("Customer Name", value=st.session_state.get("client_inputs", {}).get("customer_name", ""))
+        qc_industry = st.text_input("Industry", value=st.session_state.get("client_inputs", {}).get("industry", ""))
+        qc_users = st.number_input("Headcount", min_value=0, value=int(st.session_state.get("client_inputs", {}).get("users", 0)))
+        qc_crown = st.text_input("Crown Jewels", value=st.session_state.get("client_inputs", {}).get("critical_infra", ""))
+        if st.button("Apply Quick Profile"):
+            st.session_state.setdefault("client_inputs", {})
+            st.session_state["client_inputs"].update({
+                "customer_name": qc_name.strip(),
+                "industry": (qc_industry or "").strip() or "Unknown",
+                "users": qc_users,
+                "critical_infra": (qc_crown or "").strip(),
+            })
+            st.success("Quick profile applied to Tabletop context.")
 
 # Guard: require client profile
 client_inputs = st.session_state.get("client_inputs") or {}
 cached_customer_name = client_inputs.get("customer_name", "Client")
 key_assets = client_inputs.get("critical_infra", "Crown Jewels")
+
+if show_setup:
+    # Summary cards to reduce inline clutter; full details remain under Advanced Evidence Capture
+    with st.container():
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            st.subheader("Organisation")
+            st.markdown(f"- Name: {cached_customer_name}")
+            st.markdown(f"- Industry: {client_inputs.get('industry','Unknown')}")
+            st.markdown(f"- Headcount: {client_inputs.get('users','0')}")
+            st.markdown(f"- Crown Jewels: {key_assets or 'N/A'}")
+        with col_s2:
+            st.subheader("Tech Stack")
+            st.markdown(f"- Endpoint: {client_inputs.get('endpoint','Unknown')}")
+            st.markdown(f"- Firewall: {client_inputs.get('firewall','Unknown')}")
+            st.markdown(f"- Identity: {client_inputs.get('identity','Unknown')}")
+            st.markdown(f"- Email: {client_inputs.get('email','Unknown')}")
+            _cloud_env = client_inputs.get('cloud_env', [])
+            st.markdown(f"- Cloud: {', '.join(_cloud_env) if isinstance(_cloud_env, list) and _cloud_env else (_cloud_env or 'None')}")
+        with col_s3:
+            st.subheader("Hygiene & MDR")
+            st.markdown(f"- MFA: {client_inputs.get('mfa_status','Unknown')}")
+            st.markdown(f"- Patching: {client_inputs.get('patching','Unknown')}")
+            st.markdown(f"- Backups: {client_inputs.get('backups','Unknown')}")
+            st.markdown(f"- MDR: {client_inputs.get('mdr_provider','None')}")
+    st.caption("Advanced Evidence Capture (Optional) retains all detailed inputs for LLM context.")
 
 with st.expander("Customer Estate & Engagement Profile (Advanced)", expanded=False):
     col1, col2, col3 = st.columns(3)
@@ -362,64 +505,127 @@ st.session_state["client_inputs"].update({
     "incident_response_assurance_profile": ir_dict,
     "assurance_status": as_map,
 })
-col_sc1, col_sc2 = st.columns(2)
-with col_sc1:
-    selected_themes = st.multiselect(
-        "Select Scenarios to Include:",
-        [
-            "Ransomware (Double Extortion)",
-            "Business Email Compromise (Payment Fraud)",
-            "OAuth Consent Grant Attack",
-            "Unauthorised Access (Insider / Social Engineering / Service Desk)",
-            "Third-Party Access Abuse (Supplier)",
-            "Public Web App/API Exploitation",
-            "Cloud Incident (M365/Azure Outage or Misconfiguration)",
-            "Identity Attack (AiTM Session Hijack / MFA Fatigue)",
-            "Endpoint Lateral Movement (EDR Telemetry)",
-            "Backup Destruction & DR Failure",
-        ],
-        default=[
-            "Ransomware (Double Extortion)",
-            "Unauthorised Access (Insider / Social Engineering / Service Desk)",
-        ],
-    )
-with col_sc2:
-    st.markdown(f"**Target Customer:** `{cached_customer_name}`")
-    st.markdown(f"**Key Assets:** `{key_assets}`")
-    custom_brief = st.text_area(
-        "Custom scenario brief (optional)",
-        help="Provide 1–3 sentences describing a bespoke scenario to include (30–400 characters).",
-        value=st.session_state.get("custom_tabletop_brief", ""),
-        placeholder="e.g., Overnight outage in M365 Exchange Online with downstream impacts to customer support and finance approvals.",
-    )
-    custom_brief = (custom_brief or "").strip()
-    if custom_brief and len(custom_brief) < 30:
-        st.warning("Custom brief is too short; provide at least 30 characters for meaningful context.")
-    st.session_state["custom_tabletop_brief"] = custom_brief
-    audience_options = ["Board", "Technical", "Blended"]
-    audience = st.selectbox("Tabletop Audience", audience_options, index=_safe_index(audience_options, st.session_state.get("tabletop_audience", "Blended")))
-    st.session_state["tabletop_audience"] = audience
+st.subheader("Themes")
+st.caption("Generate uses your saved Setup and any Advanced evidence. Profiles are independent; Audience is for presets/labels only.")
+if show_themes:
+    col_sc1, col_sc2 = st.columns(2)
+    with col_sc1:
+        selected_themes = st.multiselect(
+            "Select Scenarios to Include:",
+            [
+                "Ransomware (Double Extortion)",
+                "Business Email Compromise (Payment Fraud)",
+                "OAuth Consent Grant Attack",
+                "Unauthorised Access (Insider / Social Engineering / Service Desk)",
+                "Third-Party Access Abuse (Supplier)",
+                "Public Web App/API Exploitation",
+                "Cloud Incident (M365/Azure Outage or Misconfiguration)",
+                "Identity Attack (AiTM Session Hijack / MFA Fatigue)",
+                "Endpoint Lateral Movement (EDR Telemetry)",
+                "Backup Destruction & DR Failure",
+            ],
+            default=[
+                "Ransomware (Double Extortion)",
+                "Unauthorised Access (Insider / Social Engineering / Service Desk)",
+            ],
+        )
+    with col_sc2:
+        st.markdown(f"**Target Customer:** `{cached_customer_name}`")
+        st.markdown(f"**Key Assets:** `{key_assets}`")
+        custom_brief = st.text_area(
+            "Custom scenario brief (optional)",
+            help="Provide 1–3 sentences describing a bespoke scenario to include (30–400 characters).",
+            value=st.session_state.get("custom_tabletop_brief", ""),
+            placeholder="e.g., Overnight outage in M365 Exchange Online with downstream impacts to customer support and finance approvals.",
+        )
+        custom_brief = (custom_brief or "").strip()
+        if custom_brief and len(custom_brief) < 30:
+            st.warning("Custom brief is too short; provide at least 30 characters for meaningful context.")
+        st.session_state["custom_tabletop_brief"] = custom_brief
+# Independent configuration dimensions (do not infer)
+exercise_profile_options = ["blended", "board", "technical"]
+exercise_profile = st.selectbox("Exercise Profile", exercise_profile_options, index=_safe_index(exercise_profile_options, (st.session_state.get("exercise_profile") or "blended")))
+st.caption("Independent from Presentation Detail. Do not infer either from Audience.")
+st.session_state["exercise_profile"] = exercise_profile
 
-if st.button("Generate Bespoke Tabletop Plan", type="primary"):
+presentation_detail_options = ["standard", "detailed"]
+# Honour legacy alias TABLETOP_PRESENTATION_PROFILE if present; record migration/default
+legacy_alias = st.session_state.get("TABLETOP_PRESENTATION_PROFILE")
+detail_default = st.session_state.get("presentation_detail_profile") or legacy_alias or "standard"
+if not st.session_state.get("presentation_detail_profile") and not legacy_alias:
+    st.session_state.setdefault("_migration_notices", []).append("Applied default presentation_detail_profile=standard")
+if legacy_alias:
+    st.session_state.setdefault("_migration_notices", []).append("Legacy alias TABLETOP_PRESENTATION_PROFILE applied as presentation_detail_profile")
+presentation_detail_profile = st.selectbox("Presentation Detail Level", presentation_detail_options, index=_safe_index(presentation_detail_options, detail_default))
+st.caption("Standard keeps operational probes in speaker notes; Detailed adds compact, capped prompts to the slide.")
+st.session_state["presentation_detail_profile"] = presentation_detail_profile
+
+# Audience remains display-only; do not infer profiles from it
+audience_options = ["Blended", "Board", "Technical"]
+audience = st.selectbox("Audience (display only)", audience_options, index=_safe_index(audience_options, st.session_state.get("tabletop_audience", "Blended")))
+st.session_state["tabletop_audience"] = audience
+
+if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
     with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
         client = LLMEngine.get_client()
         deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-        prompt = build_tabletop_plan_prompt(client_inputs, selected_themes, custom_brief=st.session_state.get("custom_tabletop_brief"), audience=st.session_state.get("tabletop_audience", "Blended"))
+        prompt = build_tabletop_plan_prompt(
+    client_inputs,
+    selected_themes,
+    custom_brief=st.session_state.get("custom_tabletop_brief"),
+    audience=st.session_state.get("tabletop_audience", "Blended"),
+    exercise_profile=st.session_state.get("exercise_profile", "blended"),
+    presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
+)
         plan = LLMEngine.generate_structured_report(
             client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan
         )
         if plan:
             st.session_state["tabletop_plan"] = plan.model_dump()
+            # Merge saved Required Setup (Objectives + Scope) if present
+            _rs = st.session_state.get("tt_required_setup_data")
+            if _rs:
+                try:
+                    st.session_state["tabletop_plan"]["objectives"] = _rs.get("objectives", st.session_state["tabletop_plan"].get("objectives", []))
+                    st.session_state["tabletop_plan"]["scope"] = _rs.get("scope", st.session_state["tabletop_plan"].get("scope", {}))
+                except Exception:
+                    pass
             st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:
             st.error("Generation failed. Check Azure configuration.")
 
-if st.session_state.get("tabletop_plan"):
+if show_customise and st.session_state.get("tabletop_plan"):
     st.divider()
     st.subheader("Bespoke Customisation")
-
+    
     plan = st.session_state["tabletop_plan"]
     plan["exercise_title"] = st.text_input("Exercise Title", value=plan.get("exercise_title", ""))
+
+
+    # Optional Exercise Settings — keep separate from required fields
+    with st.expander("Optional Exercise Settings", expanded=False):
+        _dur = st.number_input("Total exercise duration (minutes)", min_value=30, max_value=360, value=int(plan.get("duration_minutes") or 90))
+        plan["duration_minutes"] = int(_dur)
+
+        _aud_roles_default = "\n".join([str(x) for x in (plan.get("audience_roles") or []) if str(x).strip()])
+        _aud_roles_text = st.text_area(
+            "Audience roles (one per line, optional)",
+            value=_aud_roles_default,
+            placeholder="e.g.\nIR Lead\nIT Ops\nLegal\nComms\nExecutive Sponsor",
+            key="tt_audience_roles",
+            height=100,
+        )
+        plan["audience_roles"] = [x.strip() for x in _aud_roles_text.splitlines() if x.strip()]
+
+        _hk_default = "\n".join([str(x) for x in (plan.get("housekeeping_rules") or []) if str(x).strip()])
+        _hk_text = st.text_area(
+            "Housekeeping / Ground Rules (optional, one per line)",
+            value=_hk_default,
+            placeholder="e.g.\nNo blame\nPhones silent\nUse current roles, processes, tools and authority",
+            key="tt_housekeeping_rules",
+            height=100,
+        )
+        plan["housekeeping_rules"] = [x.strip() for x in _hk_text.splitlines() if x.strip()]
 
     for s_idx, scn in enumerate(plan.get("scenarios", [])):
         with st.expander(f"Scenario {s_idx + 1}: {scn.get('scenario_title')}", expanded=True):
@@ -464,6 +670,23 @@ if st.session_state.get("tabletop_plan"):
         except Exception:
             strict_flag = True
             validate_tabletop_master_plan = None
+        # Merge saved Required Setup (Objectives + Scope) before validation/export
+        _rs = st.session_state.get("tt_required_setup_data")
+        if _rs:
+            try:
+                plan["objectives"] = _rs.get("objectives", plan.get("objectives", []))
+                _rs_scope = _rs.get("scope", {})
+                if isinstance(_rs_scope, dict):
+                    _sc = plan.get("scope", {}) if isinstance(plan.get("scope", {}), dict) else {}
+                    plan["scope"] = {
+                        "included": _rs_scope.get("included", _sc.get("included", [])),
+                        "excluded": _rs_scope.get("excluded", _sc.get("excluded", [])),
+                        "assumptions": _rs_scope.get("assumptions", _sc.get("assumptions", [])),
+                    }
+                elif isinstance(_rs_scope, list):
+                    plan["scope"] = _rs_scope
+            except Exception:
+                pass
         ok, defects = (True, [])
         try:
             if callable(validate_tabletop_master_plan):
@@ -475,6 +698,21 @@ if st.session_state.get("tabletop_plan"):
             with st.expander("Defects", expanded=True):
                 for d in defects:
                     st.markdown(f"- {d}")
+        # Compact Prompt Preview (collapsed)
+        with st.expander("Prompt Preview (compact)", expanded=False):
+            try:
+                _objs = plan.get("objectives", []) or []
+                _scope = plan.get("scope", {}) or {}
+                _scn_cnt = len(plan.get("scenarios", []) or [])
+                st.markdown(f"- Objectives: {len(_objs)}")
+                st.markdown(f"- Scope: included={len(_scope.get('included',[]))}, excluded={len(_scope.get('excluded',[]))}, assumptions={len(_scope.get('assumptions',[]))}")
+                st.markdown(f"- Scenarios: {_scn_cnt}")
+            except Exception:
+                st.caption("Prompt preview unavailable.")
+        # Pass profiles forward for export logging/validation
+        plan["_exercise_profile"] = st.session_state.get("exercise_profile", "blended")
+        plan["_presentation_detail_profile"] = st.session_state.get("presentation_detail_profile", "standard")
+        plan["_migration_notices"] = st.session_state.get("_migration_notices", [])
         pptx_data = create_tabletop_pptx(plan)
         st.download_button(
             "📊 Download Presentation Deck (.pptx)",

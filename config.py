@@ -48,6 +48,10 @@ class ConfigKey:
     ENVIRONMENT = "ENVIRONMENT"
     TABLETOP_QUALITY_STRICT = "TABLETOP_QUALITY_STRICT"
 
+    # Tabletop: template deck and legacy alias (presentation detail profile)
+    TABLETOP_TEMPLATE_DECK = "TABLETOP_TEMPLATE_DECK"
+    TABLETOP_PRESENTATION_PROFILE = "TABLETOP_PRESENTATION_PROFILE"
+
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
     """

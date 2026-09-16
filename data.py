@@ -2,6 +2,31 @@
 import os
 from typing import Optional, List
 
+# Audience‑based objective presets for Tabletop Designer (editable defaults)
+TABLETOP_OBJECTIVE_PRESETS = {
+    "board": [
+        "Validate incident declaration and executive authority thresholds",
+        "Decide communications approach and stakeholder timing under uncertainty",
+        "Confirm recovery priorities and service trade‑offs",
+        "Test executive risk acceptance and escalation pathways",
+        "Ensure regulatory or contractual obligations are addressed"
+    ],
+    "blended": [
+        "Escalate from technical findings to executive decision within timebox",
+        "Coordinate security, IT operations, legal and communications during containment",
+        "Define recovery entry and exit criteria with business owners",
+        "Surface cross‑functional hand‑offs and information dependencies",
+        "Record decisions, risks and prioritised actions with clear owners"
+    ],
+    "technical": [
+        "Scope the incident from available evidence and identify telemetry gaps",
+        "Evaluate containment options and operational side effects",
+        "Define verification and clean‑state criteria for recovery",
+        "Preserve evidence and articulate competing hypotheses",
+        "Agree escalation triggers based on observed indicators"
+    ],
+}
+
 # ==========================================
 # THREAT SIMULATOR DATA
 # ==========================================

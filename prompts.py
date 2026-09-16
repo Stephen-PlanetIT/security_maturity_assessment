@@ -1130,7 +1130,7 @@ class TabletopAAR(BaseModel):
 # ==========================================
 # PROMPT BUILDERS: TABLETOP EXERCISE
 # ==========================================
-def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list, custom_brief: Optional[str] = None, audience: str = "Blended") -> str:
+def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list, custom_brief: Optional[str] = None, audience: str = "Blended", exercise_profile: str = "blended", presentation_detail_profile: str = "standard") -> str:
     cust = client_inputs.get('customer_name', 'Client')
     infra = client_inputs.get('critical_infra', 'Crown Jewels')
     mdr = client_inputs.get('mdr_provider', 'None')
@@ -1157,6 +1157,7 @@ CLIENT ESTATE GROUNDING:
 - Hygiene Telemetry: MFA: {client_inputs.get('mfa_status', 'Unknown')} | Patching: {client_inputs.get('patching', 'Unknown')} | Backups: {client_inputs.get('backups', 'Unknown')}
 - Banned Vendors: [{banned}]
 EXERCISE REQUIREMENTS:
+CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentation_detail_profile={presentation_detail_profile}
 1. Generate scenarios reflecting these themes: {themes_str}. Directly test the client's ACTUAL stack and governance models.
 2. Every scenario must contain between 3 and 5 progressive injects.
     3. Language: British English strictly (e.g., analyse, behaviour, programme).
