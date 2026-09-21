@@ -2017,7 +2017,9 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
                         "scenario": current_scenario.get("scenario_title"),
                         "phase": current_inject.get("phase_title"),
                         "decision": room_decision,
-                        "notes": facilitator_notes
+                        "notes": facilitator_notes,
+                        "inject_id": current_inject.get("inject_id"),
+                        "simulated_timestamp": current_inject.get("simulated_timestamp"),
                     })
                     if i_idx < len(injects) - 1:
                         st.session_state["live_inject_idx"] += 1
@@ -2088,6 +2090,7 @@ elif st.session_state.get('workflow') == "🎯 Tabletop Exercise & Facilitator":
                                 st.session_state["tabletop_notes"],
                                 st.session_state["client_inputs"],
                                 audience=st.session_state.get("tabletop_audience","Blended"),
+                                immediate_injects=st.session_state.get("immediate_injects", []),
                             )
                             aar_obj = LLMEngine.generate_structured_report(client, deployment, SYSTEM_PERSONA_TABLETOP, aar_prompt, TabletopAAR)
                             if aar_obj:

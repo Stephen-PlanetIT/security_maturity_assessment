@@ -81,6 +81,9 @@ except Exception:
     pass
 # Monte Carlo model removed per specification — no import
 import re as _re
+# Precompiled XML safety regexes (module‑scope, reused by _xml_escape_dict)
+AMP_RE = re.compile(r'&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;)')
+INVALID_XML_RE = re.compile(r'[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]')
 
 def _normalise_key(key: str) -> str:
     try:
@@ -331,28 +334,61 @@ def render_maturity_gauge_png(percent: int, category: str, figsize=(3,3), show_c
         plt.close(fig)
 
 def _xml_escape_dict(d, _depth=0):
-    """Recursively escape &, <, > in all string values of a dict for safe DOCX XML embedding."""
+    """Recursively escape &, <, > and coerce None/null-like → "" across dicts/lists/scalars for safe DOCX XML embedding."""
     if _depth > 10:
-        return d
+        return "" if d is None else d
     def _escape_str(s: str) -> str:
-        # Escape raw XML-sensitive characters without double-escaping existing entities
-        s = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;)', '&amp;', s)
-        s = s.replace('<', '&lt;').replace('>', '&gt;')
-        return s
+        if s is None:
+            return ""
+        txt = str(s)
+        # Normalise sentinel placeholders often leaking into templates
+        if txt.strip() in ("None", "null", "[]", "{}"):
+            return ""
+        # Remove invalid XML 1.0 characters, then escape safely without double-escaping existing entities
+        txt = INVALID_XML_RE.sub('', txt)
+        txt = AMP_RE.sub('&', txt)
+        txt = txt.replace('<', '<').replace('>', '>').replace('"', '"').replace("'", "'")
+        return txt
+
     if isinstance(d, dict):
         escaped = {}
         for key, value in d.items():
-            if isinstance(value, str):
+            if value is None:
+                escaped[key] = ""
+            elif isinstance(value, str):
                 escaped[key] = _escape_str(value)
             elif isinstance(value, list):
-                escaped[key] = [_escape_str(v) if isinstance(v, str) else v for v in value]
+                out_list = []
+                for v in value:
+                    if v is None:
+                        out_list.append("")
+                    elif isinstance(v, str):
+                        out_list.append(_escape_str(v))
+                    elif isinstance(v, dict):
+                        out_list.append(_xml_escape_dict(v, _depth=_depth + 1))
+                    else:
+                        out_list.append(v)
+                escaped[key] = out_list
             elif isinstance(value, dict):
                 escaped[key] = _xml_escape_dict(value, _depth=_depth + 1)
             else:
                 escaped[key] = value
         return escaped
-    # If a non-dict is passed, escape if it's a string; otherwise return as-is
-    return _escape_str(d) if isinstance(d, str) else d
+    if isinstance(d, list):
+        out_list = []
+        for v in d:
+            if v is None:
+                out_list.append("")
+            elif isinstance(v, str):
+                out_list.append(_escape_str(v))
+            elif isinstance(v, dict):
+                out_list.append(_xml_escape_dict(v, _depth=_depth + 1))
+            else:
+                out_list.append(v)
+        return out_list
+    if isinstance(d, str):
+        return _escape_str(d)
+    return "" if d is None else d
 
 
 # --- CONSULTANT DERIVATIONS & RENDER HELPERS (deterministic; no schema changes) ---
@@ -884,16 +920,16 @@ def draw_estate_summary(pdf, inputs):
     pdf.ln(2)
 
     def draw_row(label, value):
-            pdf.set_x(pdf.l_margin) # Hard-reset the carriage return to the left margin
-            pdf.set_font("helvetica", "B", 10)
-            pdf.cell(50, 6, label + ":", border=0)
-            pdf.set_font("helvetica", "", 10)
-            
-            # Fallback to "N/A" if the string is empty to prevent multi_cell from hanging
-            safe_string = str(value).strip() if str(value).strip() else "N/A"
-            if safe_string == "Unknown":
-                safe_string = "Not established during consultation"
-            pdf.multi_cell(0, 6, safe_string, border=0)
+        pdf.set_x(pdf.l_margin) # Hard-reset the carriage return to the left margin
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(50, 6, label + ":", border=0)
+        pdf.set_font("helvetica", "", 10)
+
+        # Fallback to "N/A" if the string is empty to prevent multi_cell from hanging
+        safe_string = str(value).strip() if str(value).strip() else "N/A"
+        if safe_string == "Unknown":
+            safe_string = "Not established during consultation"
+        pdf.multi_cell(0, 6, safe_string, border=0)
 
     # --- Group 1: Organisational Profile ---
     pdf.set_font("helvetica", "B", 11)
@@ -1262,6 +1298,14 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
             _generated_at_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         except Exception:
             _generated_at_iso = ""
+        # Human-readable UK timestamp for display; avoids ISO patterns in visible DOCX
+        try:
+            _iso_src = getattr(aar_obj, "generated_at", "") or _generated_at_iso
+            from datetime import datetime as _dtcls
+            _dt = _dtcls.fromisoformat(str(_iso_src).replace('Z', '+00:00'))
+            _generated_at_display = _dt.strftime("%-d %B %Y, %H:%M UTC")
+        except Exception:
+            _generated_at_display = ""
         # Derive displays for actions, feedback, and follow-up assurance
         try:
             improvement_actions = _derive_action_displays(improvement_actions)
@@ -1304,7 +1348,8 @@ def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, im
             "executive_summary": getattr(aar_obj, "executive_summary", "") or "",
             "overall_maturity_observed": getattr(aar_obj, "overall_maturity_observed", "Unknown") or "Unknown",
             # Session metadata
-            "generated_at": getattr(aar_obj, "generated_at", "") or _generated_at_iso,
+            "generated_at": _generated_at_display,
+            "generated_at_display": _generated_at_display,
             "report_version": getattr(aar_obj, "report_version", "") or "1.0",
             "report_status": getattr(aar_obj, "report_status", "") or "Draft",
             "facilitator_reviewed": getattr(aar_obj, "facilitator_reviewed", False) or False,
@@ -3510,3 +3555,254 @@ def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
 
     raw_pdf = pdf.output(dest='S')
     return bytes(raw_pdf) if not isinstance(raw_pdf, str) else raw_pdf.encode('latin-1')
+
+def create_tabletop_aar_docx(master_plan: dict, session_notes: list, aar_obj, immediate_injects: list | None = None) -> bytes:
+    """
+    Render an AAR using a docxtpl template (planet_it_tabletop_report_template.docx).
+    Context derives strictly from TabletopAAR and session notes; optional deterministic
+    enrichment is applied if process_tabletop_aar is available in quality_pipeline.
+    Returns bytes suitable for Streamlit download.
+    """
+    try:
+        template_path = os.path.join(os.path.dirname(__file__), "planet_it_tabletop_report_template.docx")
+        if not os.path.exists(template_path):
+            raise FileNotFoundError("planet_it_tabletop_report_template.docx not found")
+        doc = DocxTemplate(template_path)
+    except Exception:
+        return b""
+
+    def _to_dict_list(items):
+        out = []
+        for it in items or []:
+            if hasattr(it, "model_dump"):
+                out.append(it.model_dump())
+            elif isinstance(it, dict):
+                out.append(it)
+            else:
+                try:
+                    out.append({k: getattr(it, k) for k in dir(it) if not k.startswith("_")})
+                except Exception:
+                    continue
+        return out
+
+    # Lessons learned derived deterministically from session notes + immediate injects
+    lessons_learned = []
+    try:
+        for n in session_notes or []:
+            try:
+                scenario = n.get("scenario", "")
+                phase = n.get("phase", "")
+                decision = n.get("decision", "")
+                notes = n.get("notes", "")
+                ts = n.get("simulated_timestamp", "")
+                ref = n.get("inject_id", "")
+                line = f"- Scenario: {scenario} | Inject: {phase} | Decision: {decision}"
+                if notes:
+                    line += f" | Notes: {notes}"
+                if ts or ref:
+                    line += f" | T={ts} Ref={ref}"
+                lessons_learned.append(line.strip())
+            except Exception:
+                continue
+    except Exception:
+        lessons_learned = []
+    # Append immediate injects (pivot consequences), if any
+    try:
+        if isinstance(immediate_injects, list):
+            for ii in immediate_injects:
+                try:
+                    s = ii.get("scenario_title", "")
+                    p = ii.get("phase_title", "")
+                    cn = ii.get("consequence_narrative", "")
+                    qs = ii.get("urgent_pivot_questions", []) or []
+                    lessons_learned.append(f"- Pivot — Scenario: {s} | Inject: {p} | Consequence: {cn} | Urgent probes: " + "; ".join([str(x) for x in qs]))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Optional quality pipeline enrichment
+    try:
+        from quality_pipeline import process_tabletop_aar  # optional hook
+        if callable(process_tabletop_aar):
+            try:
+                client_inputs = {}
+                _result = process_tabletop_aar(master_plan, session_notes, aar_obj, client_inputs)
+                if isinstance(_result, tuple):
+                    master_plan, aar_obj = _result[0], (_result[1] if len(_result) > 1 else aar_obj)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Build iterated context
+    try:
+        scenarios = _to_dict_list(getattr(aar_obj, "scenarios", []))
+    except Exception:
+        scenarios = []
+    try:
+        strengths = _to_dict_list(getattr(aar_obj, "key_strengths", []))
+        gaps = _to_dict_list(getattr(aar_obj, "critical_gaps_identified", []))
+        actions = _to_dict_list(getattr(aar_obj, "improvement_actions", []))
+    except Exception:
+        strengths, gaps, actions = [], [], []
+
+    # Flatten observations for Word rendering
+    def _obs_render_list(obs_list):
+        out = []
+        for o in obs_list or []:
+            try:
+                sid = o.get("id", "")
+                summary = o.get("summary", "")
+                cap = o.get("capability", "")
+                ev = o.get("evidence_source", "")
+                conf = o.get("confidence", "")
+                refs = "; ".join([*map(str, o.get("scenario_references", []) or []), *map(str, o.get("inject_references", []) or [])])
+                line = f"{sid}: {summary} — Capability: {cap} | Evidence: {ev} | Confidence: {conf}"
+                if refs:
+                    line += f" | References: {refs}"
+                out.append(line.strip())
+            except Exception:
+                continue
+        return out
+
+    strengths_render = _obs_render_list(strengths)
+    gaps_render = _obs_render_list(gaps)
+
+    # Actions render list
+    actions_render = []
+    for a in actions or []:
+        try:
+            aid = a.get("id", "")
+            rec = a.get("recommendation", "")
+            pri = a.get("priority", "")
+            owner = a.get("accountable_owner", "") or ""
+            tgt = a.get("target_date", "") or a.get("target_timeframe", "") or ""
+            deps = ", ".join([str(x) for x in (a.get("dependencies", []) or [])])
+            ev = a.get("closure_evidence", "")
+            actions_render.append(f"{aid} — {pri}: {rec} (Owner: {owner or 'TBD'}; Target: {tgt or 'N/A'}; Dependencies: {deps or 'None'}; Evidence: {ev or 'N/A'})")
+        except Exception:
+            continue
+
+    # Capability-level maturity (optional)
+    capability_assessments = _to_dict_list(getattr(aar_obj, "capability_assessments", []))
+    capability_heatmap_text = ""
+    if capability_assessments:
+        capability_heatmap_text = "Capability\tMaturity"
+        for ca in capability_assessments:
+            capability_heatmap_text += f"\n{ca.get('capability','')}\t{ca.get('maturity','')}"
+
+    # Report metadata and narrative fields
+    try:
+        report_data = aar_obj
+    except Exception:
+        report_data = None
+
+    fr = getattr(report_data, "facilitator_reviewed", None)
+    fra = getattr(report_data, "facilitator_reviewed_at", None)
+    facilitator_review_display = "Reviewed ({ts})".format(ts=fra) if fr else "Not reviewed"
+    # Human-readable UK timestamp for display; avoids ISO patterns in visible DOCX (AAR)
+    try:
+        _iso_src = getattr(report_data, "generated_at", "") or ""
+        from datetime import datetime as _dtcls
+        if _iso_src:
+            _dt = _dtcls.fromisoformat(str(_iso_src).replace('Z', '+00:00'))
+            _generated_at_display = _dt.strftime("%-d %B %Y, %H:%M UTC")
+        else:
+            _generated_at_display = ""
+    except Exception:
+        _generated_at_display = ""
+
+    ctx = {
+        "customer_name": getattr(report_data, "customer_name", "") or "",
+        "exercise_title": getattr(report_data, "exercise_title", "") or "",
+        "exercise_id": getattr(report_data, "exercise_id", "") or "",
+        "exercise_date": getattr(report_data, "exercise_date", "") or "",
+        "start_time": getattr(report_data, "start_time", "") or "",
+        "end_time": getattr(report_data, "end_time", "") or "",
+        "exercise_location": getattr(report_data, "exercise_location", "") or "",
+        "delivery_mode": getattr(report_data, "delivery_mode", "") or "",
+        "audience_profile": getattr(report_data, "audience_profile", "") or "",
+        "report_status": getattr(report_data, "report_status", "") or "",
+        "report_version": getattr(report_data, "report_version", "") or "",
+        "information_classification": getattr(report_data, "information_classification", "") or "",
+        "approved_distribution": getattr(report_data, "approved_distribution", []) or [],
+        "handling_restrictions": getattr(report_data, "handling_restrictions", "") or "",
+        "retention_requirement": getattr(report_data, "retention_requirement", "") or "",
+        "facilitator_review_display": facilitator_review_display,
+        # Iterated sections
+        "scenarios": scenarios,
+        "session_notes_render": "\n".join(lessons_learned),
+        "strengths_render": strengths_render,
+        "gaps_render": gaps_render,
+        "actions_render": actions_render,
+        "capability_heatmap_text": capability_heatmap_text,
+        # Narrative sections
+        "executive_summary": getattr(report_data, "executive_summary", "") or "",
+        "overall_maturity_observed": getattr(report_data, "overall_maturity_observed", "") or "",
+        "maturity_rationale": getattr(report_data, "maturity_rationale", "") or "",
+        "facilitator_observations": getattr(report_data, "facilitator_observations", "") or "",
+        "exercise_limitations": getattr(report_data, "exercise_limitations", []) or [],
+        "follow_up_assurance": getattr(report_data, "follow_up_assurance", None),
+        "delta_notes_for_profile": getattr(report_data, "delta_notes_for_profile", "") or "",
+        "profile_changes": _to_dict_list(getattr(report_data, "profile_changes", [])) or [],
+    }
+
+    # Ensure generated_at fields are mapped to the human-readable display form (avoid ISO leakage)
+    try:
+        ctx["generated_at"] = _generated_at_display
+        ctx["generated_at_display"] = _generated_at_display
+    except Exception:
+        pass
+
+    # Always-on marketing/commercial sections (populate unconditionally)
+    try:
+        phone = get_config("PLANET_PHONE", "01235 433900")
+        email = get_config("PLANET_EMAIL", "enquiries@planet-it.net")
+        address = get_config("PLANET_ADDRESS", "85F Park Drive, Milton Park, Abingdon, OX14 4RY")
+        why = get_config("AAR_MARKETING_WHY", "")
+        ped = get_config("AAR_MARKETING_PEDIGREE", "")
+        assumptions = get_config("AAR_ASSUMPTIONS_TEXT", "")
+        tcs = get_config("AAR_TCS_TEXT", "")
+        contacts_text = f"Telephone: {phone}\nEmail: {email}\nAddress: {address}"
+        ctx.update({
+            "marketing_why_planet": (why or "Planet IT is a leading IT partner delivering measurable outcomes across security, cloud and managed services."),
+            "marketing_pedigree": (ped or "Since 2003, Planet IT has supported over 2,000 clients across multiple industries with security, backup and transformation programmes."),
+            "marketing_contacts": contacts_text,
+            "marketing_assumptions_text": (assumptions or ""),
+            "marketing_tcs_text": (tcs or ""),
+        })
+    except Exception:
+        pass
+
+    # Reconcile template keys (aliases for compatibility)
+    ctx = _reconcile_context_for_template(doc, ctx, extra_alias={
+        "ExecutiveSummary": "executive_summary",
+        "SessionNotes": "session_notes_render",
+        "KeyStrengths": "strengths_render",
+        "CriticalGaps": "gaps_render",
+        "ImprovementActions": "actions_render",
+        "CapabilityHeatmap": "capability_heatmap_text",
+        "WhyPlanetIT": "marketing_why_planet",
+        "OurPedigree": "marketing_pedigree",
+        "ContactDetails": "marketing_contacts",
+        "AssumptionsClientResponsibilities": "marketing_assumptions_text",
+        "TermsAndConditions": "marketing_tcs_text",
+    }, debug=str(get_config("RENDER_DEBUG", "false")).strip().lower() in ("1","true","yes","on"))
+
+    try:
+        doc.render(_xml_escape_dict(ctx))
+    except Exception:
+        try:
+            minimal = {k: (ctx.get(k, "") or "") for k in ctx.keys()}
+            doc.render(_xml_escape_dict(minimal))
+        except Exception:
+            return b""
+
+    buffer = io.BytesIO()
+    try:
+        doc.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
+    except Exception:
+        return b""

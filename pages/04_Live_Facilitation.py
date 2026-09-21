@@ -179,6 +179,32 @@ with st.expander("🕵️ Facilitator Guidance & Evaluation Benchmark", expanded
             st.markdown(f"- {pit}")
 
 st.markdown("### 📝 Record Room Consensus & Action")
+
+with st.expander("🧪 Demo helpers", expanded=False):
+    st.caption("Populate deterministic demo content for every inject in this exercise.")
+    if st.button("Populate dummy data for all injects"):
+        try:
+            plan_all = st.session_state.get("tabletop_plan", {})
+            scens = plan_all.get("scenarios", []) or []
+            for si, scen in enumerate(scens):
+                scenario_title = scen.get("scenario_title", f"Scenario {si+1}")
+                injects_all = scen.get("injects", []) or []
+                for ii, inj in enumerate(injects_all):
+                    phase_title = inj.get("phase_title", f"Inject {ii+1}")
+                    # Deterministic, British English dummy content
+                    st.session_state[f"rec_dec_{si}_{ii}"] = (
+                        f"[DEMO] {scenario_title} — {phase_title}: The team agreed on a measured containment "
+                        f"approach, informed the SOC, and prepared stakeholder communications. No confirmed "
+                        f"data exfiltration at this stage."
+                    )
+                    st.session_state[f"rec_eval_{si}_{ii}"] = (
+                        "[DEMO] Generally aligned to the benchmark. Minor delay observed in decision logging; "
+                        "recommend a playbook update and rehearsal to improve confidence under time pressure."
+                    )
+            st.success("Dummy data populated for all injects.")
+            st.rerun()
+        except Exception as e:
+            st.warning(f"Unable to populate demo data: {e}")
 room_decision = st.text_area(
     "What was the client's decision/response?",
     key=f"rec_dec_{s_idx}_{i_idx}",
