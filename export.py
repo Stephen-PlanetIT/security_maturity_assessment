@@ -123,6 +123,11 @@ def _reconcile_context_for_template(doc, context: dict, extra_alias: dict = None
         "Roadmap": "roadmap",
         "Radar_Chart": "radar_chart",
         "Maturity_Gauge": "maturity_gauge",
+        # Programme: list and controls aliases
+        "ProgrammeOptions": "programme_options",
+        "Programme_Options": "programme_options",
+        "ProgrammeControls": "programme_controls_render",
+        "Programme_Controls": "programme_controls_render",
     }
     if isinstance(extra_alias, dict):
         fixed_alias.update(extra_alias)
@@ -704,6 +709,167 @@ def _build_board_summary_text(overall_label: str, overall_percent: int, strength
         return "\n".join(lines)
     except Exception:
         return ""
+
+def _build_rag_summary(report_data, client_inputs: dict, context_dict: dict | None = None) -> list[dict]:
+    """
+    Build a list of up to three top risks for the RAG summary.
+    Each item contains:
+      - severity_label: 'RED' | 'AMBER' | 'GREEN'
+      - severity_pct: int (e.g., 40 RED, 35 AMBER, 60 GREEN)
+      - issue_title: str
+      - business_exposure: str
+      - priority_action: str
+      - suggested_solutions: Optional[List[str]]
+    Primary source: executive_summary_action_blocks (heading/risk/actions)
+    Secondary: domain_ratings (High Risk domains and lowest percent)
+    Fallback: hygiene signals from client_inputs (MFA/Patching/Backups)
+    """
+    items: list[dict] = []
+
+    def _sev_from_text(txt: str) -> str:
+        t = (txt or "").lower()
+        if any(k in t for k in ("mfa", "multi-factor", "patch", "patching", "backup", "immutable", "ransomware", "privileged")):
+            return "Red"
+        return "Amber"
+
+    # 1) Executive Summary Action Blocks
+    try:
+        blocks = getattr(report_data, "executive_summary_action_blocks", []) or []
+        for blk in blocks:
+            try:
+                heading = getattr(blk, "heading", "") or ""
+                risk = getattr(blk, "risk", "") or ""
+                acts = getattr(blk, "remediation_actions", []) or []
+                sev = _sev_from_text(heading + " " + risk)
+                lbl = "RED" if sev == "Red" else ("AMBER" if sev == "Amber" else "GREEN")
+                pct = 40 if lbl == "RED" else (35 if lbl == "AMBER" else 60)
+                items.append({
+                    "severity_label": lbl,
+                    "severity_pct": pct,
+                    "issue_title": heading or "Top issue",
+                    "business_exposure": risk or "",
+                    "priority_action": str(acts[0]) if acts else "Prioritise remediation with accountable ownership and evidence.",
+                    "suggested_solutions": [str(a) for a in acts][:2],
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 2) Domain ratings (High Risk and lowest percent)
+    try:
+        dr = None
+        if isinstance(context_dict, dict):
+            dr = context_dict.get("domain_ratings")
+        if isinstance(dr, list):
+            highs = [d for d in dr if str(d.get("category", "")).strip() == "High Risk"]
+            lows = sorted([d for d in dr if isinstance(d.get("percent"), int)], key=lambda x: x.get("percent", 100))
+            for d in highs[:2]:
+                title = f"Domain: {d.get('domain','Unknown')} in High Risk"
+                items.append({
+                    "severity_label": "RED",
+                    "severity_pct": 40,
+                    "issue_title": title,
+                    "business_exposure": "Low maturity in this domain materially increases exposure until controls are improved.",
+                    "priority_action": "Execute the domain’s top remediation actions with owners and evidence.",
+                })
+            if not highs and lows:
+                d = lows[0]
+                title = f"Domain: {d.get('domain','Unknown')} improvement required"
+                items.append({
+                    "severity_label": "AMBER",
+                    "severity_pct": 35,
+                    "issue_title": title,
+                    "business_exposure": "This domain is comparatively weaker; uplift reduces overall exposure.",
+                    "priority_action": "Deliver the domain’s priority improvements and measure evidence.",
+                })
+    except Exception:
+        pass
+
+    # 3) Hygiene fallback (client_inputs) if still empty
+    try:
+        if not items:
+            mfa = str((client_inputs or {}).get("mfa_status", "")).strip()
+            patch = str((client_inputs or {}).get("patching", "")).strip()
+            bkp = str((client_inputs or {}).get("backups", "")).strip()
+            if mfa in ("None", "Privileged Accounts Only") or patch == "Manual / Ad-hoc" or bkp in ("No Formal Backups", "On-Premise Only"):
+                items.append({
+                    "severity_label": "RED",
+                    "severity_pct": 40,
+                    "issue_title": "Foundational hygiene gaps",
+                    "business_exposure": "Missing universal MFA, automated patching or immutable backups widens the attack surface and prolongs recovery.",
+                    "priority_action": "Enforce MFA, automate patching and adopt immutable backups with restore testing.",
+                })
+    except Exception:
+        pass
+
+    # Deduplicate by title and cap to three
+    try:
+        seen = set()
+        dedup = []
+        for it in items:
+            t = it.get("issue_title", "")
+            if t in seen:
+                continue
+            seen.add(t)
+            dedup.append(it)
+        items = dedup[:3]
+    except Exception:
+        items = items[:3] if items else items
+
+    return items
+
+def _adjudicate_known_issues(known_issues_list, rag_list: list[dict]) -> list[dict]:
+    """
+    Match self-reported issues to top risks (rag_list) using token overlap.
+    Returns enriched dicts per issue: issue_text, our_ruling, rationale,
+    suggested_remediations, aligned_solutions.
+    """
+    import re
+    def _tok(s):
+        s = (s or "").lower()
+        return {t for t in re.split(r"[^a-z0-9]+", s) if len(t) >= 3}
+
+    out = []
+    rag = rag_list or []
+    for it in (known_issues_list or [])[:10]:
+        issue = (str(it).strip() if not isinstance(it, dict) else str(it.get("issue_text","")).strip()) or ""
+        ruling = ""
+        rationale = ""
+        rems = []
+        sols = []
+        itoks = _tok(issue)
+        best = None; best_score = 0.0; common = set()
+        for r in rag:
+            rtoks = _tok(r.get("issue_title",""))
+            overlap = len(itoks & rtoks)
+            score = overlap / max(len(itoks | rtoks), 1)
+            if score > best_score:
+                best = r; best_score = score; common = (itoks & rtoks)
+        if best:
+            title = best.get("issue_title","Top risk")
+            lbl = best.get("severity_label","AMBER")
+            pct = best.get("severity_pct",35)
+            ruling = f"Aligned with top risk: '{title}' ({lbl} {pct}%). Proportionate to observed exposure."
+            rationale = f"Matched tokens: {', '.join(sorted(common))}" if common else f"Semantic similarity to '{title}'."
+            pa = best.get("priority_action","")
+            if pa:
+                rems.append(pa)
+            ss = best.get("suggested_solutions",[]) or []
+            sols = [str(x) for x in ss[:3]]
+        else:
+            ruling = "Not observed amongst the top three risks; may be context‑specific or lower priority."
+            rationale = "No strong token overlap with top risks derived from consultation and domain ratings."
+            rems = ["Assign ownership, define acceptance criteria, and plan remediation into the phased roadmap."]
+            sols = ["Consultation to validate exposure and, if confirmed, align to relevant workstream."]
+        out.append({
+            "issue_text": issue or "Issue",
+            "our_ruling": ruling,
+            "rationale": rationale,
+            "suggested_remediations": rems,
+            "aligned_solutions": sols
+        })
+    return out
 
 # --- DISPLAY DERIVATIONS (executive & *_display) ---
 def _safe_join(values, sep=", "):
@@ -1586,7 +1752,61 @@ def create_threat_docx(client_inputs: dict, scenario_obj, recs: list, mdr_case: 
 
     # Structure the context variables mirroring the template structure
     # Initialize with existing fields for backwards compatibility
-    context = {
+    # Compute RAG summary and adjudicated known issues (context-only; no post-render injection)
+    try:
+        rag_summary = _build_rag_summary(report_data, client_inputs, {"domain_ratings": domain_ratings})
+    except Exception:
+        rag_summary = []
+    try:
+        adjudicated_known_issues = _adjudicate_known_issues(client_inputs.get("known_issues") or [], rag_summary)
+    except Exception:
+        adjudicated_known_issues = []
+        
+        # Render Programme Controls into a deterministic ASCII-safe string if present
+        programme_controls_render = ""
+        try:
+            pc = getattr(report_data, "programme_controls", None)
+            if pc is not None:
+                def _getattr(o, name, default=""):
+                    try:
+                        return getattr(o, name, default)
+                    except Exception:
+                        return default
+                def _get(o, name, default=""):
+                    if isinstance(o, dict):
+                        return o.get(name, default)
+                    return _getattr(o, name, default)
+                pcs = [
+                    ("Phishing simulations", _get(pc, "phishing_simulations", "")),
+                    ("Security training programme", _get(pc, "security_training_programme", "")),
+                    ("Endpoint privileges", _get(pc, "endpoint_privileges", "")),
+                    ("Reporting routes", _get(pc, "reporting_routes", "")),
+                    ("Follow-up coaching", _get(pc, "followup_coaching", "")),
+                    ("Role-based training", _get(pc, "role_based_training", "")),
+                    ("Leadership engagement", _get(pc, "leadership_engagement", "")),
+                    ("Policy acknowledgement", _get(pc, "policy_acknowledgement", "")),
+                ]
+                metrics = []
+                pfr = _get(pc, "phish_failure_rate_90d", None)
+                rr = _get(pc, "report_rate_90d", None)
+                ccs = _get(pc, "calculated_culture_score", None)
+                ctier = _get(pc, "culture_tier", "")
+                if pfr is not None:
+                    metrics.append(f"Phish failure (90d): {int(pfr)}%")
+                if rr is not None:
+                    metrics.append(f"Report rate (90d): {int(rr)}%")
+                if ccs is not None:
+                    metrics.append(f"Culture score: {int(ccs)}/14")
+                if ctier:
+                    metrics.append(f"Culture tier: {ctier}")
+                lines = [f"- {k}: {str(v)}" for k, v in pcs if str(v).strip()]
+                if metrics:
+                    lines.append("- Metrics: " + "; ".join(metrics))
+                programme_controls_render = "\n".join(lines)
+        except Exception:
+            programme_controls_render = ""
+        
+        context = {
         # --- Organisational Profile ---
         "customer_name": client_inputs.get("customer_name", "Customer"),
         "consultant_name": client_inputs.get("consultant_name", "Planet IT Consultant"),
@@ -2258,6 +2478,10 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     """
     template_path = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template.docx")
     doc = DocxTemplate(template_path)
+    context = {}
+    # Ensure programme locals exist on all paths before context assembly
+    programme_options = []
+    programme_controls_render = ""
 
     # Fallback: If the active template does not declare the partnership placeholder,
     # attempt to fall back to the versioned template with the dedicated placeholder.
@@ -2294,14 +2518,16 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     data = getattr(report_data, "radar_chart_data", None)
     labels = []
     values = []
+    dd = {}
     if data is not None:
         if hasattr(data, "model_dump"):
             dd = data.model_dump()
             labels = list(dd.keys())
             values = list(dd.values())
         elif isinstance(data, dict):
-            labels = list(data.keys())
-            values = list(data.values())
+            dd = dict(data)
+            labels = list(dd.keys())
+            values = list(dd.values())
     chart_path = generate_radar_chart_from_values(labels, values, figsize=(4, 4))
     try:
         with open(chart_path, "rb") as f:
@@ -2376,6 +2602,221 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         f"Overall: {overall_category} ({overall_percent}/100) — approx. Pillar {approx_pillar} weighted across core domains"
     )
 
+    # Precompute per-domain weighted contribution percents from radar dd and MATURITY_WEIGHTS
+    domain_weighted_pct_map = {}
+    try:
+        def _norm_score(v):
+            try:
+                fv = float(v)
+            except Exception:
+                fv = 1.0
+            if fv < 0:
+                fv = 0.0
+            if fv > 3:
+                fv = 3.0
+            return fv
+        _DOMAIN_TO_RADAR = {
+            "Identity & Access Management": "iam",
+            "Privileged Access & Identity Governance": "privileged_access",
+            "Endpoint & Device Security": "endpoint",
+            "Network & Remote Access Security": "network",
+            "Email & Collaboration Security": "email",
+            "Cloud & Infrastructure Security": "cloud",
+            "SaaS & Application Governance": "saas",
+            "Data Security & Information Protection": "data_security",
+            "Security Operations & Response": "secops",
+            "Security Validation & Testing": "testing",
+            "Supplier & Third-Party Security": "supplier",
+            "Operational Resilience & Backup": "resilience",
+            "Security Culture & Awareness": "culture",
+            "Governance, Risk & Compliance": "grc",
+            "AI Governance & Security": "ai",
+        }
+        if isinstance(dd, dict):
+            for dname, rkey in _DOMAIN_TO_RADAR.items():
+                if rkey in dd and rkey in MATURITY_WEIGHTS:
+                    s = _norm_score(dd.get(rkey, 1))
+                    w = MATURITY_WEIGHTS.get(rkey, 0.0)
+                    pct = int(round(w * (s / 3.0) * 100))
+                    if pct < 0:
+                        pct = 0
+                    if pct > 100:
+                        pct = 100
+                    domain_weighted_pct_map[dname] = pct
+    except Exception:
+        domain_weighted_pct_map = {}
+
+    # Build a structured Security Rating dict for the template (no post-render injection)
+    try:
+        # Primary strengths/gaps derived from executive summary content
+        exec_actions = getattr(report_data, "executive_summary_actions", []) or []
+        exec_blocks = getattr(report_data, "executive_summary_action_blocks", []) or []
+        primary_strengths = [str(x) for x in exec_actions[:3]]
+        primary_gaps = []
+        for b in exec_blocks[:3]:
+            if isinstance(b, dict):
+                primary_gaps.append(str(b.get("risk", "")))
+            else:
+                try:
+                    primary_gaps.append(str(getattr(b, "risk", "")))
+                except Exception:
+                    primary_gaps.append("")
+        primary_gaps = [x for x in primary_gaps if x]
+
+        # Weighted areas derived from domain_weighted_pct_map and radar scores
+        weighted_areas = []
+        try:
+            # dd is available when radar_chart_data was model_dumped to dict
+            def _indicative_score(key):
+                try:
+                    v = float(dd.get(key, 1))
+                except Exception:
+                    v = 1.0
+                # clamp 1..3
+                if v < 1: v = 1.0
+                if v > 3: v = 3.0
+                return int(round(v))
+
+            def _domain_rationale(domain_name: str, radar_key: str, weighted_pct: int) -> str:
+                """
+                Build a concise rationale for the weighted maturity table using existing LLM output:
+                - First sentence of business_impact_narrative (if available)
+                - Why it matters: weighted_contribution %, indicative score band
+                - Executive risk context from executive_summary_action_blocks (first sentence)
+                - Priority uplift via the first recommended solution (if present)
+                British English; concise; no claims about scoring changes.
+                """
+                rationale_bits = []
+
+                # 1) Domain business impact (primary)
+                try:
+                    doms = getattr(report_data, "domain_assessments", []) or getattr(report_data, "domains", []) or []
+                    imp = ""
+                    rec0 = ""
+                    for d in doms:
+                        if isinstance(d, dict):
+                            name = d.get("domain_name") or d.get("name")
+                            if str(name).strip() == str(domain_name).strip():
+                                imp = d.get("business_impact_narrative", "") or ""
+                                recs = d.get("recommended_solutions", []) or []
+                                if isinstance(recs, list) and recs:
+                                    rec0 = str(recs[0])
+                                break
+                        else:
+                            name = getattr(d, "domain_name", None) or getattr(d, "name", None)
+                            if str(name).strip() == str(domain_name).strip():
+                                imp = getattr(d, "business_impact_narrative", "") or ""
+                                recs = getattr(d, "recommended_solutions", []) or []
+                                if isinstance(recs, list) and recs:
+                                    rec0 = str(recs[0])
+                                break
+                    from_text = _first_sentence(str(imp)) if imp else ""
+                    if from_text:
+                        rationale_bits.append(from_text)
+                except Exception:
+                    pass
+
+                # 2) Why it matters (weight and score)
+                try:
+                    score = _indicative_score(radar_key) if radar_key else 1
+                    band = "Reactive" if score == 1 else ("Proactive" if score == 2 else "Adaptive")
+                    rationale_bits.append(f"Weighted contribution {int(weighted_pct)}% ({band} control posture observed).")
+                except Exception:
+                    pass
+
+                # 3) Executive risk linkage (if any)
+                try:
+                    blks = getattr(report_data, "executive_summary_action_blocks", []) or []
+                    clue = ""
+                    for b in blks:
+                        try:
+                            hdr = (b.get("heading","") if isinstance(b, dict) else getattr(b, "heading", "")) or ""
+                            risk = (b.get("risk","") if isinstance(b, dict) else getattr(b, "risk", "")) or ""
+                            txt = f"{hdr} {risk}".lower()
+                            tokens = (domain_name.lower().split() + [str(radar_key).lower()]) if radar_key else domain_name.lower().split()
+                            if any(t for t in tokens if t and t in txt):
+                                clue = _first_sentence(risk or hdr)
+                                break
+                        except Exception:
+                            continue
+                    if clue:
+                        rationale_bits.append(clue)
+                except Exception:
+                    pass
+
+                # 4) Priority uplift (solution hint)
+                try:
+                    if 'rec0' in locals() and rec0:
+                        rationale_bits.append(f"Priority uplift via: {rec0}.")
+                except Exception:
+                    pass
+
+                # Fallback if empty
+                try:
+                    if not any(str(x).strip() for x in rationale_bits):
+                        score = _indicative_score(radar_key) if radar_key else 1
+                        band = "Reactive" if score == 1 else ("Proactive" if score == 2 else "Adaptive")
+                        rationale_bits = [f"Current posture: {band}. Focus this area to reduce exposure and improve operational resilience."]
+                except Exception:
+                    rationale_bits = ["Focus this area to reduce exposure and improve operational resilience."]
+
+                return " ".join([str(x).strip() for x in rationale_bits if str(x).strip()])
+        except Exception:
+            def _indicative_score(_): return 1
+
+        for dname, pct in (domain_weighted_pct_map or {}).items():
+            rkey = _DOMAIN_TO_RADAR.get(dname)
+            wt = int(round(MATURITY_WEIGHTS.get(rkey, 0.0) * 100)) if rkey in MATURITY_WEIGHTS else 0
+            weighted_areas.append({
+                "area": dname,
+                    "weight_percent": wt,
+                    "indicative_score": _indicative_score(rkey) if rkey else 1,
+                    "weighted_contribution": int(pct),
+                    "rationale": _domain_rationale(dname, rkey, pct),
+                })
+
+        # Maturity bands (static legend used by template)
+        maturity_bands = [
+            {"score_range": "0–39", "rating": "High Risk", "meaning": "Foundational gaps and reactive posture"},
+            {"score_range": "40–59", "rating": "Needs Attention", "meaning": "Proactive improvement underway"},
+            {"score_range": "60–79", "rating": "Moderate", "meaning": "Controls maturing; governance stabilising"},
+            {"score_range": "80–100", "rating": "Strong", "meaning": "Adaptive and evidence-led resilience"},
+        ]
+
+        # Snapshot and statements
+        security_rating = {
+            "overall_score": int(overall_percent),
+            "maturity_rating": str(overall_category),
+            "snapshot": {
+                "overall_score": int(overall_percent),
+                "maturity_rating": str(overall_category),
+                "direction_of_travel": "Stable",
+                "primary_strengths": primary_strengths,
+                "primary_gaps": primary_gaps,
+                "board_level_takeaway": "Focus on priority controls that reduce operational disruption and data exposure risk.",
+            },
+            "weighted_areas": weighted_areas,
+            "maturity_bands": maturity_bands,
+            "executive_interpretation": "This weighted view balances identity, operations and recovery controls to reflect operational resilience.",
+            "score_statement": f"Overall: {overall_category} ({overall_percent}/100).",
+            "caveat": ("This score reflects a point-in-time maturity view based on the assessment discussion and supporting notes. "
+                       "It is not a certification or independently tested technical rating."),
+        }
+    except Exception:
+        # Fail-closed safe default
+        security_rating = {
+            "overall_score": 0,
+            "maturity_rating": "High Risk",
+            "snapshot": {
+                "overall_score": 0, "maturity_rating": "High Risk",
+                "direction_of_travel": "Stable",
+                "primary_strengths": [], "primary_gaps": [],
+                "board_level_takeaway": ""
+            },
+            "weighted_areas": [], "maturity_bands": [],
+            "executive_interpretation": "", "score_statement": "", "caveat": ""
+        }
+
     # Derived board summary and capability heatmap text (Maturity) prior to context assembly
     try:
         # Capability heatmap (Detection/Response/Recovery) derived from radar if available
@@ -2430,28 +2871,7 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         "AI Governance & Security": "ai",
     }
 
-    # Build per-domain weighted contribution percents from radar_chart_data and MATURITY_WEIGHTS
-    domain_weighted_pct_map = {}
-    try:
-        if "dd" in locals() and isinstance(dd, dict):
-            def _norm_score(v):
-                try:
-                    fv = float(v)
-                except Exception:
-                    fv = 1.0
-                if fv < 0: fv = 0.0
-                if fv > 3: fv = 3.0
-                return fv
-            for dname, rkey in _DOMAIN_TO_RADAR.items():
-                if rkey in dd and rkey in MATURITY_WEIGHTS:
-                    s = _norm_score(dd.get(rkey, 1))
-                    w = MATURITY_WEIGHTS.get(rkey, 0.0)
-                    pct = int(round(w * (s / 3.0) * 100))
-                    if pct < 0: pct = 0
-                    if pct > 100: pct = 100
-                    domain_weighted_pct_map[dname] = pct
-    except Exception:
-        domain_weighted_pct_map = {}
+    # domain_weighted_pct_map precomputed earlier
 
     domain_items = getattr(report_data, "domain_assessments", None) or getattr(report_data, "domains", None) or []
     if not isinstance(domain_items, list):
@@ -2551,7 +2971,148 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             plan_text = " | ".join(actions_per_gap)
             parts.append(f"Standard: {comp.get('standard','')} | Gaps: {gaps_text} | Actions: {plan_text}")
         compliance_alignment_render = "\n\n".join(parts)
+    # Compute RAG summary and adjudicated known issues (context-only; no post-render injection)
+    try:
+        rag_summary = _build_rag_summary(report_data, client_inputs, {"domain_ratings": domain_ratings})
+    except Exception:
+        rag_summary = []
+    try:
+        adjudicated_known_issues = _adjudicate_known_issues(client_inputs.get("known_issues") or [], rag_summary)
+    except Exception:
+        adjudicated_known_issues = []
+        
+        # Build 'programme_options' list for template loops if present
+        programme_options = []
+        try:
+            po_src = getattr(report_data, "programme_options", None)
+            if isinstance(po_src, list) and po_src:
+                tmp = []
+                for it in po_src[:10]:
+                    if isinstance(it, dict):
+                        tmp.append({
+                            "solution": it.get("solution",""),
+                            "why_this_fits": it.get("why_this_fits",""),
+                            "cost_band": it.get("cost_band",""),
+                        })
+                    else:
+                        tmp.append({
+                            "solution": str(it),
+                            "why_this_fits": "",
+                            "cost_band": "",
+                        })
+                programme_options = [_xml_escape_dict(x) for x in tmp]
+            else:
+                # Fallback A: derive from executive_summary_action_blocks
+                tmp = []
+                blks = getattr(report_data, "executive_summary_action_blocks", []) or []
+                def _cost_band_from_text(s):
+                    t = (s or "").lower()
+                    if any(k in t for k in ("mdr","out-of-hours","24/7","response")):
+                        return "High / TBC"
+                    if any(k in t for k in ("tabletop","response-plan","recovery")):
+                        return "Medium initially; High if backup licensing is added"
+                    if any(k in t for k in ("vulnerability","scanning","ftp","remediation")):
+                        return "Medium to High / TBC"
+                    return "TBC following discovery"
+                for b in blks[:6]:
+                    try:
+                        if isinstance(b, dict):
+                            heading = b.get("heading","")
+                            risk = b.get("risk","")
+                            acts = b.get("remediation_actions",[]) or []
+                        else:
+                            heading = getattr(b, "heading", "") or ""
+                            risk = getattr(b, "risk", "") or ""
+                            acts = getattr(b, "remediation_actions", []) or []
+                        act0 = acts[0] if isinstance(acts, list) and acts else ""
+                        solution = str(act0 or heading or "")
+                        why_fit = _first_sentence(str(risk or heading or ""))
+                        cost_band = _cost_band_from_text(solution + " " + why_fit)
+                        if solution:
+                            tmp.append({
+                                "solution": solution,
+                                "why_this_fits": why_fit,
+                                "cost_band": cost_band,
+                            })
+                    except Exception:
+                        continue
+                # Fallback B: derive from domain_assessments if still empty
+                if not tmp:
+                    das = getattr(report_data, "domain_assessments", []) or []
+                    for da in das:
+                        try:
+                            if isinstance(da, dict):
+                                recs = da.get("recommended_solutions", []) or []
+                                why = da.get("business_impact_narrative","") or ""
+                            else:
+                                recs = getattr(da, "recommended_solutions", []) or []
+                                why = getattr(da, "business_impact_narrative", "") or ""
+                            for r in (recs or [])[:1]:
+                                cb = _cost_band_from_text(str(r) + " " + str(why))
+                                tmp.append({
+                                    "solution": str(r),
+                                    "why_this_fits": _first_sentence(str(why)),
+                                    "cost_band": cb,
+                                })
+                        except Exception:
+                            continue
+                # Deduplicate and cap to top 4
+                seen = set(); out = []
+                for it in tmp:
+                    key = it["solution"]
+                    if key in seen:
+                        continue
+                    seen.add(key); out.append(it)
+                programme_options = [_xml_escape_dict(x) for x in out[:4]]
+        except Exception:
+            programme_options = []
+        
+        # Render Programme Controls into a deterministic ASCII-safe string if present
+        programme_controls_render = ""
+        try:
+            pc = getattr(report_data, "programme_controls", None)
+            if pc is not None:
+                def _getattr(o, name, default=""):
+                    try:
+                        return getattr(o, name, default)
+                    except Exception:
+                        return default
+                def _get(o, name, default=""):
+                    if isinstance(o, dict):
+                        return o.get(name, default)
+                    return _getattr(o, name, default)
+                pcs = [
+                    ("Phishing simulations", _get(pc, "phishing_simulations", "")),
+                    ("Security training programme", _get(pc, "security_training_programme", "")),
+                    ("Endpoint privileges", _get(pc, "endpoint_privileges", "")),
+                    ("Reporting routes", _get(pc, "reporting_routes", "")),
+                    ("Follow-up coaching", _get(pc, "followup_coaching", "")),
+                    ("Role-based training", _get(pc, "role_based_training", "")),
+                    ("Leadership engagement", _get(pc, "leadership_engagement", "")),
+                    ("Policy acknowledgement", _get(pc, "policy_acknowledgement", "")),
+                ]
+                metrics = []
+                pfr = _get(pc, "phish_failure_rate_90d", None)
+                rr = _get(pc, "report_rate_90d", None)
+                ccs = _get(pc, "calculated_culture_score", None)
+                ctier = _get(pc, "culture_tier", "")
+                if pfr is not None:
+                    metrics.append(f"Phish failure (90d): {int(pfr)}%")
+                if rr is not None:
+                    metrics.append(f"Report rate (90d): {int(rr)}%")
+                if ccs is not None:
+                    metrics.append(f"Culture score: {int(ccs)}/14")
+                if ctier:
+                    metrics.append(f"Culture tier: {ctier}")
+                lines = [f"- {k}: {str(v)}" for k, v in pcs if str(v).strip()]
+                if metrics:
+                    lines.append("- Metrics: " + "; ".join(metrics))
+                programme_controls_render = "\n".join(lines)
+        except Exception:
+            programme_controls_render = ""
+        
     context = {
+        "security_rating": security_rating,
         "threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
         "Threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
         # New derived executive sections (optional placeholders)
@@ -2638,7 +3199,192 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         "consultant_discovery_guide": _as_list(getattr(report_data, "consultant_discovery_guide", None)),
         "compliance_alignment_render": compliance_alignment_render,
         "partnership_outline": getattr(report_data, "partnership_outline", ""),
+        # Programme options list for DOCX table loop
+        "programme_options": programme_options,
+        # Programme controls bindings and aliases (template compatibility)
+        "programme_controls_render": programme_controls_render,
+        "programme_controls": programme_controls_render,
+        "ProgrammeControls": programme_controls_render,
+        "Programme_Controls": programme_controls_render,
     }
+    # Adjudicated Known Issues and RAG summary (context-only, no post-render injection)
+    context["rag_summary"] = rag_summary
+    context["adjudicated_known_issues"] = adjudicated_known_issues
+
+    # Safety: ensure critical structured objects exist (avoid Jinja accessing attributes on strings)
+    try:
+        # security_rating must be a dict with keys like 'snapshot'
+        if not isinstance(context.get("security_rating"), dict):
+            try:
+                context["security_rating"] = security_rating
+            except Exception:
+                context["security_rating"] = {
+                    "overall_score": 0,
+                    "maturity_rating": "",
+                    "snapshot": {
+                        "overall_score": 0,
+                        "maturity_rating": "",
+                        "direction_of_travel": "",
+                        "primary_strengths": [],
+                        "primary_gaps": [],
+                        "board_level_takeaway": ""
+                    },
+                    "weighted_areas": [],
+                    "maturity_bands": [],
+                    "executive_interpretation": "",
+                    "score_statement": "",
+                    "caveat": ""
+                }
+        # Lists used by template loops should be lists (not strings)
+        if not isinstance(context.get("domains"), list):
+            context["domains"] = domains_list if isinstance(domains_list, list) else []
+        if not isinstance(context.get("roadmap"), list):
+            context["roadmap"] = roadmap_list if isinstance(roadmap_list, list) else []
+        if "cap_summary" not in context:
+            context["cap_summary"] = format_critical_asset_profile(client_inputs.get("critical_asset_profile", {}))
+        if not isinstance(context.get("programme_options"), list):
+            context["programme_options"] = []
+    except Exception:
+        pass
+
+    # Ensure programme_options is populated for template loop even if earlier assembly path was skipped
+    try:
+        if "programme_options" not in context or not isinstance(context.get("programme_options"), list) or not context.get("programme_options"):
+            tmp = []
+            po_src = getattr(report_data, "programme_options", None)
+            if isinstance(po_src, list) and po_src:
+                for it in po_src[:10]:
+                    if isinstance(it, dict):
+                        tmp.append({
+                            "solution": it.get("solution", ""),
+                            "why_this_fits": it.get("why_this_fits", ""),
+                            "cost_band": it.get("cost_band", ""),
+                        })
+                    else:
+                        tmp.append({
+                            "solution": str(it),
+                            "why_this_fits": "",
+                            "cost_band": "",
+                        })
+            if not tmp:
+                blks = getattr(report_data, "executive_summary_action_blocks", []) or []
+                def _cost_band_from_text(s):
+                    t = (s or "").lower()
+                    if any(k in t for k in ("mdr", "out-of-hours", "24/7", "response")):
+                        return "High / TBC"
+                    if any(k in t for k in ("tabletop", "response-plan", "recovery")):
+                        return "Medium initially; High if backup licensing is added"
+                    if any(k in t for k in ("vulnerability", "scanning", "ftp", "remediation")):
+                        return "Medium to High / TBC"
+                    return "TBC following discovery"
+                for b in blks[:6]:
+                    try:
+                        heading = b.get("heading", "") if isinstance(b, dict) else getattr(b, "heading", "") or ""
+                        risk = b.get("risk", "") if isinstance(b, dict) else getattr(b, "risk", "") or ""
+                        acts = b.get("remediation_actions", []) if isinstance(b, dict) else getattr(b, "remediation_actions", []) or []
+                        act0 = acts[0] if isinstance(acts, list) and acts else ""
+                        solution = str(act0 or heading or "")
+                        why_fit = _first_sentence(str(risk or heading or ""))
+                        if solution:
+                            tmp.append({
+                                "solution": solution,
+                                "why_this_fits": why_fit,
+                                "cost_band": _cost_band_from_text(solution + " " + why_fit),
+                            })
+                    except Exception:
+                        continue
+            if not tmp:
+                das = getattr(report_data, "domain_assessments", []) or []
+                for da in das:
+                    try:
+                        if isinstance(da, dict):
+                            recs = da.get("recommended_solutions", []) or []
+                            why = da.get("business_impact_narrative", "") or ""
+                        else:
+                            recs = getattr(da, "recommended_solutions", []) or []
+                            why = getattr(da, "business_impact_narrative", "") or ""
+                        for r in (recs or [])[:1]:
+                            tmp.append({
+                                "solution": str(r),
+                                "why_this_fits": _first_sentence(str(why)),
+                                "cost_band": "TBC following discovery",
+                            })
+                    except Exception:
+                        continue
+            # Deduplicate and cap to 4
+            seen = set(); out = []
+            for it in tmp:
+                key = it.get("solution", "")
+                if not key or key in seen:
+                    continue
+                seen.add(key); out.append(it)
+            if out:
+                context["programme_options"] = [_xml_escape_dict(x) for x in out[:4]]
+        # Ensure other essential context keys exist if earlier assembly path was skipped
+        if "customer_name" not in context:
+            context["customer_name"] = client_inputs.get("customer_name", "Customer")
+        if "radar_chart" not in context:
+            context["radar_chart"] = chart_image
+        if "maturity_gauge" not in context:
+            context["maturity_gauge"] = maturity_gauge_image
+        if "domain_ratings" not in context:
+            context["domain_ratings"] = domain_ratings
+        if "domain_ratings_bullets" not in context:
+            context["domain_ratings_bullets"] = domain_ratings_bullets
+        if "maturity_gauge_caption" not in context:
+            context["maturity_gauge_caption"] = maturity_gauge_caption
+        if "maturity_pillar_distribution" not in context:
+            context["maturity_pillar_distribution"] = maturity_pillar_distribution
+    except Exception:
+        # Non-fatal; template reconciler will fill blanks
+        pass
+
+    # Legacy template fallback: render plain-text for {{ rag_section }} and {{ known_issues_section }}
+    # This avoids post-render injections and ensures immediate in-place content until docxtpl loops are added.
+    def _render_rag_text(_rag):
+        try:
+            lines = []
+            for r in (_rag or []):
+                lbl = str(r.get("severity_label", "")).title()
+                pct = r.get("severity_pct", "")
+                title = r.get("issue_title", "")
+                lines.append(f"{lbl} {pct}% — {title}".strip())
+                be = r.get("business_exposure", "")
+                if be:
+                    lines.append(f"  Exposure: {be}")
+                pa = r.get("priority_action", "")
+                if pa:
+                    lines.append(f"  Action: {pa}")
+            return "\n".join(lines) if lines else "N/A"
+        except Exception:
+            return "N/A"
+
+    def _render_known_issues_text(_kis):
+        try:
+            out = []
+            for i, ki in enumerate((_kis or []), 1):
+                out.append(f"{i}. Issue: {ki.get('issue_text','')}")
+                rul = ki.get("our_ruling", "")
+                if rul:
+                    out.append(f"   Ruling: {rul}")
+                rat = ki.get("rationale", "")
+                if rat:
+                    out.append(f"   Rationale: {rat}")
+                rems = ki.get("suggested_remediations") or []
+                if rems:
+                    out.append("   Remediations: " + "; ".join([str(x) for x in rems]))
+                sols = ki.get("aligned_solutions") or []
+                if sols:
+                    out.append("   Solutions: " + "; ".join([str(x) for x in sols]))
+            return "\n".join(out) if out else "N/A"
+        except Exception:
+            return "N/A"
+
+    # Populate anchors only if not pre-populated elsewhere
+    if not context.get("rag_section"):
+        context["rag_section"] = _render_rag_text(rag_summary)
+    if not context.get("known_issues_section"):
+        context["known_issues_section"] = _render_known_issues_text(adjudicated_known_issues)
     # Ensure a stable baseline set of keys for the template, even if some fields are missing from LLM outputs
     try:
         # Threat scenarios: if not present, fill from local ts_text

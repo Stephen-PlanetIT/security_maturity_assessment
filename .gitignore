@@ -9,6 +9,9 @@ venv/
 .venv/
 env.bak/
 venv.bak/
+.venv*/
+tools/
+tests/
 
 # Secrets & environment
 .env
@@ -27,3 +30,7 @@ venv.bak/
 
 # Generated client outputs (not templates)
 ~$*.docx
+security_executive_fragments*
+security_rating_fragment*
+smoke*
+Smoke*

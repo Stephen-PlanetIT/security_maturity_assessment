@@ -45,7 +45,7 @@ from consultation_schema import (
     DEP_MAPPING_OPTIONS,
     RECOVERY_PRIORITIES_OPTIONS,
 )
-from consultation_helpers import migrate_profile
+from consultation_helpers import migrate_profile, readiness_summary
 
 _SANITISE_REPLACEMENTS = [
     (_re.compile(r'["]{3,}'), '"'),
@@ -703,10 +703,24 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
             st.download_button(
                 "📄 Download Cybersecurity Maturity Report (Word)",
                 data=bytes_docx,
-                file_name=fname,
+                file_name=f"{ci.get('customer_name','Client').replace(' ', '_')}_Cybersecurity_Maturity_Report.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key="dl_maturity_docx_main"
             )
+            # Also provide a JSON export for current options for discoverability within Export section
+            try:
+                import json as _json
+                export_profile = st.session_state.get('client_inputs', {}) or {}
+                file_customer_name = export_profile.get('customer_name', 'Client')
+                st.download_button(
+                    "🧾 Export current options (.json)",
+                    data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+                    file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
+                    mime="application/json",
+                    key="dl_maturity_profile_json_main"
+                )
+            except Exception:
+                pass
         else:
             st.warning("Export not ready. You can retry rendering the report.")
             if st.button("Retry Export", key="retry_export_docx_main"):
@@ -719,60 +733,44 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
                 except Exception:
                     st.error("Export failed. Please try again.")
 
-with st.expander("Profile: Export / Import", expanded=False):
+with st.expander("Profile: Import Options (.json)", expanded=False):
     import json as _json
-    col_e1, col_e2 = st.columns([1, 1])
-    # Export uses the sanitised, canonical client_inputs if available
-    export_profile = st.session_state.get('client_inputs', {})
-    file_customer_name = st.session_state.get('client_inputs', {}).get('customer_name', 'Client')
-    with col_e1:
-        if export_profile:
-            st.download_button(
-                "⬇️ Export current options (.json)",
-                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
-                file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
-                mime="application/json"
-            )
-        else:
-            st.info("Provide inputs to enable export.")
-    with col_e2:
-        # Guard against infinite rerun loops by hashing the uploaded content and skipping
-        # re-processing when the same file persists in the uploader across reruns.
-        uploaded = st.file_uploader("Import options (.json)", type=["json"], key="profile_import_json")
-        if uploaded is not None:
+    # Import is placed before UI to allow applying defaults prior to rendering controls.
+    uploaded = st.file_uploader("Import options (.json)", type=["json"], key="profile_import_json")
+    if uploaded is not None:
+        try:
+            raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
+            import hashlib as _hashlib
             try:
-                raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
-                import hashlib as _hashlib
-                try:
-                    _h = _hashlib.sha256(raw).hexdigest() if isinstance(raw, (bytes, bytearray)) else _hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
-                except Exception:
-                    _h = f"{getattr(uploaded, 'name', 'unknown')}:{len(raw) if hasattr(raw, '__len__') else 0}"
+                _h = _hashlib.sha256(raw).hexdigest() if isinstance(raw, (bytes, bytearray)) else _hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
+            except Exception:
+                _h = f"{getattr(uploaded, 'name', 'unknown')}:{len(raw) if hasattr(raw, '__len__') else 0}"
 
-                # If this exact file has already been applied in the current session, avoid re-import and rerun loops
-                if st.session_state.get('_last_import_hash') == _h:
-                    st.info("Profile already applied.")
+            # If this exact file has already been applied in the current session, avoid re-import and rerun loops
+            if st.session_state.get('_last_import_hash') == _h:
+                st.info("Profile already applied.")
+            else:
+                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                if not isinstance(profile, dict):
+                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
                 else:
-                    data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
-                    profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
-                    if not isinstance(profile, dict):
-                        st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
-                    else:
-                        # Minimal validation: ensure required fields exist
-                        required_keys = ["customer_name", "industry", "users"]
-                        if not all(k in profile for k in required_keys):
-                            st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
-                        try:
-                            profile = migrate_profile(profile)
-                        except Exception:
-                            pass
-                        st.session_state['_imported_profile'] = profile
-                        st.session_state['use_imported_profile'] = True
-                        st.session_state['use_test_data'] = False
-                        st.session_state['_last_import_hash'] = _h
-                        st.success("Profile imported. Applying to UI...")
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Failed to import profile: {e}")
+                    # Minimal validation: ensure required fields exist
+                    required_keys = ["customer_name", "industry", "users"]
+                    if not all(k in profile for k in required_keys):
+                        st.warning("Profile loaded, but some keys are missing. Defaults will be used where absent.")
+                    try:
+                        profile = migrate_profile(profile)
+                    except Exception:
+                        pass
+                    st.session_state['_imported_profile'] = profile
+                    st.session_state['use_imported_profile'] = True
+                    st.session_state['use_test_data'] = False
+                    st.session_state['_last_import_hash'] = _h
+                    st.success("Profile imported. Applying to UI...")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Failed to import profile: {e}")
 
 # --- DEV/TEST DATA INIT MOVED ABOVE SIDEBAR ---
 
@@ -781,7 +779,7 @@ if st.session_state.get('use_imported_profile') and st.session_state.get('_impor
     TEST_DATA = st.session_state['_imported_profile']
 
 # --- UI INPUTS ---
-# [Moved] Profile: Export / Import expander relocated after inputs are initialised to avoid NameError
+# [Moved] Profile import/export expander reference relocated after inputs are initialised to avoid NameError
 
 st.divider()
 with st.expander("Customer Estate & Engagement Profile", expanded=True):
@@ -935,6 +933,18 @@ with st.expander("Customer Estate & Engagement Profile", expanded=True):
         )
         validation_notes = st.text_area("Validation Notes", value=(TEST_DATA['validation_notes'] if dev else ""), placeholder="e.g., Customer requires ISO 27001 alignment by Q4")
         context_notes = st.text_area("Consultant Context (LLM-visible)", value=(TEST_DATA['context_notes'] if dev else ""), placeholder="e.g., Nuances, constraints, or messaging to incorporate across the report")
+        st.subheader("Known Issues (customer-stated)")
+        _known_issues_prefill = ""
+        try:
+            _ki = TEST_DATA.get('known_issues', [])
+            if isinstance(_ki, list):
+                _known_issues_prefill = "\n".join([str(x) for x in _ki])
+            elif isinstance(_ki, str):
+                _known_issues_prefill = str(_ki)
+        except Exception:
+            _known_issues_prefill = ""
+        known_issues_text = st.text_area("Known Issues (one per line, customer's own words)", value=(_known_issues_prefill if dev else ""), placeholder="e.g., Legacy VPN causes frequent disconnects\nBackups fail monthly; not immutable")
+        known_issues_list = [ln.strip() for ln in str(known_issues_text or "").splitlines() if ln and str(ln).strip()]
 
     st.divider()
 
@@ -1430,10 +1440,15 @@ ai_usage_policy = st.selectbox(
     help="State of AI acceptable use policy and governance."
 )
 
+ai_tools_opts = ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"]
+_ai_tools_default = (TEST_DATA.get('approved_ai_tools', []) if dev else [])
+# Defensive sanitisation: ensure all defaults exist in options (handles typos/combined strings in TEST_DATA)
+_ai_tools_default = [x for x in _ai_tools_default if x in ai_tools_opts]
+
 approved_ai_tools = st.multiselect(
     "Approved Company AI Tools",
-    ["Microsoft Copilot", "ChatGPT", "Google Gemini", "Claude", "Custom (in-house)", "None / Unapproved"],
-    default=(TEST_DATA.get('approved_ai_tools', []) if dev else []),
+    ai_tools_opts,
+    default=_ai_tools_default,
     help="Approved AI assistants or models in use."
 )
 
@@ -1583,6 +1598,7 @@ client_inputs = {
     "vuln_scanning": _norm(vuln_scanning), 
     "validation_notes": validation_notes,
     "context_notes": context_notes,
+    "known_issues": known_issues_list,
     # Security Culture (behavioural fields)
     "culture_q1": q1,
     "culture_q2": q2,
@@ -1679,7 +1695,20 @@ if st.session_state.get('_client_inputs_hash') != _client_hash:
         pass
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
-# [Moved to top] Profile: Export / Import expander removed here to avoid duplication
+# Export placed after inputs to guarantee all UI fields are included
+with st.expander("Profile: Export (.json)", expanded=False):
+    import json as _json
+    export_profile = st.session_state.get('client_inputs', {})
+    file_customer_name = export_profile.get('customer_name', 'Client')
+    if export_profile:
+        st.download_button(
+            "⬇️ Export current options (.json)",
+            data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+            file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
+            mime="application/json"
+        )
+    else:
+        st.info("Provide inputs to enable export.")
 
 # --- MDR DECISION ASSIST: Sophos MDR vs Adlumin ---
 with st.expander("🧭 MDR Decision Assist (Sophos MDR vs Adlumin)", expanded=False):
@@ -2385,6 +2414,23 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         st.divider()
         st.subheader("📊 Strategic Assessment Preview")
         
+        # RAG Summary derived from assurance_status readiness
+        try:
+            rs = readiness_summary(st.session_state.get('client_inputs', {}))
+            total = 11  # sections enumerated in readiness_summary()
+            red = len(rs.get('requires_supplier_confirmation', []) or [])
+            amber = len(rs.get('unanswered_sections', []) or [])
+            green = max(0, total - red - amber)
+            col_r, col_a, col_g = st.columns(3)
+            with col_r:
+                st.error(f"Red: {red}")
+            with col_a:
+                st.warning(f"Amber: {amber}")
+            with col_g:
+                st.success(f"Green: {green}")
+        except Exception:
+            pass
+        
         maturity = st.session_state['maturity_obj']
         
         tab1, tab2, tab3 = st.tabs(["Executive Brief", "Domain Assessments", "Strategic Roadmap"])
@@ -2511,10 +2557,35 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
 with st.expander("Developer Utilities (Test Data Injection)", expanded=False):
     col_dev1, col_dev2 = st.columns(2)
     if col_dev1.button("Fill with Test Data"):
-        st.session_state['use_test_data'] = True
-        st.rerun()
+        # Load canonical sample profile and apply as imported profile for full-field coverage
+        try:
+            import os
+            import json as _json
+            sample_path = os.path.join(os.path.dirname(__file__), "examples", "sample_profile_full.json")
+            with open(sample_path, "r", encoding="utf-8") as _sf:
+                data = _json.load(_sf)
+            profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+            try:
+                # Migrate shape/keys if needed (already imported at top of file)
+                profile = migrate_profile(profile)
+            except Exception:
+                pass
+            if isinstance(profile, dict):
+                st.session_state['_imported_profile'] = profile
+                st.session_state['use_imported_profile'] = True
+                st.session_state['use_test_data'] = False
+                st.success("Sample profile applied. UI will reload with full test data.")
+                st.rerun()
+            else:
+                st.error("Sample profile format invalid. Expected a JSON object.")
+        except Exception as e:
+            st.error(f"Failed to load sample profile: {e}")
     if col_dev2.button("Clear All Fields"):
+        # Clear all dev/test data flags and reset profile to empty state
         st.session_state['use_test_data'] = False
+        st.session_state['use_imported_profile'] = False
+        st.session_state.pop('_imported_profile', None)
+        st.session_state.pop('client_inputs', None)
         st.rerun()
 
 render_footer(show_divider=True)

@@ -184,6 +184,58 @@ class RadarChartData(BaseModel):
     grc: int = Field(ge=1, le=3, description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if Incident Response Readiness is 'No Formal Plan' or 'Untested'.")
     ai: int = Field(ge=1, le=3, description="Score 1, 2, or 3. STRICT RULE: Must be exactly 1 if there is no AI usage policy, no monitoring for company AI/shadow AI, or evidence of uncontrolled AI use in context.")
 
+class WeightedMaturityArea(BaseModel):
+    area: str = Field(description="Weighted domain area name (e.g., 'Identity and privileged access').")
+    weight_percent: int = Field(ge=0, le=100, description="Weight as a whole percent (0–100).")
+    indicative_score: int = Field(ge=0, le=100, description="Evidence-led area score (0–100).")
+    weighted_contribution: float = Field(ge=0, le=100, description="Calculated: (weight_percent/100)*indicative_score, stored to 1 decimal place.")
+    rationale: str = Field(description="Short evidence-led rationale; professional UK English.")
+
+class SecurityRatingSnapshot(BaseModel):
+    overall_score: int = Field(ge=0, le=100, description="Overall indicative weighted score (0–100).")
+    maturity_rating: str = Field(description="Rating label strictly from maturity bands unless an explicit override is set.")
+    direction_of_travel: str = Field(description="One of: 'Improving', 'Stable', or 'Declining'.")
+    primary_strengths: List[str] = Field(description="Top strengths derived from evidence (not generic).", min_items=1, max_items=6)
+    primary_gaps: List[str] = Field(description="Top gaps derived from evidence (not generic).", min_items=1, max_items=6)
+    board_level_takeaway: str = Field(description="One concise line suitable for a board meeting pack.")
+
+class MaturityBand(BaseModel):
+    score_range: str = Field(description="Closed interval of integer scores, e.g., '0–39', '40–59'.")
+    rating: str = Field(description="Band label (e.g., 'Reactive', 'Developing', 'Established', 'Managed', 'Optimised').")
+    meaning: str = Field(description="Short meaning for the band; professional UK English.")
+
+class SecurityRating(BaseModel):
+    overall_score: int = Field(ge=0, le=100, description="Overall indicative weighted score (0–100).")
+    maturity_rating: str = Field(description="Rating label strictly from bands unless an explicit override is applied.")
+    score_statement: str = Field(description="Formatted score statement 'Overall indicative weighted score: {score}/100 – {rating}'.")
+    caveat: str = Field(description="Required caveat text clarifying non-audit/non-certification nature.")
+    snapshot: SecurityRatingSnapshot = Field(description="Snapshot table data for executive communication.")
+    weighted_areas: List[WeightedMaturityArea] = Field(description="Weighted area contributions.", min_items=4, max_items=12)
+    maturity_bands: List[MaturityBand] = Field(description="Legend for bands (0–39, 40–59, 60–74, 75–89, 90–100).", min_items=5, max_items=5)
+    executive_interpretation: str = Field(description="Short assurance-focused interpretation paragraph for executives.")
+    dial_visual_prompt: Optional[str] = Field(default=None, description="Prompt text to generate a dial diagram; optional.")
+    maturity_rating_override: Optional[str] = Field(default=None, description="Optional conservative override (e.g., 'Developing' for a 60/100). If present, rating uses this value.")
+
+# Default weighted areas and bands (static business rules)
+DEFAULT_WEIGHTED_AREAS = [
+    ("Identity and privileged access", 15),
+    ("Endpoint and patch management", 15),
+    ("Network and perimeter", 10),
+    ("Backup and recovery", 15),
+    ("Monitoring and response", 15),
+    ("Vulnerability management and testing", 10),
+    ("Data, SaaS and AI governance", 10),
+    ("Governance, insurance and resilience", 10),
+]
+
+DEFAULT_MATURITY_BANDS = [
+    ("0–39", "Reactive", "Controls are limited, informal or largely untested."),
+    ("40–59", "Developing", "Core controls exist, but coverage, ownership or assurance is inconsistent."),
+    ("60–74", "Established", "Most controls are in place, with targeted gaps requiring validation or improvement."),
+    ("75–89", "Managed", "Controls are repeatable, monitored and regularly tested."),
+    ("90–100", "Optimised", "Controls are mature, measured, continuously improved and independently validated."),
+]
+
 class MonetaryCostGBP(BaseModel):
     amount_gbp: float = Field(description="GBP amount, must be non-negative.")
     source: Optional[str] = Field(default=None, description="Source of the cost estimate (e.g., industry baselines).")
@@ -195,6 +247,36 @@ class GapRemediationPlan(BaseModel):
     owner: Optional[str] = Field(default=None, description="Owner responsible for remediation.")
     due_by: Optional[str] = Field(default=None, description="Due date ISO format (YYYY-MM-DD).")
 
+class KnownIssueInput(BaseModel):
+    issue_text: str = Field(description="Customer-stated known security issue or gap, in their own words.")
+
+class KnownIssueAssessmentItem(BaseModel):
+    issue_text: str = Field(description="The customer-stated known issue text being adjudicated.")
+    our_ruling: str = Field(description="One of: 'Agree', 'Partially Agree', or 'Disagree' — whether this is truly a top issue versus more pressing concerns identified.")
+    rationale: str = Field(description="1–2 flowing paragraphs in British English explaining the ruling. Bullet points are prohibited.")
+    suggested_remediations: List[str] = Field(description="Concrete steps to address the issue.", min_items=2, max_items=6)
+    aligned_solutions: Optional[List[str]] = Field(default=None, description="1–3 consultative, vendor-agnostic solution suggestions aligned to authorised solution map.", min_items=1, max_items=3)
+ 
+class CriticalIssueRAGItem(BaseModel):
+     severity_label: str = Field(description="One of: 'RED', 'AMBER', 'GREEN'.")
+     severity_pct: int = Field(ge=10, le=60, description="Canonical buckets: RED 40, AMBER 35, GREEN 25. Use the nearest canonical value.")
+     issue_title: str = Field(description="Short headline for the issue.")
+     business_exposure: str = Field(description="1–2 concise paragraphs in British English explaining the business exposure. Bullet points are prohibited.")
+     priority_action: str = Field(description="One clear priority action sentence.")
+ 
+class ConcernAlignmentItem(BaseModel):
+     concern_text: str = Field(description="Customer-stated concern text under consideration.")
+     aligned_to_top_risk: str = Field(description="Alignment verdict: 'Aligned' or 'Misaligned'.")
+     proportionality: str = Field(description="One of: 'Proportionate', 'Overstated', 'Understated'.")
+     top_risk_reference: Optional[str] = Field(default=None, description="Reference to the most relevant actual top risk or domain/gap.")
+     resolution_outline: List[str] = Field(description="2–5 concise remediation steps addressing the concern proportionately.", min_items=2, max_items=5)
+ 
+class ConcernAlignmentReport(BaseModel):
+     customer_top_three_concerns: List[str] = Field(description="The customer's top three concerns as captured (verbatim).", min_items=1, max_items=3)
+     actual_top_three_risks: List[str] = Field(description="Actual top three risks derived from the consultation (evidence-led).", min_items=1, max_items=3)
+     alignment_items: List[ConcernAlignmentItem] = Field(description="Alignment and proportionality verdicts for each concern.", min_items=1, max_items=3)
+     overall_summary: str = Field(description="Short narrative summarising alignment and any notable mismatches; British English.")
+ 
 class ComplianceSection(BaseModel):
     standard: str = Field(description="Compliance standard or control set (e.g., ISO 27001, NIST CSF).")
     critical_gaps: List[str] = Field(
@@ -264,6 +346,9 @@ class MaturityHeader(BaseModel):
     incident_response_plan_outline: Optional[str] = Field(default=None, description="Incident Response plan outline.")
     disaster_recovery_plan_outline: Optional[str] = Field(default=None, description="Disaster Recovery plan outline.")
     programme_controls: Optional[ProgrammeControls] = Field(default=None, description="Structured programme controls reflecting behavioural measures and telemetry from the consultation (security culture).")
+    concerns_vs_risks_alignment: Optional[ConcernAlignmentReport] = Field(default=None, description="Non-scoring alignment analysis between customer's top three concerns and the consultation's actual top three risks, including proportionality verdicts and resolution outline.")
+    known_issues_assessment: Optional[List[KnownIssueAssessmentItem]] = Field(default=None, description="Assessment of customer-stated known issues with Planet IT adjudication and remediation guidance.", min_items=1, max_items=10)
+    critical_issues_rag: Optional[List[CriticalIssueRAGItem]] = Field(default=None, description="RAG summary entries derived from critical gaps for executive communication. Non-scoring.", min_items=1, max_items=5)
 
 class MaturityReport(BaseModel):
     from pydantic import model_validator  # type: ignore
@@ -301,6 +386,7 @@ class MaturityReport(BaseModel):
     executive_summary_actions: List[str] = Field(description="Exactly three 'Finding — Action' bullet points that summarise the top findings and the specific remediation action required. Provide precisely three items; each item must be a single concise sentence formatted as 'Finding — Action' in British English, vendor-agnostic, and directly tied to the executive summary.", min_items=3, max_items=3)
     executive_summary_action_blocks: List[ExecutiveSummaryActionBlock] = Field(description="Three structured recommendation blocks carrying Heading, Finding, Risk, and Remediation actions.", min_items=3, max_items=3)
     radar_chart_data: RadarChartData = Field(description="Scores of 1, 2, or 3 mapping directly to the Resiliency Matrix pillars.")
+    security_rating: Optional["SecurityRating"] = Field(default=None, description="Optional Security Rating object for the executive section, including weighted areas, bands, snapshot, and interpretation.")
     resiliency_matrix_mapping: str = Field(description="Explicitly map the customer within the Cyber Resiliency Matrix: Pillar 1, Pillar 2, or Pillar 3.")
     cost_of_inaction: Optional[str] = Field(default=None, description="A detailed, multi-paragraph narrative explaining the severe operational, financial, and reputational consequences if this strategic roadmap is ignored. You must explicitly tie this to their stated Downtime Tolerance (RTO), their Cyber Insurance status, and potential regulatory fines or loss of client trust. Make the business case for investment undeniable. Minimum 2 paragraphs. Bullet points are strictly prohibited.")
     monetary_cost_of_inaction: Optional[MonetaryCostGBP] = Field(default=None, description="Monetary cost estimate for inaction (GBP). Grounded in credible baselines; see MonetaryCostGBP for details.")
@@ -345,6 +431,9 @@ class MaturityReport(BaseModel):
         max_items=3
     )
     programme_controls: Optional[ProgrammeControls] = Field(default=None, description="Structured programme controls reflecting behavioural measures and telemetry from the consultation (security culture).")
+    concerns_vs_risks_alignment: Optional[ConcernAlignmentReport] = Field(default=None, description="Non-scoring alignment analysis between customer's top three concerns and the consultation's actual top three risks, including proportionality verdicts and resolution outline.")
+    known_issues_assessment: Optional[List[KnownIssueAssessmentItem]] = Field(default=None, description="Assessment of customer-stated known issues with Planet IT adjudication and remediation guidance.", min_items=1, max_items=10)
+    critical_issues_rag: Optional[List[CriticalIssueRAGItem]] = Field(default=None, description="RAG summary entries derived from critical gaps for executive communication. Non-scoring.", min_items=1, max_items=5)
 
 # ==========================================
 # CONTEXT INJECTION & MASTER PERSONA
@@ -799,6 +888,58 @@ Deterministic Mapping Rules:
 """
     
     # Explicit instruction for Executive Summary Actions (headline‑style 'Finding — Action')
+    # Known Issues (customer-stated) — parse inputs and build strict non-scoring clause
+    known_issues_list = client_inputs.get('known_issues', [])
+    try:
+        if isinstance(known_issues_list, str):
+            known_issues_list = [ln.strip() for ln in known_issues_list.splitlines() if ln.strip()]
+        elif not isinstance(known_issues_list, list):
+            known_issues_list = []
+    except Exception:
+        known_issues_list = []
+    known_issues_text = "\n".join([f"- {str(x)}" for x in known_issues_list][:10])
+    known_issues_clause = f"""
+ ### KNOWN ISSUES (CUSTOMER-STATED — DO NOT AFFECT SCORING)
+ Known issues provided in their own words (verbatim):
+ {known_issues_text or "- (None provided)"}
+ 
+ OUTPUT REQUIREMENTS:
+ - Populate 'known_issues_assessment' with 1–10 items. For each:
+   • issue_text
+   • our_ruling: One of 'Agree', 'Partially Agree', 'Disagree'
+   • rationale: 1–2 paragraphs; British English; no bullet points
+   • suggested_remediations: 2–6 actions
+   • aligned_solutions: 1–3 consultative solution suggestions (respect ban list; draw from authorised solution map)
+ STRICT: This adjudication MUST NOT influence radar scores or pillar mapping.
+
+ ### CONCERNS VS RISKS ALIGNMENT (NON-SCORING)
+ OUTPUT REQUIREMENTS:
+ - Populate 'concerns_vs_risks_alignment' with:
+   • customer_top_three_concerns: top three from known issues (verbatim)
+   • actual_top_three_risks: evidence-led top three risks derived from the consultation. If 'security_rating.snapshot.primary_gaps' exists, use the top three entries. Otherwise rank domains by exposure_index = MATURITY_WEIGHTS[domain_key] × (4 - radar_chart_data[domain_key]); select the top three domains and take the most material 'critical_gaps' from the corresponding 'domain_assessments'.
+   • alignment_items: For each concern, provide:
+     – aligned_to_top_risk: 'Aligned'|'Misaligned'
+     – proportionality: 'Proportionate'|'Overstated'|'Understated'
+     – top_risk_reference: a short reference to the nearest actual top risk/domain
+     – resolution_outline: 2–5 concise remediation steps
+   • overall_summary: 1 short paragraph summarising where concerns are well aligned or not.
+ STRICT:
+ - This analysis is advisory only and MUST NOT influence radar scores, pillar mapping, or maturity rating.
+ - Preserve Capability Mismatch penalties exactly where applicable.
+ """
+ 
+    rag_clause = f"""
+ ### CRITICAL ISSUES RAG SUMMARY (NON-SCORING)
+ OUTPUT REQUIREMENTS:
+ - Populate 'critical_issues_rag' with 2–3 items (prefer RED then AMBER entries).
+ - Fields:
+   • severity_label: 'RED' | 'AMBER' | 'GREEN'
+   • severity_pct: prefer RED: 40, AMBER: 35, GREEN: 25 (use nearest canonical)
+   • issue_title: short headline
+   • business_exposure: 1–2 short paragraphs; British English; no bullet points
+   • priority_action: one sentence
+ STRICT: This summary MUST NOT influence radar scores or pillar mapping. Apply Capability Mismatch penalties deterministically when deriving severity.
+ """
     actions_instruction = """
 ### EXECUTIVE SUMMARY STRUCTURE (REQUIRED)
 In the executive_summary, avoid generic sector commentary. Address the client specifically and cover:
@@ -840,7 +981,24 @@ Only generate conditional domains when applicable evidence is present. If a modu
     STRICT: Honour the 3‑point cap and Capability Mismatch exactly; do not inflate scores without explicit supporting evidence.
     """
 
-    return base_prompt + "\n\n" + evidence_block + "\n\n" + radar_hint_clause + "\n\n" + assurance_clause + "\n\n" + ban_clause + "\n\n" + whitelist_clause + (("\n" + dfe_clause + "\n") if dfe_clause else "") + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + rules + "\n\n" + conditional_domains_note + "\n\n" + """
+    security_rating_clause = """
+        ### SECURITY RATING (REQUIRED)
+        Generate a Security Rating section using a weighted maturity model. The score must be evidence‑led, caveated as indicative, and written for an executive audience. Do not present the score as a certification, audit result or exact measurement. Avoid alarmist or generic phrasing.
+        Output the following JSON object as 'security_rating' conforming to the SecurityRating schema:
+        - overall_score (0–100), maturity_rating (band label), score_statement, caveat
+        - snapshot: overall_score, maturity_rating, direction_of_travel ('Improving'|'Stable'|'Declining'), primary_strengths (from evidence), primary_gaps (from evidence), board_level_takeaway
+        - weighted_areas: list of WeightedMaturityArea across these defaults (weights total 100):
+          Identity and privileged access 15; Endpoint and patch management 15; Network and perimeter 10; Backup and recovery 15; Monitoring and response 15; Vulnerability management and testing 10; Data, SaaS and AI governance 10; Governance, insurance and resilience 10.
+          Each area’s indicative_score must be an integer 0–100 derived from evidence; store weighted_contribution to 1 decimal place.
+        - maturity_bands: 0–39 Reactive; 40–59 Developing; 60–74 Established; 75–89 Managed; 90–100 Optimised.
+        - executive_interpretation: short paragraph. Use wording like: "The score should be treated as a prioritisation tool rather than a formal audit outcome. It helps compare relative maturity across domains and identify where assurance effort should be focused first."
+        - dial_visual_prompt: provide a clean prompt as specified for an executive dial; optional.
+        Rules:
+        - If fewer than four weighted domains have supporting evidence, set score_statement to "Indicative score not calculated due to insufficient evidence." and set overall_score=0 with a neutral rating.
+        - If maturity_rating_override is provided, use it instead of the derived band label (e.g., allow 60/100 → 'Developing').
+        - Validate: weights sum to 100; scores 0–100; contributions sum to overall_score within rounding tolerance; rating matches band unless override.
+        """
+    return base_prompt + "\n\n" + evidence_block + "\n\n" + radar_hint_clause + "\n\n" + assurance_clause + "\n\n" + ban_clause + "\n\n" + whitelist_clause + (("\n" + dfe_clause + "\n") if dfe_clause else "") + (mdr_hint + "\n" if mdr_hint else "") + context_clause + anti_mimicry_clause + known_issues_clause + rag_clause + rules + "\n\n" + security_rating_clause + "\n\n" + conditional_domains_note + "\n\n" + """
         ### DOMAIN WRITING PROFILES (REQUIRED)
         Use domain-specific personas to vary vocabulary, sentence structure, and emphasis so that each domain reads as if authored by a different specialist:
         - Identity & Access Management (IAM): persona: Identity Security Consultant; focus on authentication, privileged access, identity threats.
@@ -889,6 +1047,7 @@ def build_mc_interpretation_prompt(client_inputs, mc: dict) -> str:
 # Forward-ref resolution for models to ensure safe cross-references
 ThreatScenarioItem.update_forward_refs()
 MaturityHeader.update_forward_refs()
+MaturityReport.update_forward_refs()
 # Ensure AAR nested forward refs are resolved
 try:
     ScenarioInject.update_forward_refs()
