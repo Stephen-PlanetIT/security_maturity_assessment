@@ -29,6 +29,7 @@ Designed for security consultants, the platform leverages Azure OpenAI to analys
   - `planet_it_tabletop_report_template.docx`
 - Threat Simulator PDF Export: `fpdf` renders publication‑ready Tactical Threat Simulation Reports.
 - Presentation Deck Export: `python‑pptx` renders slides aligned to `planet_it_master_template.pptx`.
+- After Action Review (AAR) Export: Dedicated pipeline via `export_aar_v2.py` and `aar_renderer.py`.
 
 ---
 
@@ -48,6 +49,8 @@ Asset templates present in the repository:
 - `planet_it_threat_scenario_template.docx`
 - `planet_it_tabletop_report_template.docx`
 - `planet_it_master_template.pptx`
+- `planet_it_tabletop_template.pptx`
+- `security_maturity_executive_snapshot_template.docx`
 
 ### Consultation evidence model
 
@@ -141,6 +144,8 @@ Core modules:
 - `catalog.py`: Planet IT solution portfolio and vendor alignment.
 - `data.py`: Static knowledge base: attack vectors, simulated OSINT, maturity framework, domains, solution map.
 - `export.py`: Document rendering for DOCX (`docxtpl`), PDF (`fpdf`), PPTX (`python‑pptx`), and radar charts (radius hard‑capped at 3).
+- `export_aar_v2.py`: After Action Review (AAR) export pipeline.
+- `aar_renderer.py`: AAR report composition/rendering helpers.
 
 Quality and tools:
 - `tests/`: Unit and smoke tests (export, prompts build, MDR decision assist, migration, sanitisation, scenarios, derived maturity, tabletop custom).
@@ -152,6 +157,7 @@ Infrastructure:
 - `docker-compose.yml`: Local orchestration (watchtower optional).
 - `.streamlit/secrets.toml`: Development secrets; production uses environment variables.
 - `config.py`: All settings via `os.getenv` with validation; no hardcoded values.
+- `Makefile`: Developer convenience targets (optional).
 
 ---
 
