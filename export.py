@@ -219,16 +219,24 @@ def compute_overall_maturity_percent(radar_scores: dict):
     total = 0.0
     for key, weight in MATURITY_WEIGHTS.items():
         try:
-            v = radar_scores.get(key, 1)
-            v = 1 if v is None else float(v)
+            raw = radar_scores.get(key, 1)
+            fv = 1.0 if raw is None else float(raw)
         except Exception:
-            v = 1.0
-        # Clamp to [1,3]
-        if v < 1:
-            v = 1.0
-        if v > 3:
-            v = 3.0
-        total += weight * v
+            fv = 1.0
+        # Scale-detect: values > 3 imply 0–100 input; map to 1–3 band for weighting
+        if fv > 3.0:
+            if fv < 0.0:
+                fv = 0.0
+            if fv > 100.0:
+                fv = 100.0
+            v_norm = 1.0 + (fv / 100.0) * 2.0
+        else:
+            if fv < 1.0:
+                fv = 1.0
+            if fv > 3.0:
+                fv = 3.0
+            v_norm = fv
+        total += weight * v_norm
     percent = int(round((total / 3.0) * 100))
     if percent < 0:
         percent = 0
@@ -1215,36 +1223,56 @@ def draw_estate_summary(pdf, inputs):
 # ==========================================================
 # CYBERSECURITY MATURITY ASSESSMENT EXPORTS
 # ==========================================================
-def generate_radar_chart_from_values(labels, values, max_radius=3, figsize=(4, 4)):
+def generate_radar_chart_from_values(labels, values, max_radius=100, figsize=(4, 4)):
     """
     Generate a radar chart from raw label/value pairs.
-    Hard-capped to max radius 3 (Three-Pillar Cyber Resiliency Matrix).
+    Supports 0–100 percent inputs; maps legacy 1–3 band inputs to percent.
     Returns the path to a temporary PNG file.
     """
+    # Prepare angles for each axis and close the polygon
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-    # Clamp values to [0, max_radius] to respect the hard cap of the Three-Pillar Matrix
-    values_clamped = [min(max_radius, max(0, v)) for v in values]
-    for label, original, clamped in zip(labels, values, values_clamped):
-        if original != clamped:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Radar chart value for '{label}' clamped from {original} to {clamped}"
-            )
+
+    # Detect scale and normalise: if any value > 3, assume 0–100 input; otherwise map 1–3 → 0–100
+    vals = []
+    percent_scale = False
+    for v in values:
+        try:
+            fv = float(v)
+        except Exception:
+            fv = 0.0
+        vals.append(fv)
+        if fv > 3.0 + 1e-9:
+            percent_scale = True
+
+    if percent_scale:
+        values_pct = [max(0.0, min(100.0, fv)) for fv in vals]
+    else:
+        values_pct = []
+        for fv in vals:
+            if fv < 1.0:
+                fv = 1.0
+            if fv > 3.0:
+                fv = 3.0
+            values_pct.append((fv / 3.0) * 100.0)
+
+    # Clamp to [0, max_radius] to respect the 0–100 percent scale
+    values_clamped = [min(float(max_radius), max(0.0, v)) for v in values_pct]
+
     values_closed = values_clamped + values_clamped[:1]
     angles_closed = angles + angles[:1]
-    
+
     fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(polar=True))
     ax.fill(angles_closed, values_closed, color='#23506A', alpha=0.25)
     ax.plot(angles_closed, values_closed, color='#23506A', linewidth=2)
-    
-    # Hard lock to the 3-pillar framework
-    ax.set_ylim(0, max_radius)
-    ax.set_yticks(list(range(1, max_radius+1)))
-    ax.set_yticklabels(["Reactive", "Proactive", "Adaptive"], color="grey", size=8)
-    
+
+    # Percent-based radial scale (0–100)
+    ax.set_ylim(0, float(max_radius))
+    ax.set_yticks([20, 40, 60, 80, 100])
+    ax.set_yticklabels(["20", "40", "60", "80", "100"], color="grey", size=8)
+
     ax.set_xticks(angles)
     ax.set_xticklabels(labels, size=9)
-    
+
     tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     try:
         plt.savefig(tmpfile.name, format='png', bbox_inches='tight')
@@ -2553,33 +2581,37 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     # Monte Carlo model removed — do not compute or include MC data
     mc = None
 
-    # --- Domain rating summary (map 1–3 to 0–100 and categorise) ---
+    # --- Domain rating summary (percent scale; detect 1–3 vs 0–100) ---
     domain_ratings = []
     def _categorise_percent(p):
         for n, lo, hi in GAUGE_BANDS:
             if lo <= p <= hi:
                 return n
         return "High Risk" if p < 40 else "Strong"
-    # Track pillar distribution while building ratings (v: 1→Pillar 1, 2→Pillar 2, 3→Pillar 3)
+    # Track pillar distribution using percent thresholds: <=33 → Pillar 1, <=67 → Pillar 2, else Pillar 3
     pillar_counts = {"Pillar 1": 0, "Pillar 2": 0, "Pillar 3": 0}
     if labels and values:
         for lbl, val in zip(labels, values):
             try:
-                v = float(val)
+                fv = float(val)
             except Exception:
-                v = 1.0
-            if v < 0:
-                v = 0.0
-            if v > 3:
-                v = 3.0
-            # Increment pillar counts using nearest-integer style mapping
-            if v <= 1.5:
+                fv = 1.0
+            # Determine percent for reporting
+            if fv > 3.0:
+                pct_val = int(round(max(0.0, min(100.0, fv))))
+            else:
+                if fv < 1.0:
+                    fv = 1.0
+                if fv > 3.0:
+                    fv = 3.0
+                pct_val = int(round((fv / 3.0) * 100))
+            # Map to pillars based on percent thresholds
+            if pct_val <= 33:
                 pillar_counts["Pillar 1"] += 1
-            elif v <= 2.5:
+            elif pct_val <= 67:
                 pillar_counts["Pillar 2"] += 1
             else:
                 pillar_counts["Pillar 3"] += 1
-            pct_val = int(round((v / 3.0) * 100))
             category_val = _categorise_percent(pct_val)
             domain_ratings.append({"domain": lbl, "percent": pct_val, "category": category_val})
     domain_ratings_bullets = "\n".join([f"- {d['domain']}: {d['category']} ({d['percent']}/100)" for d in domain_ratings])
@@ -2604,15 +2636,23 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
 
     # Precompute per-domain weighted contribution percents from radar dd and MATURITY_WEIGHTS
     domain_weighted_pct_map = {}
+    domain_percent_map = {}
     try:
         def _norm_score(v):
             try:
                 fv = float(v)
             except Exception:
                 fv = 1.0
-            if fv < 0:
-                fv = 0.0
-            if fv > 3:
+            # Map 0–100 → 1–3; otherwise clamp to 1–3 band
+            if fv > 3.0:
+                if fv < 0.0:
+                    fv = 0.0
+                if fv > 100.0:
+                    fv = 100.0
+                return 1.0 + (fv / 100.0) * 2.0
+            if fv < 1.0:
+                fv = 1.0
+            if fv > 3.0:
                 fv = 3.0
             return fv
         _DOMAIN_TO_RADAR = {
@@ -2635,13 +2675,29 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         if isinstance(dd, dict):
             for dname, rkey in _DOMAIN_TO_RADAR.items():
                 if rkey in dd and rkey in MATURITY_WEIGHTS:
-                    s = _norm_score(dd.get(rkey, 1))
+                    raw = dd.get(rkey, 1)
+                    # Compute maturity percent for this domain based on input scale
+                    try:
+                        rv = float(raw)
+                    except Exception:
+                        rv = 1.0
+                    if rv > 3.0:
+                        m_percent = int(round(max(0.0, min(100.0, rv))))
+                    else:
+                        if rv < 1.0:
+                            rv = 1.0
+                        if rv > 3.0:
+                            rv = 3.0
+                        m_percent = int(round((rv / 3.0) * 100))
+                    # Weighted contribution using 1–3 normalised score
+                    s = _norm_score(raw)
                     w = MATURITY_WEIGHTS.get(rkey, 0.0)
                     pct = int(round(w * (s / 3.0) * 100))
                     if pct < 0:
                         pct = 0
                     if pct > 100:
                         pct = 100
+                    domain_percent_map[dname] = m_percent
                     domain_weighted_pct_map[dname] = pct
     except Exception:
         domain_weighted_pct_map = {}
@@ -2667,15 +2723,22 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         weighted_areas = []
         try:
             # dd is available when radar_chart_data was model_dumped to dict
-            def _indicative_score(key):
+            def _indicative_score_percent(key):
                 try:
-                    v = float(dd.get(key, 1))
+                    v = float(dd.get(key, 0))
                 except Exception:
+                    v = 0.0
+                if v > 3.0:
+                    if v < 0.0:
+                        v = 0.0
+                    if v > 100.0:
+                        v = 100.0
+                    return int(round(v))
+                if v < 1.0:
                     v = 1.0
-                # clamp 1..3
-                if v < 1: v = 1.0
-                if v > 3: v = 3.0
-                return int(round(v))
+                if v > 3.0:
+                    v = 3.0
+                return int(round((v / 3.0) * 100))
 
             def _domain_rationale(domain_name: str, radar_key: str, weighted_pct: int) -> str:
                 """
@@ -2718,8 +2781,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
 
                 # 2) Why it matters (weight and score)
                 try:
-                    score = _indicative_score(radar_key) if radar_key else 1
-                    band = "Reactive" if score == 1 else ("Proactive" if score == 2 else "Adaptive")
+                    score = _indicative_score_percent(radar_key) if radar_key else 0
+                    band = "Reactive" if score <= 33 else ("Proactive" if score <= 67 else "Adaptive")
                     rationale_bits.append(f"Weighted contribution {int(weighted_pct)}% ({band} control posture observed).")
                 except Exception:
                     pass
@@ -2754,8 +2817,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                 # Fallback if empty
                 try:
                     if not any(str(x).strip() for x in rationale_bits):
-                        score = _indicative_score(radar_key) if radar_key else 1
-                        band = "Reactive" if score == 1 else ("Proactive" if score == 2 else "Adaptive")
+                        score = _indicative_score_percent(radar_key) if radar_key else 0
+                        band = "Reactive" if score <= 33 else ("Proactive" if score <= 67 else "Adaptive")
                         rationale_bits = [f"Current posture: {band}. Focus this area to reduce exposure and improve operational resilience."]
                 except Exception:
                     rationale_bits = ["Focus this area to reduce exposure and improve operational resilience."]
@@ -2770,9 +2833,9 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             weighted_areas.append({
                 "area": dname,
                     "weight_percent": wt,
-                    "indicative_score": _indicative_score(rkey) if rkey else 1,
-                    "weighted_contribution": int(pct),
-                    "rationale": _domain_rationale(dname, rkey, pct),
+                    "indicative_score": _indicative_score_percent(rkey) if rkey else 0,
+                    "weighted_contribution": int(round((wt * (_indicative_score_percent(rkey) if rkey else 0)) / 100)),
+                    "rationale": _domain_rationale(dname, rkey, int(round((wt * (_indicative_score_percent(rkey) if rkey else 0)) / 100))),
                 })
 
         # Maturity bands (static legend used by template)
@@ -2881,15 +2944,49 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             _d = item.model_dump()
             _name = _d.get("domain_name") or _d.get("name")
             _d["weighted_contribution_percent"] = domain_weighted_pct_map.get(_name)
+            _d["maturity_percent"] = domain_percent_map.get(_name)
+            _d["maturity_category"] = _categorise_percent(int(_d["maturity_percent"])) if _d.get("maturity_percent") is not None else None
+            try:
+                _mp = int(_d["maturity_percent"]) if _d.get("maturity_percent") is not None else None
+                if _mp is not None:
+                    _pillar_disp = ("Pillar 1: Reactive Cybersecurity" if _mp <= 33 else ("Pillar 2: Proactive Cybersecurity" if _mp <= 67 else "Pillar 3: Adaptive Cybersecurity"))
+                    _d["maturity_pillar_display"] = f"{_pillar_disp} ({_mp}/100)"
+                    _d["current_maturity_display"] = _d["maturity_pillar_display"]
+                    _d.setdefault("current_maturity", _d["maturity_pillar_display"])
+            except Exception:
+                pass
             domains_list.append(_xml_escape_dict(_d))
         elif isinstance(item, dict):
             _name = item.get("domain_name") or item.get("name")
             _d = dict(item)
             _d["weighted_contribution_percent"] = domain_weighted_pct_map.get(_name)
+            _d["maturity_percent"] = domain_percent_map.get(_name)
+            _d["maturity_category"] = _categorise_percent(int(_d["maturity_percent"])) if _d.get("maturity_percent") is not None else None
+            try:
+                _mp = int(_d["maturity_percent"]) if _d.get("maturity_percent") is not None else None
+                if _mp is not None:
+                    _pillar_disp = ("Pillar 1: Reactive Cybersecurity" if _mp <= 33 else ("Pillar 2: Proactive Cybersecurity" if _mp <= 67 else "Pillar 3: Adaptive Cybersecurity"))
+                    _d["maturity_pillar_display"] = f"{_pillar_disp} ({_mp}/100)"
+                    _d["current_maturity_display"] = _d["maturity_pillar_display"]
+                    _d.setdefault("current_maturity", _d["maturity_pillar_display"])
+            except Exception:
+                pass
             domains_list.append(_xml_escape_dict(_d))
         else:
             _fallback = {"domain_name": getattr(item, "domain_name", None) or getattr(item, "name", str(item))}
-            _fallback["weighted_contribution_percent"] = domain_weighted_pct_map.get(_fallback.get("domain_name"))
+            _name_f = _fallback.get("domain_name")
+            _fallback["weighted_contribution_percent"] = domain_weighted_pct_map.get(_name_f)
+            _fallback["maturity_percent"] = domain_percent_map.get(_name_f)
+            _fallback["maturity_category"] = _categorise_percent(int(_fallback["maturity_percent"])) if _fallback.get("maturity_percent") is not None else None
+            try:
+                _mp = int(_fallback["maturity_percent"]) if _fallback.get("maturity_percent") is not None else None
+                if _mp is not None:
+                    _pillar_disp = ("Pillar 1: Reactive Cybersecurity" if _mp <= 33 else ("Pillar 2: Proactive Cybersecurity" if _mp <= 67 else "Pillar 3: Adaptive Cybersecurity"))
+                    _fallback["maturity_pillar_display"] = f"{_pillar_disp} ({_mp}/100)"
+                    _fallback["current_maturity_display"] = _fallback["maturity_pillar_display"]
+                    _fallback.setdefault("current_maturity", _fallback["maturity_pillar_display"])
+            except Exception:
+                pass
             domains_list.append(_xml_escape_dict(_fallback))
 
     roadmap_list = []
@@ -3111,6 +3208,31 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         except Exception:
             programme_controls_render = ""
         
+    # Build condensed Cost of Inaction tag (amount per year + concise summary)
+    def _format_currency_gbp(x):
+        try:
+            return f"£{float(x):,.0f}"
+        except Exception:
+            return ""
+    coi_tag = ""
+    try:
+        mcoi = getattr(report_data, "monetary_cost_of_inaction", None)
+        amt = None; rationale = ""
+        if isinstance(mcoi, dict):
+            amt = mcoi.get("amount_gbp", None)
+            rationale = mcoi.get("rationale", "")
+        else:
+            amt = getattr(mcoi, "amount_gbp", None)
+            rationale = getattr(mcoi, "rationale", "")
+        amt_text = _format_currency_gbp(amt) if amt is not None else ""
+        summary_src = getattr(report_data, "cost_of_inaction_summary", "") or getattr(report_data, "cost_of_inaction", "") or rationale
+        summary_line = _first_sentence(str(summary_src)) if summary_src else ""
+        if len(summary_line) > 140:
+            summary_line = summary_line[:137].rstrip() + "..."
+        if amt_text or summary_line:
+            coi_tag = f"{amt_text} per year\n{summary_line}" if amt_text else summary_line
+    except Exception:
+        coi_tag = ""
     context = {
         "security_rating": security_rating,
         "threat_scenarios": _format_threat_scenarios(getattr(report_data, "threat_scenarios", None)),
@@ -3126,6 +3248,9 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         # New optional alias fields for template compatibility
         "cost_of_inaction": getattr(report_data, "cost_of_inaction", ""),
         "cost_of_inaction_summary": getattr(report_data, "cost_of_inaction_summary", ""),
+        "cost_of_inaction_tag": coi_tag,
+        "COI_Tag": coi_tag,
+        "Cost_of_Inaction_Tag": coi_tag,
         # Success metrics aliases
         "success_metrics": getattr(report_data, "success_metrics", []),
         "success_metrics_render": getattr(report_data, "success_metrics_render", ""),

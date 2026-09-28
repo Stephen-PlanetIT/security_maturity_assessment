@@ -8,7 +8,7 @@
 
 On every new session or task, before any tool call or response, you MUST:
 1. Confirm you have read the "User's Custom Instructions" block in environment_details.
-2. Output exactly: `[CLINERULES_LOADED: Plan/Act protocol active. Radar cap=3. Azure-only. British English.]`
+
 3. If any rule in `.cursorrules` contradicts this file, `.clinerules` takes absolute precedence. Log the conflict silently and proceed under `.clinerules` authority.
 4. If this bootstrap line does NOT appear in your output, assume the rules were NOT ingested and re-read this file.
 5. Provide a brief one paragraph summary of the cause of the issue and the planned resolution
@@ -81,7 +81,7 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
                     ┌───────────────▼───────────────────────────────┘
                     │            export.py (RENDER LAYER)           │
                     │ PDF (fpdf) · DOCX (docxtpl) · PPTX (python‑pptx) │
-                    │ Matplotlib radar chart · HARD‑CAPPED radius=3 │
+                    │ Matplotlib radar chart ·  │
                     │ clean_text() → ASCII‑safe                     │
                     └──────────────────┬──────────────────┘
                                        │
@@ -138,7 +138,7 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
         1. Pydantic schema integrity — verify all `List` fields carry `min_items`/`max_items`; no open `dict` types exist
         2. Cross-module impact analysis — trace the change through all 6 modules + templates
         3. Hardcoding check — no local paths, no inline credentials, all values via `config.py`
-        4. Capability Mismatch rule — confirm the Pillar 1 penalty is preserved; radar cap remains at 3
+        4. Capability Mismatch rule — confirm the Pillar 1 penalty is preserved
       You MUST output this audit as a `<thinking>` block before any tool call.
 
     * **Advisory Role:** You are a senior consultant. If the requested change introduces technical debt or architectural flaws, explicitly push back in the chat. Do not comply silently.
@@ -169,7 +169,6 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
 
     * **Push-Back Triggers (MUST REJECT):** The Pro Planner MUST reject requests that:
         - Remove `min_items`/`max_items` constraints from Pydantic fields
-        - Change radar chart scaling from 3-point to 5-point or 10-point
         - Introduce open `dict` fields into any BaseModel
         - Replace `max_completion_tokens` with `max_tokens`
         - Hardcode any path, key, or URI
@@ -223,7 +222,7 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
 | C1 | `max_completion_tokens` only; never `max_tokens` | `core.py` | Azure API crash |
 | C2 | No open `dict` fields; all nested objects must be BaseModel | `prompts.py` | Schema parsing rejection |
 | C3 | All `List` fields: `min_items`/`max_items` or `min_length`/`max_length` | `prompts.py` | Truncated arrays from LLM |
-| C4 | Radar chart radius hard-capped at 3; no auto-scale | `export.py` | Invalid maturity visualisation |
+| C4 |  | `export.py` | Invalid maturity visualisation |
 | C5 | Capability Mismatch: MDR + missing hygiene → Pillar 1 penalty | `data.py`, `prompts.py` | False maturity inflation |
 | C6 | All settings via `os.getenv` via `config.py`; no hardcoded values | All | Portability failure |
 | C7 | Storage behind interface provider; local=volume, Azure=Blob | `export.py`, infra | Deployment lock-in |
@@ -254,7 +253,7 @@ You are an expert Cybersecurity Architect and Python Developer maintaining the "
 
 # Visualisation & Business Logic Constraints
 
-    * Radar Charts (`export.py`): Hard-capped at radius 3 (Three-Pillar Cyber Resiliency Matrix: 1=Reactive, 2=Proactive, 3=Adaptive). No auto-scale. No 5/10-point conversion.
+
     * Capability Mismatch: Advanced tools (MDR) without foundational hygiene (Automated Patching, Enforced MFA, Immutable Backups) → maturity penalised to Pillar 1.
     * Streamlit Anti-Patterns: No `@functools.lru_cache` on unhashable types. Use `st.session_state`.
 
