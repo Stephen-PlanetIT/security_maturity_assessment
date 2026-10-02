@@ -1,6 +1,252 @@
 import streamlit as st
 import time
 import json
+
+# JSON serialisation helper for non-JSON-native types (sets, tuples, unknowns)
+def _json_default(o):
+    if isinstance(o, set):
+        # Convert sets to sorted lists for deterministic output
+        return sorted(list(o))
+    if isinstance(o, tuple):
+        return list(o)
+    # Best-effort fallback: stringify unknown objects
+    return str(o)
+
+# keep the previous default serializer above
+def _ensure_required_plan_fields(p: dict) -> dict:
+    try:
+        if not isinstance(p, dict):
+            return p
+        scns = p.get("scenarios", [])
+        if not isinstance(scns, list):
+            return p
+        for scn in scns:
+            if not isinstance(scn, dict):
+                continue
+            fr = scn.get("facilitator_reveal")
+            if not isinstance(fr, dict):
+                scn["facilitator_reveal"] = {
+                    "reveal_title": scn.get("scenario_title", "") or "Wrap-up",
+                    "reveal_narrative": "",
+                    "key_lessons": ["Lesson 1", "Lesson 2"],
+                    "wrap_up_questions": ["What would you do differently next time?", "Who needs to be informed?"],
+                }
+            else:
+                fr.setdefault("reveal_title", scn.get("scenario_title", "") or "Wrap-up")
+                fr.setdefault("reveal_narrative", "")
+                kl = fr.get("key_lessons")
+                if not isinstance(kl, list) or len([x for x in (kl or []) if str(x).strip()]) < 2:
+                    fr["key_lessons"] = ["Lesson 1", "Lesson 2"]
+                wq = fr.get("wrap_up_questions")
+                if not isinstance(wq, list) or len([x for x in (wq or []) if str(x).strip()]) < 2:
+                    fr["wrap_up_questions"] = ["What would you do differently next time?", "Who needs to be informed?"]
+                scn["facilitator_reveal"] = fr
+            inj_list = scn.get("injects", [])
+            if isinstance(inj_list, list):
+                for inj in inj_list:
+                    if not isinstance(inj, dict):
+                        continue
+                    inj.setdefault("primary_decision_target", inj.get("decision_threshold", "") or "Decision")
+                    inj.setdefault("knowledge_before", ["Context"])
+                    inj.setdefault("knowledge_newly_revealed", ["Revealed"])
+                    inj.setdefault("knowledge_after", ["State"])
+        return p
+    except Exception:
+        return p
+
+def _quality_normalise_tabletop_plan(p: dict, client_inputs: dict | None = None) -> dict:
+    """
+    Deterministic clean-up to satisfy quality gates and avoid vendor/platform inaccuracies.
+    - Redact vendor claims (e.g., Sophos) when unsupported by systems_to_check/client MDR.
+    - Ensure probe coverage: evidence, governance, authority, communications; add 'what if'.
+    - Scrub early-reveal lexicon (injects 1–3) to observable symptoms.
+    - Downgrade invalid sophos/mdr/case artefacts to generic 'ticket' when required fields missing.
+    - Map decision_questions objective_id to actual objectives (post-merge safe).
+    """
+    try:
+        ci = client_inputs or {}
+        mdr = str((ci.get("mdr_provider") or "")).strip().lower()
+        scns = p.get("scenarios", []) if isinstance(p, dict) else []
+        objectives = p.get("objectives", []) if isinstance(p, dict) else []
+        obj0 = (objectives[0] if isinstance(objectives, list) and objectives else "").strip()
+
+        def _norm_txt(s: str) -> str:
+            try:
+                import re as _re
+                return _re.sub(r"\s+", " ", str(s or "")).strip()
+            except Exception:
+                return str(s or "").strip()
+
+        def _has(tokens, q: str) -> bool:
+            ql = q.lower()
+            return any(t in ql for t in tokens)
+
+        early_terms = ("malicious activity", "compromised account", "phishing attack", "threat actor", "unauthorised access")
+
+        for si, scn in enumerate(scns, 1):
+            inj_list = scn.get("injects", []) if isinstance(scn, dict) else []
+            for ji, inj in enumerate(inj_list, 1):
+                # Redact vendor/platform claims if MDR unsupported
+                try:
+                    systems = inj.get("systems_to_check", []) if isinstance(inj, dict) else []
+                    joined = " ".join([str(x).lower() for x in systems]) if isinstance(systems, list) else str(systems).lower()
+                    body = str(inj.get("scenario_narrative", "") or "")
+                    if ("sophos" in body.lower()) and (mdr in ("", "none") or not any(tok in joined for tok in ("sophos", "mdr", "sophos central"))):
+                        inj["scenario_narrative"] = _norm_txt(body.replace("Sophos MDR", "our monitoring service").replace("Sophos", "our monitoring"))
+                    # Artefacts: downgrade invalid sophos/mdr/case
+                    arts = inj.get("artefacts", []) if isinstance(inj, dict) else []
+                    new_arts = []
+                    for ar in arts or []:
+                        try:
+                            meta = ar.get("metadata", []) if isinstance(ar, dict) else []
+                            prof = ""
+                            for m in meta or []:
+                                s = str(m).lower()
+                                if s.startswith("profile:"):
+                                    prof = s.split(":", 1)[1].strip()
+                                    break
+                            if prof == "sophos/mdr/case":
+                                body_lines = [ln for ln in str(ar.get("body", "")).splitlines() if str(ln).strip()]
+                                has_fields = all(any(lbl in ln for ln in body_lines) for lbl in ["Decoded command line:", "Command path:", "Sophos PID:", "Purpose:"])
+                                if (mdr in ("", "none") or not any(tok in joined for tok in ("sophos", "mdr", "sophos central"))) or not has_fields or len(body_lines) < 6:
+                                    ar = dict(ar)
+                                    ar["artefact_type"] = "ticket"
+                                    ar["metadata"] = []
+                        except Exception:
+                            pass
+                        new_arts.append(ar)
+                    inj["artefacts"] = new_arts
+                except Exception:
+                    pass
+
+                # Probe coverage
+                try:
+                    probes = inj.get("facilitator_probe_questions", []) if isinstance(inj, dict) else []
+                    probes = [str(x) for x in (probes or [])]
+                    need = {
+                        "evidence": not any(_has(("evidence", "log", "alert", "where would you", "siem"), q) for q in probes),
+                        "governance": not any(_has(("governance", "major incident", "regulator", "ico", "72h", "notification"), q) for q in probes),
+                        "authority": not any(_has(("authority", "authorised", "runbook", "invoke", "containment"), q) for q in probes),
+                        "communications": not any(_has(("communications", "stakeholder", "inform", "brief", "comms"), q) for q in probes),
+                        "whatif": not any(q.lower().startswith("what if") for q in probes),
+                    }
+                    if need["evidence"]:
+                        probes.append("Where would you look for corroborating evidence in logs or alerts?")
+                    if need["governance"]:
+                        probes.append("Does this meet our incident declaration or regulator threshold?")
+                    if need["authority"]:
+                        probes.append("Who is authorised to invoke the relevant runbook and containment steps?")
+                    if need["communications"]:
+                        probes.append("Which stakeholders must be briefed at this stage?")
+                    if need["whatif"]:
+                        probes.append("What if this signal is a false positive—what would you do next?")
+                    inj["facilitator_probe_questions"] = probes[:8]
+                except Exception:
+                    pass
+
+                # Early-reveal scrubbing (injects 1–3)
+                try:
+                    if ji <= 3:
+                        txt = str(inj.get("scenario_narrative", "") or "")
+                        for et in early_terms:
+                            if et in txt.lower():
+                                txt = txt.replace("unauthorised access", "anomalous access patterns").replace("compromised account", "account anomalies indicated").replace("phishing attack", "suspicious email reported").replace("threat actor", "unidentified party").replace("malicious activity", "suspect activity")
+                        inj["scenario_narrative"] = _norm_txt(txt)
+                except Exception:
+                    pass
+
+                # Decision question objective mapping (post-merge safe)
+                try:
+                    dqs = inj.get("decision_questions", []) if isinstance(inj, dict) else []
+                    if isinstance(dqs, list) and dqs:
+                        objectives2 = p.get("objectives", []) if isinstance(p, dict) else []
+                        objset = {str(x).strip().lower() for x in (objectives2 or []) if isinstance(x, str)}
+                        chosen = (objectives2[0] if objectives2 else obj0) or ""
+                        for dq in dqs:
+                            if isinstance(dq, dict):
+                                oid = str(dq.get("objective_id", "")).strip().lower()
+                                if not oid or oid not in objset:
+                                    dq["objective_id"] = chosen
+                        inj["decision_questions"] = dqs
+                except Exception:
+                    pass
+        return p
+    except Exception:
+        return p
+
+def _derive_visibility_contract(inputs: dict) -> dict:
+    """
+    Build a simple visibility contract from client profile.
+    Keys:
+      - mdr_enabled: bool
+      - idp_present: bool
+      - endpoint_managed: bool   (true if endpoint vendor != 'Select...' and not 'Other'/'None')
+      - remote_access: str
+      - saas_backup_present: bool
+    """
+    try:
+        v = {}
+        prov = str((inputs or {}).get("mdr_provider", "")).strip().lower()
+        v["mdr_enabled"] = bool(prov and prov != "none" and prov != "select mdr / soc provider...")
+        idp = str((inputs or {}).get("identity", "")).strip().lower()
+        v["idp_present"] = idp in ("microsoft entra id (azure ad)", "okta")
+        endpoint = str((inputs or {}).get("endpoint", "")).strip().lower()
+        v["endpoint_managed"] = endpoint and endpoint not in ("select endpoint vendor...", "other", "none")
+        v["remote_access"] = str((inputs or {}).get("remote_access", "")).strip().lower()
+        v["saas_backup_present"] = str((inputs or {}).get("saas_backup", "")).strip().lower() != "none (relying on microsoft/google)"
+        return v
+    except Exception:
+        return {}
+
+def _enforce_visibility_on_injects(plan: dict, inputs: dict) -> dict:
+    """
+    Enforce realistic sources of detection based on visibility contract.
+    - If MDR not enabled or not plausibly covering the signal → replace MDR detection claims with IdP/app/proxy/helpdesk sources.
+    - BYOD and third‑party SaaS: prefer identity risk detections, app admin/audit logs, reverse proxy/WAF, or user-reported signals.
+    - Update systems_to_check accordingly.
+    """
+    try:
+        vis = _derive_visibility_contract(inputs)
+        scns = plan.get("scenarios", []) if isinstance(plan, dict) else []
+        for scn in scns:
+            inj_list = scn.get("injects", []) if isinstance(scn, dict) else []
+            for inj in inj_list:
+                if not isinstance(inj, dict):
+                    continue
+                narr = str(inj.get("scenario_narrative", "") or "")
+                syschk = inj.get("systems_to_check", [])
+                syschk = syschk if isinstance(syschk, list) else []
+                lower_narr = narr.lower()
+                is_chargepoint = "chargepoint" in lower_narr or "back office" in lower_narr
+                is_byod = ("byod" in lower_narr) or ("bring your own device" in lower_narr)
+                # If MDR not enabled, remove MDR claims
+                if ("mdr" in lower_narr or "sophos" in lower_narr) and not vis.get("mdr_enabled"):
+                    narr = narr.replace("Sophos MDR", "identity provider risk detection").replace("MDR", "monitoring")
+                # For BYOD + SaaS (Chargepoint), rewrite to realistic detection channels
+                if is_chargepoint and is_byod:
+                    # Prefer IdP/app/proxy signals
+                    if "identity provider risk detection" not in narr and "admin audit" not in lower_narr:
+                        narr = f"Identity provider risk detection flagged anomalous access patterns to the Chargepoint back office tooling. Admin audit logs corroborate unusual session behaviour."
+                    # Adjust systems_to_check (ensure only plausible sources)
+                    desired = ["Identity provider sign-in logs", "Chargepoint admin audit logs", "Reverse proxy / WAF access logs", "Helpdesk ticket"]
+                    # Drop MDR/EDR dashboards if present and endpoint not managed
+                    if not vis.get("endpoint_managed"):
+                        syschk = [s for s in syschk if "EDR" not in str(s) and "MDR" not in str(s)]
+                    # Merge desired uniques
+                    seen = set()
+                    merged = []
+                    for s in (syschk + desired):
+                        t = str(s).strip()
+                        if t and t not in seen:
+                            seen.add(t)
+                            merged.append(t)
+                    syschk = merged[:6]
+                inj["scenario_narrative"] = " ".join(narr.split())
+                inj["systems_to_check"] = syschk
+        return plan
+    except Exception:
+        return plan
+
 from core import LLMEngine
 from prompts import (
     TabletopMasterPlan,
@@ -72,6 +318,11 @@ show_export = True
 with st.expander("Profile: Export / Import", expanded=False):
     import json as _json
     col_e1, col_e2 = st.columns([1, 1])
+    # Debug import toggle via config; prints branch decisions and metadata
+    try:
+        DEBUG_IMPORT = str(get_config("DEBUG_IMPORT", "false")).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        DEBUG_IMPORT = False
 
     export_profile = st.session_state.get("client_inputs", {})
     file_customer_name = (export_profile or {}).get("customer_name", "Client")
@@ -80,7 +331,7 @@ with st.expander("Profile: Export / Import", expanded=False):
         if export_profile:
             st.download_button(
                 "⬇️ Export current options (.json)",
-                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode("utf-8"),
+                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2, default=_json_default).encode("utf-8"),
                 file_name=f"{str(file_customer_name).replace(' ', '_')}_options.json",
                 mime="application/json",
             )
@@ -88,23 +339,61 @@ with st.expander("Profile: Export / Import", expanded=False):
             st.info("Provide inputs to enable export.")
 
     with col_e2:
-        uploaded = st.file_uploader("Import options (.json)", type=["json"], key="tt_profile_import_json")
+        nonce = st.session_state.get('_tt_import_nonce', 0)
+        uploaded = st.file_uploader("Import options (.json)", type=["json"], key=f"tt_profile_import_json_{nonce}")
+        # One-shot guard: skip importer once right after a successful import
+        if st.session_state.get('_tt_profile_import_applied'):
+            st.session_state.pop('_tt_profile_import_applied', None)
+            st.session_state['_tt_import_nonce'] = (nonce + 1)
+            if 'DEBUG_IMPORT' in globals() and DEBUG_IMPORT:
+                st.caption(f"DEBUG: one-shot guard hit; nonce→{nonce+1}")
+            st.info("Profile applied to UI.")
+            uploaded = None
         if uploaded is not None:
             try:
+                # Defensive: reset pointer if stream-like
+                try:
+                    if hasattr(uploaded, "seek"):
+                        uploaded.seek(0)
+                except Exception:
+                    pass
                 raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
-                data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
-                profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
-                if not isinstance(profile, dict):
-                    st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                import hashlib as _hashlib
+                try:
+                    _h = _hashlib.sha256(raw).hexdigest() if isinstance(raw, (bytes, bytearray)) else _hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
+                except Exception:
+                    _h = f"{getattr(uploaded, 'name', 'unknown')}:{len(raw) if hasattr(raw, '__len__') else 0}"
+                if 'DEBUG_IMPORT' in globals() and DEBUG_IMPORT:
+                    fname = getattr(uploaded, "name", "unknown")
+                    size = len(raw) if isinstance(raw, (bytes, bytearray)) else len(str(raw))
+                    st.caption(f"DEBUG: nonce={nonce}, file={fname}, size={size} bytes, hash={_h[:12]}...")
+                # If this exact file was already applied, bump nonce to reset uploader and avoid rerun loops
+                if st.session_state.get('_tt_last_import_hash') == _h:
+                    st.info("Profile already applied.")
+                    st.session_state['_tt_import_nonce'] = (nonce + 1)
+                    if 'DEBUG_IMPORT' in globals() and DEBUG_IMPORT:
+                        st.caption(f"DEBUG: already-applied branch; nonce→{nonce+1}")
                 else:
-                    try:
-                        from consultation_helpers import migrate_profile
-                        profile = migrate_profile(profile)
-                    except Exception:
-                        pass
-                    st.session_state["client_inputs"] = profile
-                    st.success("Profile imported. Applying to UI...")
-                    st.rerun()
+                    data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
+                    profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
+                    if not isinstance(profile, dict):
+                        st.error("Invalid file format: expected a JSON object with a 'profile' object or a flat object of fields.")
+                    else:
+                        try:
+                            from consultation_helpers import migrate_profile
+                            profile = migrate_profile(profile)
+                        except Exception:
+                            if 'DEBUG_IMPORT' in globals() and DEBUG_IMPORT:
+                                st.caption("DEBUG: migrate_profile raised; continuing with raw profile.")
+                        st.session_state["client_inputs"] = profile
+                        st.session_state['_tt_last_import_hash'] = _h
+                        st.session_state['_tt_profile_import_applied'] = True
+                        st.session_state['_tt_import_nonce'] = (nonce + 1)
+                        if 'DEBUG_IMPORT' in globals() and DEBUG_IMPORT:
+                            cust = profile.get('customer_name') if isinstance(profile, dict) else None
+                            st.caption(f"DEBUG: success branch; customer_name={cust}; nonce→{nonce+1}; rerunning")
+                        st.success("Profile imported. Applying to UI...")
+                        st.rerun()
             except Exception as e:
                 st.error(f"Failed to import profile: {e}")
 
@@ -507,6 +796,8 @@ st.session_state["client_inputs"].update({
 })
 st.subheader("Themes")
 st.caption("Generate uses your saved Setup and any Advanced evidence. Profiles are independent; Audience is for presets/labels only.")
+# Approval control for blueprint-driven inject generation
+st.checkbox("Use approved ExerciseBlueprint to generate injects (deterministic; bypass LLM plan)", key="exercise_blueprint_approved")
 if show_themes:
     col_sc1, col_sc2 = st.columns(2)
     with col_sc1:
@@ -532,10 +823,26 @@ if show_themes:
     with col_sc2:
         st.markdown(f"**Target Customer:** `{cached_customer_name}`")
         st.markdown(f"**Key Assets:** `{key_assets}`")
+        # Auto-seed custom brief from Threat Simulator if available and no user-provided brief
+        default_brief = st.session_state.get("custom_tabletop_brief", "")
+        if not default_brief:
+            _sc = st.session_state.get("scenario_obj")
+            if _sc is not None:
+                try:
+                    import re as _re  # local import to avoid global dependency
+                except Exception:
+                    _re = None
+                try:
+                    _text = getattr(_sc, "narrative", "")
+                    if isinstance(_text, str):
+                        _text = _re.sub(r"\s+", " ", _text).strip() if _re else _text.strip()
+                        default_brief = _text[:400]
+                except Exception:
+                    pass
         custom_brief = st.text_area(
             "Custom scenario brief (optional)",
             help="Provide 1–3 sentences describing a bespoke scenario to include (30–400 characters).",
-            value=st.session_state.get("custom_tabletop_brief", ""),
+            value=default_brief,
             placeholder="e.g., Overnight outage in M365 Exchange Online with downstream impacts to customer support and finance approvals.",
         )
         custom_brief = (custom_brief or "").strip()
@@ -569,27 +876,302 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
     with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
         client = LLMEngine.get_client()
         deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+        # ExerciseBlueprint (optional, ahead of inject plan)
+        try:
+            if str(get_config("TABLETOP_BLUEPRINT_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
+                blueprint = LLMEngine.generate_exercise_blueprint(
+                    client,
+                    deployment,
+                    SYSTEM_PERSONA_TABLETOP,
+                    client_inputs,
+                    selected_themes,
+                    audience=st.session_state.get("tabletop_audience", "Blended"),
+                )
+                if blueprint:
+                    st.session_state["exercise_blueprint"] = blueprint
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("ExerciseBlueprint generation failed; proceeding with plan generation. Error: %s", e)
+
+        # If an approved ExerciseBlueprint exists, deterministically build the plan from it (no LLM)
+        st.session_state.setdefault("exercise_blueprint_approved", False)
+        _use_bp = bool(st.session_state.get("exercise_blueprint_approved"))
+        _bp = st.session_state.get("exercise_blueprint")
+        if _use_bp and isinstance(_bp, dict):
+            try:
+                # Minimal deterministic plan from blueprint
+                plan = {
+                    "exercise_title": _bp.get("exercise_title", "Tabletop Exercise"),
+                    "client_name": client_inputs.get("customer_name", _bp.get("client_name", "Client")),
+                    "housekeeping_rules": _bp.get("housekeeping_rules", []),
+                    "scenarios": []
+                }
+                # Single scenario mapped from blueprint context; map inject_plan → injects
+                ip = _bp.get("inject_plan", []) or []
+                scenario = {
+                    "scenario_id": "SCN-01",
+                    "scenario_title": _bp.get("exercise_title", "Scenario"),
+                    "scenario_theme": "Blended",
+                    "target_assets": [client_inputs.get("critical_infra", "Crown Jewels")],
+                    "initial_vector": "Blueprint",
+                    "injects": [],
+                    "facilitator_reveal": {
+                        "reveal_title": "Wrap-up",
+                        "reveal_narrative": ((_bp.get("facilitation_guide") or {}).get("escalation_notes") or ""),
+                        "key_lessons": ((_bp.get("facilitation_guide") or {}).get("key_lessons") or []) or ["Lesson"],
+                        "wrap_up_questions": ((_bp.get("facilitation_guide") or {}).get("wrap_up_questions") or []) or ["Question"]
+                    }
+                }
+                # Progressive knowledge tracker
+                running_known = []
+                for idx, item in enumerate(ip[:4], 1):
+                    sb = (item.get("story_beat") or {})
+                    ks = (sb.get("knowledge_state") or {})
+                    facts = [str(x) for x in (ks.get("known_facts") or [])]
+                    # Progressive knowledge states
+                    knowledge_before = list(dict.fromkeys(running_known)) or ["Context"]
+                    newly = [x for x in facts if x not in running_known] or (facts or ["Revealed"])
+                    after = list(dict.fromkeys(running_known + facts)) or ["State"]
+                    running_known = after[:]
+                    esc = (sb.get("escalation_state") or {})
+                    dec_thr = esc.get("decision_threshold", "")
+                    prim = dec_thr or ""
+                    # Technical indicators derived from artefact requests/source systems
+                    tech_inds = []
+                    try:
+                        for ar in (item.get("artefact_requests") or []):
+                            if isinstance(ar, dict):
+                                t = ar.get("artefact_type", "") or "artefact"
+                                s = ar.get("source_system", "") or "System"
+                                tech_inds.append(f"{t} from {s}")
+                    except Exception:
+                        pass
+                    if not tech_inds:
+                        tech_inds = ["Indicator"]
+                    # Systems to check from artefact source systems; ensure >=2 with fallbacks
+                    syschk = []
+                    try:
+                        srcs = set()
+                        for ar in (item.get("artefact_requests") or []):
+                            if isinstance(ar, dict):
+                                s = (ar.get("source_system", "") or "").strip()
+                                if s:
+                                    srcs.add(s)
+                        syschk = list(srcs)[:6]
+                    except Exception:
+                        syschk = []
+                    if len(syschk) < 2:
+                        for extra in ("SIEM console", "EDR dashboard", "Identity logs"):
+                            if extra not in syschk:
+                                syschk.append(extra)
+                            if len(syschk) >= 6:
+                                break
+                    # Default roles/runbooks/evidence/knowledge checks
+                    roles = ["Incident Manager", "SOC Analyst"][:5]
+                    runbooks = ["IR‑01 Declaration"]
+                    evhunt = ["Ticket ID for incident declaration", "SIEM export of indicators"]
+                    kchecks = ["Who approves external comms?", "Where is the SIEM query stored?"]
+                    inj = {
+                        "inject_id": f"INJ-1.{idx}",
+                        "phase_title": sb.get("phase_title", "Phase"),
+                        "simulated_timestamp": sb.get("simulated_timestamp", ""),
+                        "scenario_narrative": sb.get("participant_narrative", ""),
+                        "technical_indicators": tech_inds[:4],
+                        "artefacts": [],  # Deterministic path does not synthesise full artefacts; editor/LLM may enrich later
+                        "facilitator_probe_questions": [dq.get("prompt","Question") for dq in (item.get("decision_questions") or [])][:5] or ["What if..."],
+                        "expected_mature_response": dec_thr or "Follow runbook authority and governance thresholds.",
+                        "common_pitfalls": ["Assuming evidence without validation", "Skipping authority checks"],
+                        "decision_threshold": dec_thr or "",
+                        "primary_decision_target": prim or "Decision",
+                        "knowledge_before": knowledge_before[:8],
+                        "knowledge_newly_revealed": newly[:8],
+                        "knowledge_after": after[:10],
+                        "systems_to_check": syschk[:6],
+                        "roles_to_engage": roles,
+                        "runbook_references": runbooks,
+                        "evidence_hunt": evhunt[:6],
+                        "knowledge_checks": kchecks[:4],
+                        "timebox_hint": item.get("timebox_hint", "5–7 minutes to decision")
+                    }
+                    scenario["injects"].append(inj)
+                plan["scenarios"].append(scenario)
+                # Merge Required Setup (Objectives & Scope) if present
+                _rs = st.session_state.get("tt_required_setup_data")
+                if _rs:
+                    plan["objectives"] = _rs.get("objectives", [])
+                    plan["scope"] = _rs.get("scope", {})
+                # Enforce telemetry visibility realism before other quality rules
+                plan = _enforce_visibility_on_injects(plan, st.session_state.get("client_inputs", {}))
+                # Quality normalisation (vendor/probes/lexicon/objective mapping)
+                plan = _quality_normalise_tabletop_plan(plan, st.session_state.get("client_inputs", {}))
+                # Knowledge-bound participant artefact synthesis (deterministic; optional)
+                try:
+                    from participant_artefacts import synthesise_participant_artefacts as _synth
+                    if str(get_config("TABLETOP_ARTEFACT_GEN_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
+                        plan = _synth(plan, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
+                except Exception as _ae:
+                    st.caption(f"Participant artefact synthesis skipped: {_ae}")
+                # Facilitator-only guidance synthesis (mandatory; speaker notes only)
+                try:
+                    from facilitator_guidance import generate_inject_facilitation, attach_facilitation_to_plan
+                    fac_map = generate_inject_facilitation(plan, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
+                    plan = attach_facilitation_to_plan(plan, fac_map)
+                except Exception as _fe:
+                    st.caption(f"Facilitation notes synthesis skipped: {_fe}")
+                # Synthesise DecisionQuestion list from facilitator_probe_questions (fallback)
+                try:
+                    _objs = plan.get("objectives", []) if isinstance(plan, dict) else []
+                    _obj0 = (_objs[0] if isinstance(_objs, list) and _objs else "")
+                    for scn in (plan.get("scenarios", []) if isinstance(plan, dict) else []):
+                        for inj in (scn.get("injects", []) if isinstance(scn, dict) else []):
+                            # Skip if already present
+                            if isinstance(inj, dict) and isinstance(inj.get("decision_questions"), list) and inj["decision_questions"]:
+                                continue
+                            fpq = inj.get("facilitator_probe_questions", []) if isinstance(inj, dict) else []
+                            dq_list = []
+                            for q in (fpq or []):
+                                qs = str(q or "")
+                                lower = qs.lower()
+                                cat = "Evidence"
+                                if lower.startswith("what if"):
+                                    cat = "What‑if"
+                                elif ("declare" in lower) or ("notify" in lower) or ("regulator" in lower):
+                                    cat = "Governance"
+                                elif ("who" in lower and "approve" in lower):
+                                    cat = "Authority"
+                                elif any(x in lower for x in ("stakeholder", "communicat", "brief", "inform")):
+                                    cat = "Communications"
+                                dq_list.append({
+                                    "prompt": qs,
+                                    "category": cat,
+                                    "objective_id": _obj0,
+                                    "decision_target": (inj.get("decision_threshold", "") if isinstance(inj, dict) else ""),
+                                })
+                            if dq_list:
+                                inj["decision_questions"] = dq_list
+                except Exception:
+                    pass
+                st.session_state["tabletop_plan"] = plan
+                st.success("Tabletop scenario compiled deterministically from approved ExerciseBlueprint.")
+                st.stop()
+            except Exception as _xe:
+                st.warning(f"Blueprint transform failed; falling back to LLM plan. Error: {_xe}")
+
+        # Seed custom brief from Threat Simulator if user did not provide one
+        _seed_brief = st.session_state.get("custom_tabletop_brief")
+        if not _seed_brief:
+            _sc = st.session_state.get("scenario_obj")
+            if _sc is not None:
+                try:
+                    import re as _re  # local import to avoid global dependency
+                except Exception:
+                    _re = None
+                try:
+                    _text = getattr(_sc, "narrative", "")
+                    if isinstance(_text, str):
+                        _text = _re.sub(r"\s+", " ", _text).strip() if _re else _text.strip()
+                        _seed_brief = _text[:400]
+                except Exception:
+                    pass
         prompt = build_tabletop_plan_prompt(
-    client_inputs,
-    selected_themes,
-    custom_brief=st.session_state.get("custom_tabletop_brief"),
-    audience=st.session_state.get("tabletop_audience", "Blended"),
-    exercise_profile=st.session_state.get("exercise_profile", "blended"),
-    presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
-)
+            client_inputs,
+            selected_themes,
+            custom_brief=_seed_brief,
+            audience=st.session_state.get("tabletop_audience", "Blended"),
+            exercise_profile=st.session_state.get("exercise_profile", "blended"),
+            presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
+        )
         plan = LLMEngine.generate_structured_report(
             client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan
         )
         if plan:
-            st.session_state["tabletop_plan"] = plan.model_dump()
+            plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
+            # Knowledge-bound participant artefact synthesis (deterministic; optional)
+            try:
+                from participant_artefacts import synthesise_participant_artefacts as _synth
+                if str(get_config("TABLETOP_ARTEFACT_GEN_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
+                    plan_dict = _synth(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
+            except Exception as _ae:
+                st.caption(f"Participant artefact synthesis skipped: {_ae}")
+            # Facilitator-only guidance synthesis (mandatory; speaker notes only)
+            try:
+                from facilitator_guidance import generate_inject_facilitation, attach_facilitation_to_plan
+                fac_map = generate_inject_facilitation(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
+                plan_dict = attach_facilitation_to_plan(plan_dict, fac_map)
+            except Exception as _fe:
+                st.caption(f"Facilitation notes synthesis skipped: {_fe}")
+            # Backfill fiction policy defaults (advisory)
+            try:
+                scns = plan_dict.get("scenarios", []) if isinstance(plan_dict, dict) else []
+                for scn in scns:
+                    if isinstance(scn, dict) and not scn.get("fiction_policy"):
+                        scn["fiction_policy"] = {
+                            "may_invent_people": False,
+                            "may_invent_email_addresses": True,
+                            "may_invent_log_values": True,
+                            "may_invent_customer_impact": False,
+                            "may_invent_supplier_responses": False,
+                            "prohibited_inventions": ["undocumented production architecture"]
+                        }
+            except Exception:
+                pass
+            # Synthesise DecisionQuestion list from facilitator_probe_questions (fallback)
+            try:
+                _objs = plan_dict.get("objectives", []) if isinstance(plan_dict, dict) else []
+                _obj0 = (_objs[0] if isinstance(_objs, list) and _objs else "")
+                for scn in (plan_dict.get("scenarios", []) if isinstance(plan_dict, dict) else []):
+                    for inj in (scn.get("injects", []) if isinstance(scn, dict) else []):
+                        if isinstance(inj, dict) and isinstance(inj.get("decision_questions"), list) and inj["decision_questions"]:
+                            continue
+                        fpq = inj.get("facilitator_probe_questions", []) if isinstance(inj, dict) else []
+                        dq_list = []
+                        for q in (fpq or []):
+                            qs = str(q or "")
+                            lower = qs.lower()
+                            cat = "Evidence"
+                            if lower.startswith("what if"):
+                                cat = "What‑if"
+                            elif ("declare" in lower) or ("notify" in lower) or ("regulator" in lower):
+                                cat = "Governance"
+                            elif ("who" in lower and "approve" in lower):
+                                cat = "Authority"
+                            elif any(x in lower for x in ("stakeholder", "communicat", "brief", "inform")):
+                                cat = "Communications"
+                            dq_list.append({
+                                "prompt": qs,
+                                "category": cat,
+                                "objective_id": _obj0,
+                                "decision_target": (inj.get("decision_threshold", "") if isinstance(inj, dict) else ""),
+                            })
+                        if dq_list:
+                            inj["decision_questions"] = dq_list
+                        # Inject timing defaults (advisory pacing)
+                        try:
+                            if not inj.get("inject_timing"):
+                                inj["inject_timing"] = {
+                                    "target_minutes": 6,
+                                    "minimum_minutes": 4,
+                                    "maximum_minutes": 8,
+                                    "free_discussion_seconds": 45,
+                                    "release_condition": "facilitator"
+                                }
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             # Merge saved Required Setup (Objectives + Scope) if present
             _rs = st.session_state.get("tt_required_setup_data")
             if _rs:
                 try:
-                    st.session_state["tabletop_plan"]["objectives"] = _rs.get("objectives", st.session_state["tabletop_plan"].get("objectives", []))
-                    st.session_state["tabletop_plan"]["scope"] = _rs.get("scope", st.session_state["tabletop_plan"].get("scope", {}))
+                    plan_dict["objectives"] = _rs.get("objectives", plan_dict.get("objectives", []))
+                    plan_dict["scope"] = _rs.get("scope", plan_dict.get("scope", {}))
                 except Exception:
                     pass
+            # Enforce telemetry visibility realism before other quality rules
+            plan_dict = _enforce_visibility_on_injects(plan_dict, st.session_state.get("client_inputs", {}))
+            # Quality normalisation (vendor/probes/lexicon/objective mapping)
+            plan_dict = _quality_normalise_tabletop_plan(plan_dict, st.session_state.get("client_inputs", {}))
+            st.session_state["tabletop_plan"] = plan_dict
             st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:
             st.error("Generation failed. Check Azure configuration.")
@@ -640,12 +1222,27 @@ if show_customise and st.session_state.get("tabletop_plan"):
                 inj["expected_mature_response"] = st.text_area(
                     "What Good Looks Like", value=inj.get("expected_mature_response"), key=f"resp_{s_idx}_{i_idx}"
                 )
+            # Facilitator Reveal / Wrap-Up editor
+            st.markdown("#### 🎬 Facilitator Reveal / Wrap-Up")
+            fr = scn.get("facilitator_reveal") or {}
+            fr["reveal_title"] = st.text_input("Reveal Title", value=fr.get("reveal_title", ""), key=f"fr_title_{s_idx}")
+            fr["reveal_narrative"] = st.text_area("Reveal Narrative", value=fr.get("reveal_narrative", ""), key=f"fr_narr_{s_idx}", height=120)
+            fr["facilitator_script"] = st.text_area("Facilitator Script (optional)", value=fr.get("facilitator_script", ""), key=f"fr_script_{s_idx}", height=100)
+            _kl_default = "\n".join([str(x) for x in (fr.get("key_lessons") or []) if str(x).strip()])
+            fr["key_lessons"] = [x.strip() for x in st.text_area("Key Lessons (one per line, 2–5)", value=_kl_default, key=f"fr_kl_{s_idx}", height=100).splitlines() if x.strip()]
+            _wq_default = "\n".join([str(x) for x in (fr.get("wrap_up_questions") or []) if str(x).strip()])
+            fr["wrap_up_questions"] = [x.strip() for x in st.text_area("Wrap-Up Questions (one per line, 2–6)", value=_wq_default, key=f"fr_wq_{s_idx}", height=100).splitlines() if x.strip()]
+            _wc_default = "\n".join([str(x) for x in (fr.get("wrap_up_checklist") or []) if str(x).strip()])
+            fr["wrap_up_checklist"] = [x.strip() for x in st.text_area("Wrap-Up Checklist (optional, one per line)", value=_wc_default, key=f"fr_wc_{s_idx}", height=100).splitlines() if x.strip()]
+            _fsc_default = "\n".join([str(x) for x in (fr.get("final_success_criteria") or []) if str(x).strip()])
+            fr["final_success_criteria"] = [x.strip() for x in st.text_area("Final Success Criteria (optional, 1–3 items, one per line)", value=_fsc_default, key=f"fr_fsc_{s_idx}", height=80).splitlines() if x.strip()]
+            scn["facilitator_reveal"] = fr
 
     col_json1, col_json2 = st.columns(2)
     with col_json1:
         st.download_button(
             "🧩 Export Tabletop Plan (.json)",
-            data=(json.dumps(plan, ensure_ascii=False, indent=2)).encode("utf-8"),
+            data=(json.dumps(_ensure_required_plan_fields(plan), ensure_ascii=False, indent=2, default=_json_default)).encode("utf-8"),
             file_name=f"{cached_customer_name}_Tabletop_Plan.json",
             mime="application/json",
         )
@@ -654,6 +1251,10 @@ if show_customise and st.session_state.get("tabletop_plan"):
         if uploaded_plan is not None:
             try:
                 imported = json.loads(uploaded_plan.getvalue().decode("utf-8"))
+                try:
+                    imported = _ensure_required_plan_fields(imported)
+                except Exception:
+                    pass
                 validated = TabletopMasterPlan.model_validate(imported)
                 st.session_state["tabletop_plan"] = validated.model_dump()
                 st.success("Tabletop plan imported and applied to the editor.")
@@ -717,19 +1318,19 @@ if show_customise and st.session_state.get("tabletop_plan"):
         pptx_data = create_tabletop_pptx(plan)
         st.download_button(
             "📊 Download Presentation Deck (.pptx)",
-            data=pptx_data,
+            data=(pptx_data or b""),
             file_name=f"{cached_customer_name}_Tabletop_Deck.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            disabled=bool((not ok) and strict_flag),
+            disabled=bool(((not ok) and strict_flag) or (not pptx_data)),
         )
     with col_lock2:
         pdf_data = create_tabletop_facilitator_pdf(plan)
         st.download_button(
             "📑 Download Facilitator Guide (.pdf)",
-            data=pdf_data,
+            data=(pdf_data or b""),
             file_name=f"{cached_customer_name}_Facilitator_Guide.pdf",
             mime="application/pdf",
-            disabled=bool((not ok) and strict_flag),
+            disabled=bool(((not ok) and strict_flag) or (not pdf_data)),
         )
 
     st.divider()

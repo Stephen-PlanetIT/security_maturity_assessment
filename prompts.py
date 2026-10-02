@@ -4,8 +4,9 @@ import os
 import datetime
 import random
 from pydantic import BaseModel, Field
-from typing import List, Optional
-from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, COMPACT_VENDOR_WHITELIST_TEXT, DFE_2026_STANDARD_NAME, DFE_2026_CONTROLS
+from typing import List, Optional, Literal
+from data import MATURITY_FRAMEWORK, ASSESSMENT_DOMAINS, RECOMMENDED_SOLUTION_MAP, DEFAULT_MATURITY_CONTEXT, FULLY_MANAGED_URL, CO_MANAGED_URL, COMPACT_VENDOR_WHITELIST_TEXT, MDR_SCOPE_TEXT, DFE_2026_STANDARD_NAME, DFE_2026_CONTROLS
+from config import get_config
 from consultation_helpers import (
     format_critical_asset_profile,
     format_service_resilience_profile,
@@ -61,7 +62,7 @@ class ThreatTimelines(BaseModel):
         max_items=12
     )
     with_sophos: List[TimelineEvent] = Field(
-        description="The attack timeline WITH Sophos MDR interception. First event at start_time, last event at end_time (38-min MTTR). Must show detection, isolation, and neutralisation by Sophos MDR before objective completion.",
+        description="The attack timeline WITH Sophos MDR interception. First event at start_time, last event at end_time (38-min MTTR). Truthfulness guardrail: assert detection/isolation/neutralisation ONLY when in remit per vendor telemetry and declared integrations; otherwise mark 'Out of Remit — escalation/IR' and avoid inventing detection, while preserving anchored times.",
         min_items=5,
         max_items=12
     )
@@ -475,15 +476,27 @@ You are writing for a C-level and technical director audience. Terse, high-level
  # ==========================================
  # TABLETOP FACILITATOR PERSONA
  # ==========================================
-SYSTEM_PERSONA_TABLETOP = """
+SYSTEM_PERSONA_TABLETOP = f"""
  ROLE: Incident Commander & Facilitator (Planet IT). PURPOSE: Design and run a bespoke tabletop exercise that exploits identified hygiene gaps and governance realities to drive learning outcomes.
  
  STRICT GUARDRAILS:
  - Use British English throughout.
  - Honour Pydantic schema constraints exactly (min_items/max_items). Do not return open dicts; only explicit BaseModel objects.
- - Respect the ban list absolutely; do not recommend or reference banned vendors anywhere.
- 
- GAP EXPLOITATION (DETERMINISTIC):
+  - Respect the ban list absolutely; do not recommend or reference banned vendors anywhere.
+  
+  MDR DETECTION TRUTHFULNESS GUARDRAILS (STRICT):
+  - You MUST NOT claim that an MDR provider detected or contained an event if the necessary telemetry was not present or integrated.
+  - Use the following remit reference:
+  {MDR_SCOPE_TEXT}
+  - When generating 'with_sophos' timeline or the Alternative Viewpoint, justify each detection with the exact telemetry source (e.g., 'Endpoint: Sophos Intercept X agent detection', 'Email: EMS', 'Firewall: Sophos Firewall').
+  - If the client's monitoring_assurance_profile.log_sources_monitored does not include the required source, write 'Out of Remit — detection not guaranteed without [integration]' and proceed with escalation/IR retainer rather than inventing detection.
+   - Maintain cautious modality ('could', 'likely'); avoid guarantees.
+   
+   ARTEFACT GENERATION CONSTRAINTS (STRICT):
+   - You MUST NOT produce 'sophos/mdr/case' style artefacts unless the client's declared stack includes 'Sophos MDR' and the inject's systems_to_check includes a Sophos source (e.g., 'Sophos Central'); otherwise mark 'Out of Remit — detection not guaranteed without [integration]' and use non‑MDR artefacts grounded in declared systems (e.g., Entra sign‑in, FortiGate traffic, ticketing/emails).
+   - Board audience: prefer concept communications over raw logs; keep technical_indicators to 0–1.
+   
+   GAP EXPLOITATION (DETERMINISTIC):
  - If MFA is None or Privileged Accounts Only: Early injects must include credential abuse/AiTM narratives and indicators (e.g., suspicious sign-ins, session tokens).
  - If Patch Management is Manual / Ad-hoc: Include exploitation of a known CVE early in the chain; ground with realistic telemetry (alerts/logs).
  - If Backups are No Formal or On-Premise Only: Introduce backup destruction/immutability traps; probe restore testing cadence and governance.
@@ -498,7 +511,7 @@ SYSTEM_PERSONA_TABLETOP = """
  - Apply Capability Mismatch penalties where hygiene is absent irrespective of advanced tooling; do not inflate scores.
  
   OUTPUT DISCIPLINE:
-  - TabletopMasterPlan: 2–4 scenarios; each with 3–5 injects. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), artefacts (1–3), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold, success_criteria (1–3), evaluation_evidence (1–3), systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), timebox_hint.
+  - TabletopMasterPlan: 2–4 scenarios; each with exactly 4 injects, followed by a facilitator_reveal/wrap_up object. For each inject provide: phase_title, simulated_timestamp, scenario_narrative, technical_indicators (1–4), artefacts (1–3), facilitator_probe_questions (2–5), expected_mature_response, common_pitfalls (2–4), decision_threshold, primary_decision_target, knowledge_before (1–8), knowledge_newly_revealed (1–8), knowledge_after (1–10), success_criteria (1–3), evaluation_evidence (1–3), systems_to_check (2–6), roles_to_engage (2–5), runbook_references (1–3), evidence_hunt (2–6), knowledge_checks (2–4), inject_timing (target/minimum/maximum/free_discussion_seconds and release_condition), timebox_hint, inject_branches (optional; up to 8 branches with trigger/response_type/content/prohibited_revelations), scenario_facts (id, statement, fact_type ∈ {{verified_customer_fact, user_provided_assumption, exercise_fiction, model_assumption}}, source_ids[], confidence 0–1 for verified/assumption), target_groups (optional; participant group coverage). For the facilitator_reveal provide: reveal_title, reveal_narrative, facilitator_script (optional), key_lessons (2–5), wrap_up_questions (2–6), wrap_up_checklist (optional, 2–6), final_success_criteria (optional, 1–3). Each scenario must include a fiction_policy and (optional) reserve_injects. Provide generation_metadata at the plan level and ensure diversity via primary_capabilities_tested/primary_pressure_dimensions/primary_roles/primary_decision_types across scenarios.
   - TabletopPivotResponse: consequence_narrative; new_technical_indicators (1–3); urgent_pivot_questions (2–3); facilitator_guidance.
   - TabletopAAR: executive_summary; overall_maturity_observed (Pillar 1/2/3); key_strengths (2–5); critical_gaps_identified (2–5); remediation_recommendations (3–6); delta_notes_for_profile.
  
@@ -521,9 +534,38 @@ SYSTEM_PERSONA_TABLETOP = """
   - Technical: Populate with artefact‑specific items (SIEM queries, EDR alerts, firewall logs) and named technical roles/runbooks.
  """
  
- # ==========================================
- # PROMPT BUILDERS
- # ==========================================
+  # ==========================================
+  # PROMPT BUILDERS
+  # ==========================================
+def build_exercise_blueprint_prompt(client_inputs: dict, selected_themes: list, audience: str = "Blended") -> str:
+    """
+    Build a prompt that returns a JSON object conforming to tabletop_models.ExerciseBlueprint.
+    Includes: hidden truths (facilitator-only), exercise objectives, story beats, participant knowledge progression,
+    decision targets, and escalation state. British English, guardrails, and audience adaptations apply.
+    """
+    cust = client_inputs.get('customer_name', 'Client')
+    infra = client_inputs.get('critical_infra', 'Crown Jewels')
+    mdr = client_inputs.get('mdr_provider', 'None')
+    identity = client_inputs.get('identity', 'Unknown')
+    fw = client_inputs.get('firewall', 'Unknown')
+    themes_str = ", ".join(selected_themes) if selected_themes else "Cyber Attack, Unauthorised Access"
+
+    return f"""Act as ROLE 1 & ROLE 2 (Senior Cyber Security Incident Response Consultant at Planet IT).
+Return a JSON object conforming to the ExerciseBlueprint schema (top-level keys exactly: exercise_title, client_name, audience, housekeeping_rules, objectives, inject_plan, facilitation_guide, context).
+STRICT:
+- objectives: array of ExerciseObjective (objective_id, description, outcomes[1–5]).
+- inject_plan: exactly 4 InjectPlan items; each contains story_beat (StoryBeat) with knowledge_state (KnowledgeState) and optional escalation_state (EscalationState).
+- decision_questions per inject: 2–5 items, each a DecisionQuestion with: prompt; category ∈ {{Evidence, Governance, Authority, Communications, What‑if}}; objective_id (must match an exercise objective); decision_target (align to the inject’s decision_threshold label). STRICT: No generic or yes/no; avoid repetition.
+- artefact_requests per inject: 1–3 requests with artefact_type grounded in the stack (e.g., 'entra/signin' logs → artefact_type='log', source_system='Microsoft Entra').
+- facilitation_guide: includes hidden_truths (facilitator-only), wrap_up_questions[2–6], key_lessons[2–5]. hidden_truths content MUST NOT appear in participant narratives or artefacts.
+- audience: one of 'Board', 'Technical', 'Blended'. For Board, keep technical indicators minimal and foreground governance thresholds and communications decisions.
+- Use British English; cautious modality; MDR truthfulness guardrails (do not claim detection outside remit).
+CONTEXT:
+- Client: {cust} | Identity: {identity} | Firewall: {fw} | MDR: {mdr}
+- Crown Jewels: {infra}
+- Themes: {themes_str}
+"""
+
 def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scenario=""):
     now = datetime.datetime.now(datetime.timezone.utc)
     start_time = (now - datetime.timedelta(minutes=38)).strftime("%H:%M UTC")
@@ -538,9 +580,9 @@ def build_scenario_prompt(client_inputs, osint_data, attack_vector, custom_scena
     - Section 2: Attacker Progression — Hypothetical attempted movement toward {client_inputs['critical_infra']}. For Sections 1–4, rely ONLY on the client's current stack; do NOT assume any MDR presence.
     - Section 3: Data Exfiltration — Explain how data could be staged and exfiltrated without MDR given the current stack.
     - Section 4: Full Impact Delivery — Explain how the attacker would likely achieve encryption/destruction or other final objectives without MDR given the current stack.
-    - Alternative Viewpoint (MDR Vendor Interception — With {mdr_label}): CRITICAL RULE — Under MDR coverage the attack MUST NOT succeed. Describe how {mdr_label} would likely identify behavioural anomalies mid-chain and neutralise before objective completion.
+    - Alternative Viewpoint (MDR Vendor Interception — With {mdr_label}): TRUTHFULNESS GUARDRAIL — Assert detection ONLY when in remit per MDR_SCOPE_TEXT and the client's declared telemetry/integrations. For each detection claim, cite the specific telemetry source (e.g., 'Endpoint: Sophos Intercept X agent', 'Firewall: Sophos Firewall', 'Email: EMS'). If the necessary telemetry is absent or not integrated, write "Out of Remit — detection not guaranteed without [integration]" and instead describe escalation (e.g., IR retainer, containment recommendations) rather than inventing detection. Where in remit, describe how {mdr_label} would likely identify behavioural anomalies mid-chain and neutralise before objective completion.
     - Recommended Solutions (Post‑Scenario): Summarise the defence strategy immediately after the scenario narrative. Where appropriate, draw from the authorised solution map (RECOMMENDED_SOLUTION_MAP), including IR/DR roundtables/planning under GRC and penetration testing options under Security Validation & Testing. Avoid banned vendors.
-    - Section 5 (Attack Timeline — With {mdr_label}): Provide the WITH‑MDR timeline. The very first event MUST be anchored exactly at {start_time} and the final MDR neutralisation MUST be anchored exactly at {end_time} (reflecting a 38‑minute MTTR).
+    - Section 5 (Attack Timeline — With {mdr_label}): Provide the WITH‑MDR timeline. The very first event MUST be anchored exactly at {start_time} and the final MDR neutralisation MUST be anchored exactly at {end_time} (reflecting a 38‑minute MTTR). For each detection/response event, justify with the specific telemetry source. Do NOT claim detection outside remit; if required telemetry is absent, mark the event as "Out of Remit — escalation/IR" and avoid inventing detection while preserving anchored times.
     - Section 6 (Attack Timeline — Without MDR): Provide a separate chronological timeline showing what would happen WITHOUT any MDR. This timeline must show the unmitigated attack path progressing through to objective completion (exfiltration, encryption, or final objective). Do NOT include any MDR detection or intervention events.
     """
 
@@ -599,7 +641,7 @@ CRITICAL INSTRUCTION: You must output ONLY the raw Markdown text matching the EX
 [List the active user context during execution, e.g., SYSTEM, ITAdmin.]
 
 #### Timeline
-[Provide a detailed, chronological timeline of the attack progression. You MUST use EXACT timestamps. The very first event MUST occur at {start_time} and the final neutralisation event MUST occur at {end_time}.]
+[Provide a detailed, chronological timeline of the attack progression. You MUST use EXACT timestamps. The very first event MUST occur at {start_time} and the final neutralisation event MUST occur at {end_time}. For each detection/response event, cite the telemetry source. Do NOT claim detection outside remit; if telemetry is absent, note "Out of Remit — escalation/IR" instead.]
 
 #### 🛡️ Response Actions
 [List 2-3 bullet points of ONLY authorised MDR actions taken by Sophos to neutralise the threat.]
@@ -779,27 +821,27 @@ You MUST also populate the following optional narrative fields with concrete, ex
 
 Act as ROLE 2 and populate the required JSON schema to deliver a comprehensive Cybersecurity Maturity Assessment. Ensure all Vendor-Agnostic Quick Wins are tailored to mitigate the risks highlighted in the client's Security Culture Tier and align with their listed Compliance Targets."""
     
-    # Inject MDR decision hint ahead of rules, if present
-    mdr_pref = client_inputs.get('mdr_decision', 'None')
-    mdr_hint = ""
-    if not mdr_pref or mdr_pref in ('None', 'Tie'):
+    # Inject MDR decision hint (strictly conditional; default-deny)
+    disable_mdr = str(get_config("DISABLE_MDR_SUGGEST", "false")).strip().lower() in ("1","true","yes","on")
+    banned = client_inputs.get('banned_vendors', []) if isinstance(client_inputs, dict) else []
+    mdr_provider = str(client_inputs.get('mdr_provider', '') or '').strip()
+    mfa = str(client_inputs.get('mfa_status', 'Unknown'))
+    patching = str(client_inputs.get('patching', 'Unknown'))
+    backups = str(client_inputs.get('backups', 'Unknown'))
+    hygiene_bad = mfa in ["None", "Privileged Accounts Only"] or patching == "Manual / Ad-hoc" or backups in ["No Formal Backups", "On-Premise Only"]
+    def _banned(vendor: str) -> bool:
         try:
-            ep = str(client_inputs.get('endpoint', '')).lower()
-            comp = str(client_inputs.get('compliance', [])).lower()
+            return any(str(b).strip().lower() in str(vendor).strip().lower() for b in banned)
         except Exception:
-            ep = ''
-            comp = ''
-        if 'sophos' in ep:
-            mdr_pref = 'Sophos MDR'
-        elif 'pci' in comp or 'hipaa' in comp:
-            mdr_pref = 'Adlumin MDR'
-        else:
-            mdr_pref = ''
-    if mdr_pref:
+            return False
+    allow_mdr = (not disable_mdr) and bool(mdr_provider) and mdr_provider not in ("None","Unknown") and not _banned(mdr_provider) and not hygiene_bad
+    mdr_hint = ""
+    if allow_mdr:
+        mdr_pref = client_inputs.get('mdr_decision') or mdr_provider
         mdr_hint = f"""
     ### MDR DECISION ENGINE HINT
     Preferred MDR Provider: {mdr_pref}.
-    Apply this preference when selecting recommended_solutions for the 'Security Operations & Response (SecOps)' domain. If the preferred vendor is banned, fall back to an allowable alternative from the AUTHORIZED PRODUCT MAPPING. Maintain the Capability Mismatch penalties and all guardrails exactly as specified.
+    Apply this preference when selecting recommended_solutions for the 'Security Operations & Response (SecOps)' domain in Phase 2+. Do not include any MDR in Phase 1. If the preferred vendor is banned, omit MDR entirely. Maintain the Capability Mismatch penalties exactly.
     """
     context_clause = ""
     cn = client_inputs.get('context_notes', '')
@@ -827,7 +869,7 @@ You MUST NOT replicate the reference sample's phrasing, sentence structure, para
     Selection rules:
     - Prefer Sophos across domains where functionally appropriate.
     - In IAM and Email, prefer Microsoft 365 native controls (Entra/Intune) when licence supports.
-    - SecOps: Sophos MDR by default; Sophos MDR Plus where full IR is required; Adlumin when SIEM transparency/compliance reporting is a primary driver or Sophos is banned/unsuitable.
+    - SecOps: Recommend MDR only when hygiene is met and the vendor is allowed; introduce in Phase 2+. When out of remit or banned, propose vendor‑agnostic monitoring/assurance, detection testing, and IR governance; do not recommend MDR.
     - Network & Cloud Perimeter: Sophos Firewall by default; Fortinet for >1000 users or explicit SD‑WAN/ASIC requirements.
     - Use up to three vendor candidates per domain and respect the ban list absolutely.
     Strict: Recommend only from this allow‑list; keep selections concise and justified in context.
@@ -1052,6 +1094,7 @@ MaturityReport.update_forward_refs()
 try:
     ScenarioInject.update_forward_refs()
     Scenario.update_forward_refs()
+    TabletopFacilitatorWrapUp.update_forward_refs()
     Observation.update_forward_refs()
     CapabilityAssessment.update_forward_refs()
     DecisionRecord.update_forward_refs()
@@ -1074,6 +1117,56 @@ class InjectArtefact(BaseModel):
     metadata: Optional[List[str]] = Field(default=None, description="Additional contextual hints (e.g., case ID, query path).", min_items=0, max_items=6)
     render_hint: Optional[str] = Field(default=None, description="Short hint to the renderer for formatting (e.g., 'monospace', 'wrap-80').")
 
+from enum import Enum
+
+class FactType(str, Enum):
+    VERIFIED_CUSTOMER_FACT = "verified_customer_fact"
+    USER_PROVIDED_ASSUMPTION = "user_provided_assumption"
+    EXERCISE_FICTION = "exercise_fiction"
+    MODEL_ASSUMPTION = "model_assumption"
+
+class ScenarioFact(BaseModel):
+    id: str = Field(description="Stable ID for the fact (e.g., 'F-001').")
+    statement: str = Field(description="The factual statement or claim text.")
+    fact_type: FactType = Field(description="Provenance classification for this claim.")
+    source_ids: List[str] = Field(description="Source document IDs or references supporting this fact.", min_items=0, max_items=12)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Optional confidence 0.0–1.0 for VERIFIED_CUSTOMER_FACT or USER_PROVIDED_ASSUMPTION.")
+
+class FictionPolicy(BaseModel):
+    may_invent_people: bool = Field(description="Whether fictional people may be invented (e.g., names).")
+    may_invent_email_addresses: bool = Field(description="Whether fictional email addresses may be invented.")
+    may_invent_log_values: bool = Field(description="Whether synthetic log lines/values may be invented.")
+    may_invent_customer_impact: bool = Field(description="Whether fictionalised customer impact narratives are allowed.")
+    may_invent_supplier_responses: bool = Field(description="Whether invented supplier responses are allowed.")
+    prohibited_inventions: List[str] = Field(description="Explicitly prohibited inventions.", min_items=0, max_items=20)
+
+class InjectTiming(BaseModel):
+    target_minutes: int = Field(ge=1, le=30, description="Target minutes allocated for this inject discussion.")
+    minimum_minutes: int = Field(ge=0, le=30, description="Minimum minutes before forcing a release.")
+    maximum_minutes: int = Field(ge=1, le=60, description="Maximum minutes before cut-over.")
+    free_discussion_seconds: int = Field(ge=0, le=120, description="Initial free discussion seconds before directed probes.")
+    release_condition: Literal["facilitator", "decision_reached", "time_elapsed", "topic_covered"] = Field(description="Condition that triggers release to next inject or probes.")
+
+class FacilitatorBranch(BaseModel):
+    trigger: str = Field(description="Condition phrasing (IF participants .../IF facilitator ...).")
+    response_type: Literal["provide_information","clarify_assumption","release_evidence","accelerate_inject","challenge_decision"] = Field(description="Branch action type.")
+    content: str = Field(description="Facilitator content to deliver (participant-safe).")
+    prohibited_revelations: List[str] = Field(description="Tokens/phrases the branch must not reveal.", min_items=0, max_items=10)
+
+class ParticipantGroup(BaseModel):
+    role_group: Literal["executive","it","security","operations","legal","privacy","communications","hr","finance"] = Field(description="Role group label.")
+    exercise_responsibilities: List[str] = Field(description="Responsibilities in the exercise context.", min_items=1, max_items=6)
+
+class GenerationMetadata(BaseModel):
+    schema_version: str = Field(description="Schema version for tabletop plan.")
+    prompt_version: str = Field(description="Prompt builder version.")
+    model: str = Field(description="LLM model identifier.")
+    generation_timestamp: str = Field(description="ISO timestamp of generation event.")
+    generator_version: Optional[str] = Field(default=None, description="Application generator version.")
+    customer_context_hash: Optional[str] = Field(default=None, description="Hash of client_inputs snapshot.")
+    blueprint_hash: Optional[str] = Field(default=None, description="Hash of ExerciseBlueprint (if used).")
+    validation_rule_version: Optional[str] = Field(default=None, description="Validator ruleset version.")
+
 class TabletopInject(BaseModel):
     inject_id: str = Field(description="Unique identifier, e.g., 'INJ-1.1'")
     phase_title: str = Field(description="Phase title, e.g., 'Initial Anomaly Detection' or 'Interim Escalation'")
@@ -1085,6 +1178,10 @@ class TabletopInject(BaseModel):
     expected_mature_response: str = Field(description="What 'Good' looks like according to Planet IT standards and the client's declared runbooks.")
     common_pitfalls: List[str] = Field(description="Typical client rabbit holes, oversights, or unverified assumptions to challenge.", min_items=2, max_items=4)
     decision_threshold: str = Field(description="Key governance decision point (e.g., Declaring a Major Incident, 72h ICO clock, Invoking Retainer).")
+    primary_decision_target: str = Field(description="The primary capability/decision target being exercised in this inject (e.g., 'Declare Major Incident', 'Invoke MDR authority').")
+    knowledge_before: List[str] = Field(description="Facts known to participants before this inject.", min_items=1, max_items=8)
+    knowledge_newly_revealed: List[str] = Field(description="New facts explicitly revealed by this inject.", min_items=1, max_items=8)
+    knowledge_after: List[str] = Field(description="The consolidated knowledge state after this inject.", min_items=1, max_items=10)
     success_criteria: Optional[List[str]] = Field(default=None, description="Measurable acceptance tests tied to the client's runbooks (e.g., declaring incident within threshold; regulator notification).", min_items=1, max_items=3)
     evaluation_evidence: Optional[List[str]] = Field(default=None, description="Evidence artefacts to capture (e.g., SIEM query, ticket ID, comms record) and where to find them.", min_items=0, max_items=5)
     systems_to_check: List[str] = Field(description="Exact consoles/logs/queries to consult (grounded in their stack), e.g., Sophos Central alert, Entra sign‑in, firewall UTM.", min_items=2, max_items=6)
@@ -1092,7 +1189,24 @@ class TabletopInject(BaseModel):
     runbook_references: List[str] = Field(description="Runbook IDs/titles governing actions and decisions.", min_items=1, max_items=3)
     evidence_hunt: List[str] = Field(description="Concrete artefacts to collect and where to find them (ticket IDs, SIEM exports, comms records).", min_items=2, max_items=6)
     knowledge_checks: List[str] = Field(description="Short, probing checks to verify process knowledge and evidence locations.", min_items=2, max_items=4)
+    # Structured facilitation pacing
+    inject_timing: Optional[InjectTiming] = Field(default=None, description="Structured pacing and release control for this inject.")
     timebox_hint: str = Field(description="Facilitator timebox guidance for this inject, e.g., '7 minutes to decision'.")
+    # Branching for non-linear facilitation
+    inject_branches: Optional[List[FacilitatorBranch]] = Field(default=None, description="Conditional facilitation branches.", min_items=0, max_items=8)
+    # Provenance-bearing facts
+    scenario_facts: Optional[List[ScenarioFact]] = Field(default=None, description="Provenance-bearing facts supporting this inject.", min_items=0, max_items=20)
+    # Audience-aware targeting for decisions/questions
+    target_groups: Optional[List[ParticipantGroup]] = Field(default=None, description="Primary participant groups for this inject’s decisions/questions.", min_items=0, max_items=5)
+
+class TabletopFacilitatorWrapUp(BaseModel):
+    reveal_title: str = Field(description="Short title for the facilitator reveal/wrap-up.")
+    reveal_narrative: str = Field(description="Narrative used by the facilitator to reveal key information and steer lessons learned.")
+    facilitator_script: Optional[str] = Field(default=None, description="Optional script notes for the facilitator.")
+    key_lessons: List[str] = Field(description="Key lessons to reinforce.", min_items=2, max_items=5)
+    wrap_up_questions: List[str] = Field(description="Final wrap-up questions to check understanding.", min_items=2, max_items=6)
+    wrap_up_checklist: Optional[List[str]] = Field(default=None, description="Checklist items to confirm.", min_items=2, max_items=6)
+    final_success_criteria: Optional[List[str]] = Field(default=None, description="Final success criteria to confirm achievement.", min_items=1, max_items=3)
 
 class TabletopScenario(BaseModel):
     scenario_id: str = Field(description="Unique scenario ID, e.g., 'SCN-01'")
@@ -1100,13 +1214,32 @@ class TabletopScenario(BaseModel):
     scenario_theme: str = Field(description="Theme: 'Cyber Attack', 'Unauthorised Access / Insider', or 'Infrastructure Outage'")
     target_assets: List[str] = Field(description="Crown jewels or services targeted (from client profile).", min_items=1, max_items=3)
     initial_vector: str = Field(description="Attack or failure vector (e.g., 'MFA Fatigue / AiTM on Executive Account')")
-    injects: List[TabletopInject] = Field(description="Sequential progression of injects for this scenario.", min_items=3, max_items=6)
+    injects: List[TabletopInject] = Field(description="Sequential progression of injects for this scenario.", min_items=4, max_items=4)
+    # Reserve injects (facilitator tools only; excluded from deck)
+    reserve_injects: Optional[List[TabletopInject]] = Field(default=None, description="Reserve injects for facilitator use (not in deck).", min_items=0, max_items=6)
+    facilitator_reveal: TabletopFacilitatorWrapUp = Field(description="Facilitator’s reveal and wrap-up to deliver after the inject sequence.")
+    fiction_policy: Optional[FictionPolicy] = Field(default=None, description="Explicit contract controlling acceptable exercise fiction.")
+    # Scenario diversity metadata
+    primary_capabilities_tested: Optional[List[str]] = Field(default=None, description="Primary capabilities under test (e.g., identity, DR).", min_items=0, max_items=6)
+    primary_pressure_dimensions: Optional[List[str]] = Field(default=None, description="Pressure dimensions (e.g., time pressure, regulatory).", min_items=0, max_items=6)
+    primary_roles: Optional[List[str]] = Field(default=None, description="Primary roles exercised (e.g., exec, ops, comms).", min_items=0, max_items=6)
+    primary_decision_types: Optional[List[str]] = Field(default=None, description="Decision types (e.g., declare MI, notify regulator, failover).", min_items=0, max_items=6)
+
+class ApprovalLogEntry(BaseModel):
+    at: str = Field(description="ISO timestamp of transition.")
+    who: str = Field(description="Actor id or name.")
+    from_state: str = Field(description="Previous approval state.")
+    to_state: str = Field(description="New approval state.")
+    reason: Optional[str] = Field(default=None, description="Optional rationale for transition.")
 
 class TabletopMasterPlan(BaseModel):
     exercise_title: str = Field(description="Title of the tabletop workshop.")
     client_name: str = Field(description="Client name.")
     housekeeping_rules: List[str] = Field(description="Ground rules (e.g., 'Only documented tools count').", min_items=3, max_items=5)
     scenarios: List[TabletopScenario] = Field(description="The scenarios comprising the tabletop exercise.", min_items=2, max_items=4)
+    generation_metadata: Optional[GenerationMetadata] = Field(default=None, description="Reproducibility metadata for generation.")
+    approval_state: Literal["DRAFT_BLUEPRINT","BLUEPRINT_APPROVED","SCENARIO_GENERATED","SCENARIO_APPROVED","DECK_GENERATED","DECK_APPROVED"] = Field(default="SCENARIO_GENERATED", description="Current approval state controlling export gating.")
+    approval_log: Optional[List[ApprovalLogEntry]] = Field(default=None, description="State transition log for auditability.", min_items=0, max_items=50)
 
 class TabletopPivotResponse(BaseModel):
     consequence_narrative: str = Field(description="What happens as a direct consequence of the room's decision.")
@@ -1317,7 +1450,7 @@ def build_tabletop_plan_prompt(client_inputs: dict, selected_themes: list, custo
 4. Include exactly one bespoke scenario reflecting this operator-provided brief: "{custom_brief}". Treat it as a theme override if not listed. Ensure injects follow the same schema rules and are grounded in the client's stack.
 """
 
-    return f"""Act as ROLE 1 & ROLE 2 (Senior Cyber Security Incident Response Consultant at Planet IT). Generate a bespoke, multi-scenario Tabletop Exercise Plan for {cust}.
+    _prompt = f"""Act as ROLE 1 & ROLE 2 (Senior Cyber Security Incident Response Consultant at Planet IT). Generate a bespoke, multi-scenario Tabletop Exercise Plan for {cust}.
 CLIENT ESTATE GROUNDING:
 - Crown Jewels: {infra} | Identity: {identity}
 - Security Stack: MDR: {mdr} | Endpoint: {client_inputs.get('endpoint')} | Firewall: {fw} | Email: {client_inputs.get('email')}
@@ -1327,12 +1460,13 @@ CLIENT ESTATE GROUNDING:
 EXERCISE REQUIREMENTS:
 CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentation_detail_profile={presentation_detail_profile}
 1. Generate scenarios reflecting these themes: {themes_str}. Directly test the client's ACTUAL stack and governance models.
-2. Every scenario must contain between 3 and 5 progressive injects.
+     2. Every scenario must contain exactly 4 progressive injects, followed by a facilitator_reveal/wrap_up object.
     3. Language: British English strictly (e.g., analyse, behaviour, programme).
 
     AUDIENCE PROFILE (STRICT):
     - Audience: {audience}
     - Board: Simplify labelling of technical artefacts; foreground governance decisions, risk/impact, communications, and stakeholder management. Keep technical_indicators concise but present.
+      STRICT BOARD BIAS: For Board audiences, keep technical_indicators to at most one (0–1). Prioritise concept-driven artefacts (simulated press/news/regulator/customer/executive communications and board-pack excerpts) over raw logs.
     - Technical: Provide deeper artefact references and procedure steps; foreground containment actions, runbooks, and evidence chains; governance noted but subordinate.
     - Blended: Balance both profiles; maintain both artefacts and governance thresholds in probes and narratives.
     
@@ -1364,13 +1498,26 @@ CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentat
 
     INJECT DESIGN HINTS (STRICT):
     - technical_indicators should be concrete (e.g., Sophos MDR alert name, Entra sign‑in risk event, firewall log), 1–4 items.
-    - artefacts: Provide 1–3 realistic, SIMULATED items per inject, using vendor‑aware micro‑templates. Populate InjectArtefact.body with multi‑line excerpts; set render_hint='monospace' for logs/code/configuration; include metadata entries such as 'profile: sophos/mdr/case'. Minimums and structures:
+      BOARD OVERRIDE: When exercise_profile=board, constrain technical_indicators to 0–1 and prefer governance/communications probes instead.
+      - artefacts: Provide 1–3 realistic, SIMULATED items per inject, using vendor‑aware micro‑templates. Populate InjectArtefact.body with multi‑line excerpts; set render_hint='monospace' for logs/code/configuration; include metadata entries such as 'profile: sophos/mdr/case'. Minimums and structures:
+      ESTATE BINDING RULES (STRICT):
+        • source_system MUST be chosen from the client’s declared stack/vendor (e.g., 'Sophos Central', 'Microsoft Entra', 'FortiGate', a named ticketing/email system); avoid 'Unknown'.
+        • Select artefact profiles to match declared vendors:
+          – Sophos MDR present → prefer sophos/mdr/case for at least one artefact
+          – Identity 'Microsoft Entra' → prefer entra/signin key=value format
+          – Firewall 'Fortinet' → prefer fortigate/traffic key=value format
+          – Microsoft Defender stack → defender/alert JSONL with required fields
+        • Email artefacts: derive plausible sender/recipient domains from the client name (sanitised), include headers (From/To/Subject/X‑Simulated:true) and 2–4 body lines; redact as [REDACTED].
+        • Timestamps/timezone: keep consistent (UTC) and chronologically plausible across injects.
+        • Industry/regulator alignment: where applicable (e.g., UK ICO), reference correct regulator and timelines (e.g., 72h).
+        • Language alignment: use the client’s terminology for roles/runbooks/systems; do not invent tools not present in the stack.
       • Logs (5–8 lines): choose profile by the client’s declared stack:
         – sophos/mdr/case (preferred when MDR is Sophos): include labelled lines exactly — 'Decoded command line:', 'Command path:', 'Sophos PID:', 'Purpose:', plus 'Observed MITRE Techniques:' and one ISO 8601 'Timeline:' line. Mark sensitive tokens as [REDACTED].
         – entra/signin: key=value lines including UserPrincipalName=, AppDisplayName=, IPAddress=, ResultType=, RiskDetail=, Location=.
         – fortigate/traffic: key=value lines including srcip=, dstip=, srcport=, dstport=, policyid=, action=.
         – defender/alert or sophos/edr (JSONL): fields such as "timeUtc", "alertId", "severity", "category", "machineId" (redact hashes).
-      • Email (4–6 total lines): headers (From/To/Subject/X‑Simulated: true) plus 2–4 body lines; redact secrets; include verdict/policy if known.
+       • Email (4–6 total lines): headers (From/To/Subject/X‑Simulated: true) plus 2–4 body lines; redact secrets; include verdict/policy if known.
+       • Concept Communications (Board focus): prefer simulated press_release/news/regulator_notice/customer_email/exec_email/board_pack/social posts. Provide short headlines and 2–4 line bodies; redact sensitive tokens.
       • Code (8–12 lines): specify language and include a concise snippet with a single clear IoC/behaviour; include one comment line; do not include real credentials/keys.
       • Ticket (2–3 lines): include ID, status, queue plus 1–2 summary lines.
       STRICT: Do NOT include real secrets/PII; label sensitive tokens as [REDACTED]. Keep aligned to the client's stack; do not invent tools. For Board audience, collateral (email/ticket) may be included (not mandatory) when it aids decision/governance realism; structure these realistically with headers/status fields and concise bodies.
@@ -1382,6 +1529,27 @@ CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentat
 
     {custom_clause}
     """
+    
+    # Append visibility constraints to avoid unrealistic detections (e.g., MDR on BYOD/3rd‑party SaaS without coverage).
+    def _visibility_constraints(ci: dict) -> str:
+        try:
+            idp = str((ci or {}).get("identity","")).strip().lower()
+            mdr = str((ci or {}).get("mdr_provider","")).strip().lower()
+            endpoint = str((ci or {}).get("endpoint","")).strip().lower()
+            lines = []
+            if not mdr or mdr == "none":
+                lines.append("- Do NOT attribute initial detection to MDR unless MDR explicitly has visibility over the telemetry in question.")
+            if idp in ("microsoft entra id (azure ad)", "okta"):
+                lines.append("- Prefer identity risk detections (impossible travel, session risk) for SaaS access anomalies.")
+            if not endpoint or endpoint in ("select endpoint vendor...", "other", "none"):
+                lines.append("- Do NOT use endpoint EDR signals for BYOD/unmanaged devices; use app/IdP/proxy/helpdesk sources instead.")
+            lines.append("- For third-party SaaS (e.g., vendor back office portals), attribute evidence to application admin/audit logs, reverse proxy/WAF, IdP sign-in logs, or user-reported tickets; avoid vendor claims without coverage.")
+            return "\n".join(lines)
+        except Exception:
+            return "- Avoid unsupported detection claims."
+    
+    _prompt = f"{_prompt}\n\nVisibility Constraints:\n{_visibility_constraints(client_inputs)}\n"
+    return _prompt
 
 def build_tabletop_pivot_prompt(scenario_context: dict, current_inject: dict, room_decision: str, audience: str = "Blended") -> str:
     return f"""Act as an Incident Commander and Facilitator at Planet IT. The client is participating in a live tabletop exercise.

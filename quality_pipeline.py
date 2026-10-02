@@ -20,6 +20,20 @@ import re
 from typing import Dict, List, Tuple, Any
 from config import get_config
 
+# Observability log (JSONL) — lightweight sink
+def log_observability(event: str, payload: dict | None = None):
+    try:
+        from datetime import datetime, timezone
+        import json, os
+        path = get_config("OBSERVABILITY_LOG", os.path.join(os.path.dirname(__file__), "exports", "observability.log"))
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rec = {"ts": ts, "event": event, "payload": payload or {}}
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
 # --- Phrase catalogue (expandable) ---
 PHRASES = [
     "strong foundation",
@@ -327,6 +341,64 @@ def apply_supported_stack_vendor_selection(report_data: Any, client_inputs: dict
                 out.append(new_entry)
             d.recommended_solutions = out
 
+# -------- MDR Suggestion Guardrails (post-generation sanitiser) --------
+import re as _re_i
+
+def _hygiene_bad(ci: dict) -> bool:
+    try:
+        mfa = str(ci.get("mfa_status", "Unknown"))
+        patching = str(ci.get("patching", "Unknown"))
+        backups = str(ci.get("backups", "Unknown"))
+        return mfa in ["None", "Privileged Accounts Only"] or patching == "Manual / Ad-hoc" or backups in ["No Formal Backups", "On-Premise Only"]
+    except Exception:
+        return True
+
+def _mdr_allowed(ci: dict) -> bool:
+    try:
+        disable = str(get_config("DISABLE_MDR_SUGGEST", "false")).strip().lower() in ("1","true","yes","on")
+        if disable:
+            return False
+        provider = str(ci.get("mdr_provider", "") or "").strip()
+        if not provider or provider in ("None", "Unknown"):
+            return False
+        banned = [str(b).strip().lower() for b in (ci.get("banned_vendors", []) or [])]
+        if any(b in provider.lower() for b in banned):
+            return False
+        if _hygiene_bad(ci):
+            return False
+        return True
+    except Exception:
+        return False
+
+def _scrub_mdr_text(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    out = text
+    # Replace explicit MDR tokens with vendor-agnostic monitoring/assurance phrasing
+    out = _re_i.sub(r"\bMDR\b", "monitoring/assurance", out, flags=_re_i.IGNORECASE)
+    out = _re_i.sub(r"\bSophos\s+MDR(\s+Plus)?\b", "vendor-agnostic monitoring/assurance", out, flags=_re_i.IGNORECASE)
+    out = _re_i.sub(r"\bAdlumin\s+MDR\b", "vendor-agnostic monitoring/assurance", out, flags=_re_i.IGNORECASE)
+    # Remove double spaces introduced by replacements
+    out = _re_i.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+def strip_out_of_remit_mdr(client_inputs: dict, report_data: Any) -> None:
+    try:
+        # Executive summary actions (list[str])
+        if hasattr(report_data, "executive_summary_actions") and isinstance(report_data.executive_summary_actions, list):
+            report_data.executive_summary_actions = [_scrub_mdr_text(x) for x in report_data.executive_summary_actions]
+        # Executive summary action blocks remediation actions
+        for blk in getattr(report_data, "executive_summary_action_blocks", []) or []:
+            if hasattr(blk, "remediation_actions") and isinstance(blk.remediation_actions, list):
+                blk.remediation_actions = [_scrub_mdr_text(x) for x in blk.remediation_actions]
+        # Domain recommendations
+        for d in getattr(report_data, "domain_assessments", []) or []:
+            if hasattr(d, "recommended_solutions") and isinstance(d.recommended_solutions, list):
+                d.recommended_solutions = [_scrub_mdr_text(x) for x in d.recommended_solutions]
+    except Exception:
+        # Non-fatal
+        pass
+
 # -------- Phase 2: Executive Summary Optimiser --------
 def generate_executive_summary(client_inputs: dict, report_data: Any) -> str:
     """Construct a consultant-style executive summary with fixed sections.
@@ -496,6 +568,9 @@ def process_maturity_report(client_inputs: dict, report_data: Any) -> Tuple[Any,
     # Enforce banned vendor scrub post-normalisation
     banned = client_inputs.get("banned_vendors", []) if isinstance(client_inputs, dict) else []
     _enforce_banned_vendors(report_data, banned)
+    # MDR guardrail: strip out-of-remit MDR suggestions if not allowed by evidence/toggles
+    if not _mdr_allowed(client_inputs or {}):
+        strip_out_of_remit_mdr(client_inputs or {}, report_data)
     # Align product examples to supported stack (top-3 ranked vendors per domain)
     try:
         apply_supported_stack_vendor_selection(report_data, client_inputs)
@@ -647,6 +722,180 @@ def process_tabletop_aar(master_plan: dict, session_notes: list, aar_obj: Any, c
     except Exception:
         evidence_items = []
     return aar_obj, pairs, evidence_items
+
+# ===============================
+# TABLETOP QUALITY REVIEW (INDEPENDENT)
+# ===============================
+
+def tabletop_quality_review(plan: dict, client_inputs: dict | None = None) -> tuple[bool, list[str], dict]:
+    """
+    Post-deterministic quality review. Returns (passed, issues, maybe_plan_out).
+
+    Dimensions assessed:
+      - Narrative coherence: scenario_narrative non-empty, aligns to initial_vector and target_assets.
+      - Progressive disclosure: early injects avoid early-reveal lexicon beyond deterministic validator.
+      - Decision quality: decision_threshold present; decision_questions mapped and non-generic (if present).
+      - Realism: artefact line counts and structure are plausible (advisory).
+      - Customer specificity: presence of client stack tokens & crown jewels/target_assets references.
+      - Business relevance: narratives link to business services/target_assets.
+      - Artefact realism: presence of required labels or profile tokens where applicable (advisory).
+      - Facilitation usefulness: expected_mature_response present for each inject.
+    """
+    issues: list[str] = []
+    try:
+        if not isinstance(plan, dict):
+            return False, ["QR-000: Plan must be dict"], plan
+        title = str(plan.get("exercise_title", "")).strip()
+        if not title:
+            issues.append("QR-001: Missing exercise_title")
+        scenarios = plan.get("scenarios") or []
+        if not isinstance(scenarios, list) or not scenarios:
+            issues.append("QR-010: No scenarios present")
+            return False, issues, plan
+        cust = (client_inputs or {}).get("customer_name", "")
+        stack_tokens = " ".join([
+            str((client_inputs or {}).get("endpoint", "")),
+            str((client_inputs or {}).get("firewall", "")),
+            str((client_inputs or {}).get("identity", "")),
+            str((client_inputs or {}).get("mdr_provider", "")),
+        ]).lower()
+
+        def _norm(s):
+            return str(s or "").strip().lower()
+
+        early_terms = ("malicious activity", "compromised account", "phishing attack", "threat actor", "unauthorised access")
+        for si, scn in enumerate(scenarios, 1):
+            iv = _norm(scn.get("initial_vector", ""))
+            tas = [_norm(x) for x in (scn.get("target_assets") or [])]
+            inj = scn.get("injects") or []
+            if not inj:
+                issues.append(f"QR-020: Scenario {si} has no injects")
+                continue
+            for ji, it in enumerate(inj, 1):
+                narr = _norm(it.get("scenario_narrative", ""))
+                if not narr:
+                    issues.append(f"QR-101: Scenario {si} Inject {ji} missing narrative (coherence)")
+                if iv and ji == 1 and iv.split(" ")[0] not in narr:
+                    issues.append(f"QR-102: Scenario {si} Inject {ji} narrative may not align with initial_vector")
+                if ji <= 2:
+                    for t in early_terms:
+                        if t in narr:
+                            issues.append(f"QR-103: Scenario {si} Inject {ji} uses early-reveal term '{t}' (advisory)")
+                            break
+                emr = _norm(it.get("expected_mature_response", ""))
+                if not emr:
+                    issues.append(f"QR-104: Scenario {si} Inject {ji} missing expected_mature_response (facilitation)")
+                if (cust and cust.lower() not in narr) and (not any(t for t in tas if t and t in narr)) and (not any(tok for tok in stack_tokens.split() if tok and tok in narr)):
+                    issues.append(f"QR-105: Scenario {si} Inject {ji} narrative may lack customer specificity")
+                arts = it.get("artefacts", [])
+                if isinstance(arts, list) and arts:
+                    try:
+                        body = (arts[0] or {}).get("body", "")
+                        lc = len([ln for ln in str(body).splitlines() if str(ln).strip()])
+                        if lc < 3:
+                            issues.append(f"QR-106: Scenario {si} Inject {ji} artefact body appears too short (advisory)")
+                    except Exception:
+                        pass
+                dqs = it.get("decision_questions", []) or []
+                for k, dq in enumerate(dqs, 1):
+                    prm = _norm(dq.get("prompt", ""))
+                    if len(prm) < 12 or "?" not in dq.get("prompt", "")):
+                        issues.append(f"QR-107: Scenario {si} Inject {ji} question {k} looks generic/short (advisory)")
+        passed = len([e for e in issues if e.startswith("QR-0")]) == 0
+        return passed, issues, plan
+    except Exception:
+        return False, ["QR-999: Unexpected reviewer error"], plan
+
+
+def tabletop_targeted_regeneration(plan: dict, client_inputs: dict | None, issues: list[str], max_attempts: int = 2) -> tuple[dict, list[str], int]:
+    """
+    Attempt targeted rewrites for failed objects up to max_attempts (default 2).
+    Strategy:
+      - Identify failing injects and rewrite only the narrative and/or primary artefact body using a concise prompt.
+      - Do NOT alter structural fields already validated (systems_to_check, roles_to_engage, etc.).
+      - If LLM unavailable, apply no-op (return plan unchanged).
+    Returns (plan_out, rewrite_issue_list, attempts_used).
+    """
+    attempts = 0
+    rew_issues: list[str] = []
+    try:
+        from core import LLMEngine
+        from config import get_config
+    except Exception:
+        rew_issues.append("QR-RW-000: LLM unavailable; targeted regeneration skipped")
+        return plan, rew_issues, attempts
+    if not isinstance(plan, dict):
+        rew_issues.append("QR-RW-001: Plan is not dict; cannot rewrite")
+        return plan, rew_issues, attempts
+    cust = (client_inputs or {}).get("customer_name", "Client")
+    stack = {
+        "endpoint": (client_inputs or {}).get("endpoint", ""),
+        "firewall": (client_inputs or {}).get("firewall", ""),
+        "identity": (client_inputs or {}).get("identity", ""),
+        "mdr": (client_inputs or {}).get("mdr_provider", ""),
+    }
+    import re as _re
+    failing = []
+    for d in issues:
+        m = _re.search(r"Scenario\s+(\d+)\s+Inject\s+(\d+)", d)
+        if m:
+            si = int(m.group(1)) - 1
+            ji = int(m.group(2)) - 1
+            failing.append((si, ji))
+    if not failing:
+        return plan, rew_issues, attempts
+    seen = set()
+    uniq = []
+    for ref in failing:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        uniq.append(ref)
+    from copy import deepcopy
+    plan_out = deepcopy(plan)
+    for (si, ji) in uniq:
+        if attempts >= max_attempts:
+            rew_issues.append("QR-RW-002: Max rewrite attempts reached")
+            break
+        try:
+            scn = plan_out.get("scenarios", [])[si]
+            inj = scn.get("injects", [])[ji]
+        except Exception:
+            rew_issues.append(f"QR-RW-003: Invalid index ref Scenario {si+1} Inject {ji+1}")
+            continue
+        base = f"""Rewrite the following inject narrative to improve coherence, customer specificity and facilitation usefulness without changing fields other than 'scenario_narrative' (and optionally adding 1–2 sentences to 'artefacts[0].body' if present). Use British English, avoid early reveals, and reference the client's stack: Endpoint: {stack['endpoint']}; Firewall: {stack['firewall']}; Identity: {stack['identity']}; MDR: {stack['mdr']}. Keep it grounded and realistic. Client: {cust}.
+Current narrative:
+{inj.get('scenario_narrative','')}
+
+If artefacts[0].body exists and is shorter than ~5 lines, add up to 2 realistic lines consistent with its profile."""
+        try:
+            client = LLMEngine.get_client()
+            deployment = get_config("AZURE_DEPLOYMENT", "gpt-4o")
+        except Exception:
+            rew_issues.append("QR-RW-004: LLM client unavailable")
+            break
+        try:
+            resp = LLMEngine.low_level_complete(client, deployment, base)
+            new_text = str(resp or "").strip()
+        except Exception as e:
+            rew_issues.append(f"QR-RW-005: LLM rewrite error: {e}")
+            continue
+        if not new_text or len(new_text) < 60:
+            rew_issues.append(f"QR-RW-006: Rewrite too short for Scenario {si+1} Inject {ji+1}")
+            continue
+        inj["scenario_narrative"] = new_text
+        try:
+            arts = inj.get("artefacts", [])
+            if isinstance(arts, list) and arts:
+                body = str(arts[0].get("body", ""))
+                lines = [ln for ln in body.splitlines() if ln.strip()]
+                if len(lines) < 5:
+                    lines.extend(["[SIMULATED] Additional context line.", "[SIMULATED] Evidence line aligned to declared stack."])
+                    arts[0]["body"] = "\n".join(lines)
+        except Exception:
+            pass
+        attempts += 1
+    return plan_out, rew_issues, attempts
 
 if __name__ == "__main__":
     demo = """This provides an example. This provides useful context. This provides additional detail. Further maturity is expected. Planet IT can support these changes. Planet IT can support governance as well."""

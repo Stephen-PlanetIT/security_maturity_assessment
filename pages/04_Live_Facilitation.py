@@ -178,6 +178,71 @@ with st.expander("🕵️ Facilitator Guidance & Evaluation Benchmark", expanded
         for pit in current_inject.get("common_pitfalls", []):
             st.markdown(f"- {pit}")
 
+# Facilitator Branches (conditional)
+if current_inject.get("inject_branches"):
+    with st.expander("🧭 Facilitator Branches (conditional)", expanded=False):
+        for bi, br in enumerate(current_inject.get("inject_branches") or [], 1):
+            trg = br.get("trigger", "")
+            if st.button(f"Branch {bi}: {trg}", key=f"branch_{s_idx}_{i_idx}_{bi}"):
+                st.info(br.get("content", ""))
+                # Record branch path as a note for AAR continuity
+                st.session_state.setdefault("tabletop_notes", [])
+                st.session_state["tabletop_notes"].append({
+                    "scenario": current_scenario.get("scenario_title"),
+                    "phase": f"{current_inject.get('phase_title')} (Branch)",
+                    "decision": trg,
+                    "notes": br.get("content", "")
+                })
+
+# Reserve Injects (facilitator tools)
+with st.expander("🗂️ Reserve Injects (facilitator tools)", expanded=False):
+    reserve = current_scenario.get("reserve_injects") or []
+    if reserve:
+        options = [f"R{idx+1}: {ri.get('phase_title','Reserve')}" for idx, ri in enumerate(reserve)]
+        sel = st.selectbox("Select reserve inject", options, key=f"reserve_sel_{s_idx}")
+        try:
+            sel_idx = options.index(sel)
+        except Exception:
+            sel_idx = None
+        if sel_idx is not None:
+            ri = reserve[sel_idx]
+            st.warning(f"Reserve: {ri.get('scenario_narrative','')}")
+            if st.button("Trigger Reserve Inject Now", key=f"reserve_trigger_{s_idx}_{sel_idx}"):
+                # Persist reserve inject as an immediate consequence for AAR/export continuity
+                st.session_state.setdefault("immediate_injects", [])
+                st.session_state["immediate_injects"].append({
+                    "scenario_index": s_idx,
+                    "inject_index": i_idx,
+                    "scenario_title": current_scenario.get("scenario_title"),
+                    "phase_title": ri.get("phase_title"),
+                    "consequence_narrative": ri.get("scenario_narrative"),
+                    "new_technical_indicators": ri.get("technical_indicators", []),
+                    "urgent_pivot_questions": ri.get("facilitator_probe_questions", []),
+                    "facilitator_guidance": ""
+                })
+                st.success("Reserve inject recorded for AAR; continue facilitation.")
+
+if i_idx == len(injects) - 1:
+    fr = current_scenario.get("facilitator_reveal", {})
+    with st.expander("🎬 Facilitator Reveal / Wrap-Up", expanded=False):
+        if fr.get("reveal_title"):
+            st.subheader(fr.get("reveal_title"))
+        if fr.get("reveal_narrative"):
+            st.info(fr.get("reveal_narrative"))
+        if fr.get("key_lessons"):
+            st.markdown("**Key Lessons:**")
+            for x in fr.get("key_lessons", []):
+                st.markdown(f"- {x}")
+        if fr.get("wrap_up_questions"):
+            st.markdown("**Wrap-Up Questions:**")
+            for x in fr.get("wrap_up_questions", []):
+                st.markdown(f"- {x}")
+        st.text_input(
+            "Wrap-Up outcome notes (optional)",
+            key=f"rec_wrap_{s_idx}",
+            placeholder="e.g., Summarised decisions; confirmed authority pathways; agreed next steps."
+        )
+
 st.markdown("### 📝 Record Room Consensus & Action")
 
 with st.expander("🧪 Demo helpers", expanded=False):
@@ -271,6 +336,20 @@ with col_b2:
                 "notes": facilitator_notes,
             }
         )
+        # If this was the final inject, also record the facilitator reveal/wrap-up
+        if i_idx == len(injects) - 1:
+            fr = current_scenario.get("facilitator_reveal", {})
+            try:
+                st.session_state["tabletop_notes"].append(
+                    {
+                        "scenario": current_scenario.get("scenario_title"),
+                        "phase": "Facilitator Reveal / Wrap-Up",
+                        "decision": st.session_state.get(f"rec_wrap_{s_idx}", ""),
+                        "notes": fr.get("reveal_narrative", ""),
+                    }
+                )
+            except Exception:
+                pass
         if i_idx < len(injects) - 1:
             st.session_state["live_inject_idx"] += 1
         elif s_idx < len(scenarios) - 1:

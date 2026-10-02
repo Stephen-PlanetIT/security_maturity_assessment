@@ -22,6 +22,68 @@ from aar_renderer import (
     SUPPORTED_KEYS,
 )
 
+def _filter_mdr_artefacts(ctx: Dict[str, Any]) -> None:
+    """
+    Export-time guardrail: prevent MDR-styled artefacts from being included unless corroborated
+    by inject context and artefact body signals. This enforces truthfulness by default-denying
+    MDR case-style content unless explicit evidence is present.
+    """
+    try:
+        # Prefer the stricter, context-aware gate from export.py if available
+        from export import _artefact_allowed_with_inject as _allowed  # type: ignore
+    except Exception:
+        _allowed = None  # Fallback path below
+
+    try:
+        scenarios = (ctx.get("scenarios") or []) if isinstance(ctx, dict) else []
+        if not isinstance(scenarios, list):
+            return
+        for scn in scenarios:
+            try:
+                injects = (scn.get("injects") or []) if isinstance(scn, dict) else []
+                if not isinstance(injects, list):
+                    continue
+                for inj in injects:
+                    try:
+                        arts = (inj.get("artefacts") or []) if isinstance(inj, dict) else []
+                        if not isinstance(arts, list) or not arts:
+                            continue
+                        if callable(_allowed):
+                            inj["artefacts"] = [ar for ar in arts if _allowed(ar, inj)]
+                        else:
+                            # Minimal fallback: if artefact declares sophos/mdr/case profile AND
+                            # systems_to_check lacks Sophos/MDR references, drop it.
+                            def _profile(ar):
+                                try:
+                                    meta = ar.get("metadata") if isinstance(ar, dict) else []
+                                    if isinstance(meta, list):
+                                        for m in meta:
+                                            s = str(m).lower()
+                                            if s.startswith("profile:"):
+                                                return s.split(":", 1)[1].strip()
+                                except Exception:
+                                    return ""
+                                return ""
+                            try:
+                                syschk = (inj.get("systems_to_check") or []) if isinstance(inj, dict) else []
+                                joined = " ".join([str(x).lower() for x in syschk]) if isinstance(syschk, list) else str(syschk).lower()
+                            except Exception:
+                                joined = ""
+                            filtered = []
+                            for ar in arts:
+                                prof = _profile(ar)
+                                if prof == "sophos/mdr/case" and not any(tok in joined for tok in ("sophos", "mdr", "sophos central")):
+                                    continue
+                                filtered.append(ar)
+                            inj["artefacts"] = filtered
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    except Exception:
+        # Non-fatal: never block export due to filtering errors
+        pass
+
 def _append_immediate_injects_to_notes(ctx: Dict[str, Any], immediate_injects: Optional[List[Dict[str, Any]]]) -> None:
     """Append immediate pivot consequences into session_notes_render narrative."""
     try:
@@ -110,6 +172,8 @@ def create_tabletop_aar_docx_v2(master_plan: dict, session_notes: list, aar_obj,
 
     # Append dynamic pivots to session notes (narrative only)
     _append_immediate_injects_to_notes(ctx, immediate_injects)
+    # Guardrail: filter MDR-styled artefacts unless corroborated by inject/system evidence
+    _filter_mdr_artefacts(ctx)
 
     # Ensure Planet IT sections have values (sections stay in template)
     _populate_always_on_marketing(ctx)

@@ -404,6 +404,97 @@ def _xml_escape_dict(d, _depth=0):
     return "" if d is None else d
 
 
+# --- MDR ARTEFACT HEURISTICS (export-time filters; schema-neutral) ---
+def _get_lower(d, key, default=""):
+    try:
+        v = d.get(key, default) if isinstance(d, dict) else getattr(d, key, default)
+        return str(v or "").strip(), str(v or "").strip().lower()
+    except Exception:
+        return "", ""
+
+def _artefact_metadata_profile(ar) -> str:
+    try:
+        meta = ar.get("metadata") if isinstance(ar, dict) else getattr(ar, "metadata", None)
+        if isinstance(meta, list):
+            for m in meta:
+                ms = str(m or "").strip().lower()
+                if ms.startswith("profile:"):
+                    return ms.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+_MDR_BODY_TOKENS = (
+    "decoded command line:",
+    "sophos pid:",
+    "observed mitre techniques:",
+    "timeline:"
+)
+
+def _is_mdr_styled_artefact(ar) -> bool:
+    """Detect sophos/mdr/case style artefacts by profile/source/body signatures."""
+    try:
+        prof = _artefact_metadata_profile(ar)
+        if prof == "sophos/mdr/case":
+            return True
+        src_raw, src = _get_lower(ar, "source_system")
+        ttl_raw, ttl = _get_lower(ar, "title")
+        body_raw, body = _get_lower(ar, "body")
+        if "sophos mdr" in (ttl + src + body) or "sophos central" in (ttl + src + body):
+            return True
+        tokens_found = sum(1 for tok in _MDR_BODY_TOKENS if tok in body)
+        return tokens_found >= 2
+    except Exception:
+        return False
+
+def _mdr_signals_present(ar) -> bool:
+    """Require stronger confirmation before allowing MDR artefacts (default-deny)."""
+    try:
+        prof = _artefact_metadata_profile(ar)
+        if prof == "sophos/mdr/case":
+            # Profile explicitly declares MDR case template
+            return True
+        src_raw, src = _get_lower(ar, "source_system")
+        ttl_raw, ttl = _get_lower(ar, "title")
+        body_raw, body = _get_lower(ar, "body")
+        strong_vendor = ("sophos mdr" in (ttl + src + body)) or ("sophos central" in (ttl + src + body))
+        tokens_found = sum(1 for tok in _MDR_BODY_TOKENS if tok in body)
+        # Allow only if at least two MDR tokens AND explicit vendor mention present
+        return strong_vendor and tokens_found >= 2
+    except Exception:
+        return False
+
+def _artefact_allowed(ar) -> bool:
+    """Heuristic export-time gate:
+       - Non-MDR styled artefacts: allowed
+       - MDR-styled artefacts: allowed only if strong signals confirm MDR involvement
+    """
+    try:
+        return (not _is_mdr_styled_artefact(ar)) or _mdr_signals_present(ar)
+    except Exception:
+        return False
+
+def _artefact_allowed_with_inject(ar, inj) -> bool:
+    """Contextual gate using inject-level cues:
+       - If MDR-styled, require inject.systems_to_check to reference Sophos/MDR AND strong MDR signals in the artefact.
+       - Otherwise default to _artefact_allowed.
+    """
+    try:
+        if not _is_mdr_styled_artefact(ar):
+            return True
+        # Pull systems_to_check from inject (dict or object)
+        try:
+            syschk = inj.get("systems_to_check", []) if isinstance(inj, dict) else getattr(inj, "systems_to_check", [])
+        except Exception:
+            syschk = []
+        joined = " ".join([str(x).lower() for x in (syschk or [])])
+        # Require explicit Sophos/MDR reference in systems_to_check to allow MDR-styled artefacts
+        if not any(tok in joined for tok in ("sophos", "mdr", "sophos central")):
+            return False
+        return _mdr_signals_present(ar)
+    except Exception:
+        return False
+
 # --- CONSULTANT DERIVATIONS & RENDER HELPERS (deterministic; no schema changes) ---
 def _priority_weight(p: str) -> int:
     try:
@@ -510,6 +601,81 @@ def _strip_empty_sections(doc, ctx: dict):
     except Exception:
         pass
 
+# --- Tabletop deterministic validation helpers ---
+def _tt_norm_text(s) -> str:
+    try:
+        return str(s or "").strip().lower()
+    except Exception:
+        return ""
+
+def _tt_collect_inject_text(inj) -> str:
+    """
+    Aggregate participant-facing fields for leakage/progression checks.
+    Includes: scenario_narrative, technical_indicators, artefacts (title/body/metadata),
+    facilitator_probe_questions, success_criteria, evaluation_evidence.
+    """
+    try:
+        parts = []
+        g = inj.get if isinstance(inj, dict) else (lambda k, d=None: getattr(inj, k, d))
+        parts.append(_tt_norm_text(g("scenario_narrative", "")))
+        try:
+            for ti in g("technical_indicators", []) or []:
+                parts.append(_tt_norm_text(ti))
+        except Exception:
+            pass
+        try:
+            for ar in g("artefacts", []) or []:
+                if isinstance(ar, dict):
+                    parts.append(_tt_norm_text(ar.get("title", "")))
+                    parts.append(_tt_norm_text(ar.get("body", "")))
+                    for m in (ar.get("metadata", []) or []):
+                        parts.append(_tt_norm_text(m))
+                else:
+                    parts.append(_tt_norm_text(getattr(ar, "title", "")))
+                    parts.append(_tt_norm_text(getattr(ar, "body", "")))
+        except Exception:
+            pass
+        try:
+            for q in g("facilitator_probe_questions", []) or []:
+                parts.append(_tt_norm_text(q))
+        except Exception:
+            pass
+        try:
+            for sc in g("success_criteria", []) or []:
+                parts.append(_tt_norm_text(sc))
+        except Exception:
+            pass
+        try:
+            for ee in g("evaluation_evidence", []) or []:
+                parts.append(_tt_norm_text(ee))
+        except Exception:
+            pass
+        return " ".join([p for p in parts if p])
+    except Exception:
+        return ""
+
+def _tt_blueprint_from_session():
+    """Best-effort retrieval of ExerciseBlueprint from Streamlit session state."""
+    try:
+        import streamlit as _st  # local import to avoid hard dependency
+        return _st.session_state.get("exercise_blueprint")
+    except Exception:
+        return None
+
+def _tt_parse_hhmm(ts):
+    """Parse HH:MM tokens; return (h, m) tuple or None when not parseable/invalid."""
+    try:
+        import re as __re
+        m = __re.search(r"(\d{1,2}):(\d{2})", str(ts or ""))
+        if not m:
+            return None
+        h = int(m.group(1)); mm = int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mm <= 59:
+            return (h, mm)
+        return None
+    except Exception:
+        return None
+
 def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
     """
     Deterministic validator for TabletopMasterPlan-like dicts.
@@ -544,8 +710,23 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                 if not stitle or not iv or not (isinstance(ta, list) and len(ta) >= 1):
                     defects.append(f"TT-101: Scenario {si} missing title/initial_vector/target_assets")
                 injects = scn.get("injects", []) if isinstance(scn, dict) else []
-                if not (isinstance(injects, list) and 3 <= len(injects) <= 5):
-                    defects.append(f"TT-120: Scenario {si} injects count must be between 3 and 5")
+                if not (isinstance(injects, list) and len(injects) == 4):
+                    defects.append(f"TT-120: Scenario {si} injects count must be exactly 4")
+                # Reserve injects are optional and excluded from PPTX
+                reserve = scn.get("reserve_injects", []) if isinstance(scn, dict) else []
+                if reserve and not isinstance(reserve, list):
+                    defects.append(f"TT-RES-000: Scenario {si} reserve_injects invalid type")
+                # Facilitator reveal/wrap-up validation (strict)
+                fr = scn.get("facilitator_reveal", {}) if isinstance(scn, dict) else {}
+                if not isinstance(fr, dict) or not str(fr.get('reveal_title','')).strip() or not str(fr.get('reveal_narrative','')).strip():
+                    defects.append(f"TT-400: Scenario {si} missing facilitator_reveal or required fields")
+                else:
+                    kl = fr.get('key_lessons', [])
+                    wq = fr.get('wrap_up_questions', [])
+                    if not (isinstance(kl, list) and len(kl) >= 2):
+                        defects.append(f"TT-401: Scenario {si} facilitator_reveal.key_lessons must have >=2 items")
+                    if not (isinstance(wq, list) and len(wq) >= 2):
+                        defects.append(f"TT-402: Scenario {si} facilitator_reveal.wrap_up_questions must have >=2 items")
                 for ji, inj in enumerate(injects, 1):
                     try:
                         narr = (inj.get('scenario_narrative', '') if isinstance(inj, dict) else '') or ''
@@ -556,6 +737,48 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                         fpq = inj.get('facilitator_probe_questions', []) if isinstance(inj, dict) else []
                         if not (isinstance(tis, list) and len(tis) >= 1) or not (isinstance(fpq, list) and len(fpq) >= 2):
                             defects.append(f"TT-202: Scenario {si} Inject {ji} missing indicators/probes")
+                        # DecisionQuestion mapping/quality validators (optional if decision_questions present)
+                        try:
+                            dqs = inj.get("decision_questions", []) if isinstance(inj, dict) else []
+                        except Exception:
+                            dqs = []
+                        if isinstance(dqs, list) and dqs:
+                            _dq_cats = {"Evidence", "Governance", "Authority", "Communications", "What‑if", "What-if"}
+                            _objs = plan.get("objectives", []) if isinstance(plan, dict) else []
+                            _objs_norm = {str(x).strip().lower() for x in (_objs or []) if isinstance(x, (str,))}
+                            import re as __re_dq
+                            def _norm_q(s):
+                                return __re_dq.sub(r"\s+", " ", str(s or "")).strip().lower()
+                            seen_prompts = set()
+                            for q_idx, dq in enumerate(dqs, 1):
+                                try:
+                                    q_prompt = (dq.get("prompt") if isinstance(dq, dict) else "") or ""
+                                    q_cat = (dq.get("category") if isinstance(dq, dict) else "") or ""
+                                    q_obj = (dq.get("objective_id") if isinstance(dq, dict) else "") or ""
+                                    q_dt = (dq.get("decision_target") if isinstance(dq, dict) else "") or ""
+                                except Exception:
+                                    q_prompt, q_cat, q_obj, q_dt = "", "", "", ""
+                                # Category validity
+                                if not q_cat or (q_cat not in _dq_cats):
+                                    defects.append(f"TT-Q-000: Scenario {si} Inject {ji} question {q_idx} invalid/missing category")
+                                # Objective mapping
+                                if not q_obj or (q_obj.strip().lower() not in _objs_norm):
+                                    defects.append(f"TT-Q-001: Scenario {si} Inject {ji} question {q_idx} objective_id not mapped to exercise objectives")
+                                # Decision target presence
+                                if not q_dt:
+                                    defects.append(f"TT-Q-002: Scenario {si} Inject {ji} question {q_idx} missing decision_target")
+                                # Generic/non-decision heuristics
+                                p_norm = _norm_q(q_prompt)
+                                if len(p_norm) < 12 or "?" not in q_prompt:
+                                    defects.append(f"TT-Q-101: Scenario {si} Inject {ji} question {q_idx} too generic/short")
+                                if __re_dq.match(r"^(do|can|did|is|are|was|were)\s+\b", p_norm or ""):
+                                    defects.append(f"TT-Q-102: Scenario {si} Inject {ji} question {q_idx} likely yes/no (non-decision)")
+                                if any(p_norm.startswith(x) for x in ("any thoughts", "what happened", "is there", "any update")):
+                                    defects.append(f"TT-Q-103: Scenario {si} Inject {ji} question {q_idx} generic (non-decision focused)")
+                                if p_norm in seen_prompts:
+                                    defects.append(f"TT-Q-104: Scenario {si} Inject {ji} question {q_idx} duplicate prompt")
+                                else:
+                                    seen_prompts.add(p_norm)
                         dt = (inj.get('decision_threshold', '') if isinstance(inj, dict) else '') or ''
                         if not dt:
                             defects.append(f"TT-203: Scenario {si} Inject {ji} missing decision_threshold")
@@ -578,6 +801,60 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                         tb = (inj.get('timebox_hint', '') if isinstance(inj, dict) else '') or ''
                         if not tb:
                             defects.append(f"TT-209: Scenario {si} Inject {ji} missing timebox_hint")
+                        # Inject timing validation (optional but recommended)
+                        try:
+                            it = inj.get('inject_timing', {}) if isinstance(inj, dict) else {}
+                        except Exception:
+                            it = {}
+                        try:
+                            tmin = int(it.get('minimum_minutes', 0))
+                            ttar = int(it.get('target_minutes', 0))
+                            tmax = int(it.get('maximum_minutes', 0))
+                            if tmin > 0 and tmax > 0:
+                                if not (tmin <= (ttar or tmin) <= tmax):
+                                    defects.append(f"TT-TIME-010: Scenario {si} Inject {ji} timing target must be within min/max")
+                            rcond = str(it.get('release_condition','')).strip().lower()
+                            if rcond and rcond not in ('facilitator','decision_reached','time_elapsed','topic_covered'):
+                                defects.append(f"TT-TIME-011: Scenario {si} Inject {ji} invalid release_condition")
+                            fds = int(it.get('free_discussion_seconds', 0))
+                            if fds < 0:
+                                defects.append(f"TT-TIME-012: Scenario {si} Inject {ji} free_discussion_seconds negative")
+                        except Exception:
+                            defects.append(f"TT-TIME-099: Scenario {si} Inject {ji} timing parse error")
+                        # Provenance checks: MODEL_ASSUMPTION must not silently become participant 'truth'
+                        try:
+                            facts = inj.get('scenario_facts', []) if isinstance(inj, dict) else []
+                        except Exception:
+                            facts = []
+                        try:
+                            # If any MODEL_ASSUMPTION exists, ensure no claim leaks into participant artefacts or narrative without classification
+                            for f in (facts or []):
+                                ft = str((f.get('fact_type') if isinstance(f, dict) else '')).strip().lower()
+                                stmt = str((f.get('statement') if isinstance(f, dict) else '')).strip().lower()
+                                if ft == 'model_assumption' and stmt:
+                                    # Heuristic: flag if exact statement text appears in participant artefacts or narrative
+                                    text_block = (_tt_collect_inject_text(inj) or '')
+                                    if stmt in text_block:
+                                        defects.append(f"TT-PROV-001: Scenario {si} Inject {ji} model_assumption leaked into participant content")
+                        except Exception:
+                            pass
+                        # Branch validation (optional)
+                        try:
+                            branches = inj.get('inject_branches', []) if isinstance(inj, dict) else []
+                            if isinstance(branches, list):
+                                for bi, br in enumerate(branches, 1):
+                                    rt = str((br.get('response_type') if isinstance(br, dict) else '')).strip().lower()
+                                    if rt and rt not in ('provide_information','clarify_assumption','release_evidence','accelerate_inject','challenge_decision'):
+                                        defects.append(f"TT-BR-001: Scenario {si} Inject {ji} branch {bi} invalid response_type")
+                                    # Prohibited revelations leakage
+                                    toks = br.get('prohibited_revelations', []) if isinstance(br, dict) else []
+                                    if toks:
+                                        tb = (_tt_collect_inject_text(inj) or '')
+                                        for tok in toks:
+                                            if tok and str(tok).strip().lower() in tb:
+                                                defects.append(f"TT-BR-002: Scenario {si} Inject {ji} branch {bi} prohibited_revelation leaked into participant content")
+                        except Exception:
+                            pass
                         # Advisory: if optional fields exist but empty
                         if 'success_criteria' in inj:
                             sc = inj.get('success_criteria') or []
@@ -592,12 +869,15 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                         if not (isinstance(arts, list) and len(arts) >= 1):
                             defects.append(f"TT-210: Scenario {si} Inject {ji} missing artefacts (>=1 required)")
                         else:
-                            allowed_types = {"log", "email", "code", "ticket", "screenshot", "configuration"}
+                            allowed_types = {"log", "email", "code", "ticket", "screenshot", "configuration", "press_release", "news", "regulator_notice", "customer_email", "exec_email", "board_pack", "social"}
                             for idx, ar in enumerate(arts, 1):
                                 try:
                                     at = (ar.get('artefact_type') if isinstance(ar, dict) else "") or ""
                                     if at and at not in allowed_types:
                                         defects.append(f"TT-212: Scenario {si} Inject {ji} artefact {idx} has invalid type '{at}'")
+                                    src = (ar.get('source_system') if isinstance(ar, dict) else "") or ""
+                                    if not str(src).strip():
+                                        defects.append(f"TT-215: Scenario {si} Inject {ji} artefact {idx} missing source_system")
                                     body = (ar.get('body') if isinstance(ar, dict) else "") or ""
                                     if len(str(body).strip()) < 60:
                                         defects.append(f"TT-211: Scenario {si} Inject {ji} artefact {idx} body too short or missing (min ~60 chars)")
@@ -629,6 +909,14 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                                         min_lines = 6
                                     elif at == "email":
                                         min_lines = 4
+                                    elif at in ("press_release", "regulator_notice"):
+                                        min_lines = 5
+                                    elif at == "news":
+                                        min_lines = 4
+                                    elif at in ("board_pack",):
+                                        min_lines = 3
+                                    elif at in ("social",):
+                                        min_lines = 2
                                     if isinstance(min_lines, int) and lc < min_lines:
                                         defects.append(f"TT-213: Scenario {si} Inject {ji} artefact {idx} insufficient lines for type/profile (min {min_lines})")
                                     # TT-214: required fields for known profiles (contains-check heuristics)
@@ -654,6 +942,9 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                                             joined = "\n".join(lines)
                                             if not all(tok in joined for tok in req_tokens):
                                                 defects.append(f"TT-214: Scenario {si} Inject {ji} artefact {idx} missing required fields for {prof}")
+                                        # Concept-driven board artefacts: skip technical token enforcement
+                                        elif at in {"press_release", "news", "regulator_notice", "customer_email", "exec_email", "board_pack", "social"}:
+                                            pass
                                     except Exception:
                                         pass
                                 except Exception:
@@ -689,7 +980,139 @@ def validate_tabletop_master_plan(plan: dict) -> tuple[bool, list[str]]:
                 defects.append("TT-SCOPE-LEGACY: Legacy scope list must be non-empty")
     except Exception:
         defects.append("TT-900: Profile/scope validation error")
-    ok = not any(d.startswith(("TT-001","TT-010","TT-101","TT-120","TT-201","TT-202","TT-203","TT-204","TT-205","TT-206","TT-207","TT-208","TT-209","TT-PROFILE-","TT-OBJ-","TT-SCOPE-")) for d in defects)
+    # Deterministic advanced checks (leakage, progressive disclosure, coverage, timing)
+    try:
+        bp = _tt_blueprint_from_session()
+    except Exception:
+        bp = None
+    hidden_terms = set()
+    try:
+        if isinstance(bp, dict):
+            ht = (((bp.get("facilitation_guide") or {}).get("hidden_truths")) or [])
+            import re as __re
+            for h in ht:
+                for t in __re.split(r"[^a-z0-9]+", _tt_norm_text(h)):
+                    if len(t) >= 4:
+                        hidden_terms.add(t)
+    except Exception:
+        pass
+    early_terms = ("malicious activity","compromised account","phishing attack","threat actor","unauthorised access")
+    try:
+        for si, scn in enumerate((plan.get("scenarios") or []) if isinstance(plan, dict) else [], 1):
+            injects = scn.get("injects", []) if isinstance(scn, dict) else []
+            # Hidden truth leakage and early-reveal lexicon
+            for ji, inj in enumerate(injects, 1):
+                text = _tt_collect_inject_text(inj)
+                # Hidden-truth leakage (facilitator-only)
+                if hidden_terms:
+                    for tok in hidden_terms:
+                        if tok and tok in text:
+                            defects.append(f"TT-LEAK-001: Scenario {si} Inject {ji} leaks hidden truth token '{tok}'")
+                            break
+                # Early-reveal lexicon in non-final injects (progressive disclosure)
+                if ji <= 3:
+                    for et in early_terms:
+                        if et in text:
+                            defects.append(f"TT-LEAK-002: Scenario {si} Inject {ji} uses early-reveal term '{et}'")
+                            break
+                # Decision coverage probes (evidence, governance, authority, communications, what-if)
+                try:
+                    fpq = inj.get('facilitator_probe_questions', []) if isinstance(inj, dict) else []
+                except Exception:
+                    fpq = []
+                lowerq = [ _tt_norm_text(q) for q in (fpq or []) ]
+                def _any_in(keys): 
+                    try:
+                        return any(any(k in q for k in keys) for q in lowerq)
+                    except Exception:
+                        return False
+                if not _any_in(("evidence","log","alert","where would you","siem")):
+                    defects.append(f"TT-COV-001: Scenario {si} Inject {ji} missing evidence probe")
+                if not _any_in(("governance","major incident","regulator","ico","72h","notification")):
+                    defects.append(f"TT-COV-002: Scenario {si} Inject {ji} missing governance probe")
+                if not _any_in(("authority","authorised","runbook","invoke","containment")):
+                    defects.append(f"TT-COV-003: Scenario {si} Inject {ji} missing authority probe")
+                if not _any_in(("communications","stakeholder","inform","brief","comms")):
+                    defects.append(f"TT-COV-004: Scenario {si} Inject {ji} missing communications probe")
+                if not any("what if" in q for q in lowerq):
+                    defects.append(f"TT-COV-005: Scenario {si} Inject {ji} missing what-if probe")
+            # Audience coverage: assess target_groups coverage across injects
+            try:
+                cov = {"executive":0,"it":0,"security":0,"operations":0,"legal":0,"privacy":0,"communications":0,"hr":0,"finance":0}
+                for inj in injects:
+                    tg = inj.get('target_groups', []) if isinstance(inj, dict) else []
+                    if isinstance(tg, list):
+                        for g in tg:
+                            rg = (g.get('role_group') if isinstance(g, dict) else '') if g else ''
+                            if rg in cov:
+                                cov[rg] += 1
+                # Advisory: warn when heavy imbalance (e.g., >70% in one group)
+                total_refs = sum(cov.values()) or 0
+                if total_refs > 0:
+                    for k,v in cov.items():
+                        if v/total_refs > 0.7:
+                            defects.append(f"TT-COV-ROLE-001: Scenario {si} audience coverage heavily imbalanced towards '{k}'")
+            except Exception:
+                pass
+            # Cross-scenario diversity metadata accumulation
+            try:
+                scn_div = {
+                    "cap": set([str(x).strip().lower() for x in (scn.get('primary_capabilities_tested',[]) or [])]),
+                    "press": set([str(x).strip().lower() for x in (scn.get('primary_pressure_dimensions',[]) or [])]),
+                    "roles": set([str(x).strip().lower() for x in (scn.get('primary_roles',[]) or [])]),
+                    "dec": set([str(x).strip().lower() for x in (scn.get('primary_decision_types',[]) or [])]),
+                }
+                if isinstance(plan, dict):
+                    plan.setdefault("_div", []).append(scn_div)
+            except Exception:
+                pass
+            # Scenario progression — timestamp non-decreasing (best-effort)
+            prev = None
+            for ji, inj in enumerate(injects, 1):
+                try:
+                    ts = (inj.get('simulated_timestamp','') if isinstance(inj, dict) else '') or ''
+                except Exception:
+                    ts = ''
+                hm = _tt_parse_hhmm(ts)
+                if hm is None:
+                    continue  # skip if not parseable
+                if prev is not None and hm < prev:
+                    defects.append(f"TT-TIME-001: Scenario {si} Inject {ji} timestamp not progressive (prev={prev[0]:02d}:{prev[1]:02d}, curr={hm[0]:02d}:{hm[1]:02d})")
+                    break
+                prev = hm
+    except Exception:
+        defects.append("TT-998: Advanced validator error")
+
+    # Diversity similarity check across scenarios (advisory; flags when high overlap across all dimensions)
+    try:
+        dv = plan.get("_div", []) if isinstance(plan, dict) else []
+        def _sim(a,b):
+            try:
+                inter = len(a & b); uni = len(a | b) or 1
+                return inter/uni
+            except Exception:
+                return 0.0
+        if isinstance(dv, list) and len(dv) >= 2:
+            for i in range(len(dv)-1):
+                s1 = dv[i]; s2 = dv[i+1]
+                sims = [
+                    _sim(s1.get("cap",set()), s2.get("cap",set())),
+                    _sim(s1.get("press",set()), s2.get("press",set())),
+                    _sim(s1.get("roles",set()), s2.get("roles",set())),
+                    _sim(s1.get("dec",set()), s2.get("dec",set())),
+                ]
+                if sum(1 for x in sims if x >= 0.75) >= 3:
+                    defects.append("TT-DIV-001: Consecutive scenarios appear excessively similar across capability/pressure/roles/decisions")
+    except Exception:
+        pass
+    # Generation metadata presence (advisory)
+    try:
+        gm = plan.get("generation_metadata", {}) if isinstance(plan, dict) else {}
+        if not isinstance(gm, dict) or not gm.get("schema_version") or not gm.get("prompt_version"):
+            defects.append("TT-META-001: generation_metadata missing or incomplete (advisory)")
+    except Exception:
+        pass
+    ok = not any(d.startswith(("TT-001","TT-010","TT-101","TT-120","TT-201","TT-202","TT-203","TT-204","TT-205","TT-206","TT-207","TT-208","TT-209","TT-PROFILE-","TT-OBJ-","TT-SCOPE-","TT-LEAK-","TT-COV-","TT-TIME-")) for d in defects)
     return ok, defects
 
 def _build_board_summary_text(overall_label: str, overall_percent: int, strengths: list, gaps: list, actions_top3_text: str) -> str:
@@ -2498,6 +2921,503 @@ def _inject_monte_carlo_section_after_render(doc, mc, mc_text: str = ""):
         _render(after_el=None, body_parent_ref=None)
 
 
+def create_tabletop_facilitator_pdf(master_plan: dict) -> bytes:
+    """
+    Facilitator Guide PDF for Tabletop exercises.
+    Renders a concise, facilitator-friendly guide highlighting objectives, scope, roles,
+    and per-inject decision thresholds with probes and evidence hunts.
+    Returns bytes suitable for Streamlit download.
+    """
+    try:
+        pdf = ReportPDF()
+        pdf.add_page()
+
+        # Title
+        pdf.set_font("helvetica", "B", 16)
+        robust_multi_cell(pdf, 0, 10, "Tabletop Facilitator Guide", align="C")
+
+        def _get(obj, key, default=""):
+            try:
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                return getattr(obj, key, default)
+            except Exception:
+                return default
+
+        def _as_list(v):
+            if isinstance(v, list):
+                return v
+            if v is None or v == "":
+                return []
+            return [v]
+
+        # High-level meta
+        exercise_title = clean_text(str(_get(master_plan, "exercise_title", "") or "Tabletop Exercise"))
+        audience_roles = _as_list(_get(master_plan, "audience_roles", []))
+        housekeeping_rules = _as_list(_get(master_plan, "housekeeping_rules", []))
+        duration_minutes = _get(master_plan, "duration_minutes", None)
+
+        # 1. Exercise Summary
+        draw_section_header(pdf, "1. Exercise Summary")
+        pdf.set_font("helvetica", "", 11)
+        robust_multi_cell(pdf, 0, 6, f"- Title: {exercise_title}")
+        if isinstance(duration_minutes, (int, float)) and duration_minutes:
+            robust_multi_cell(pdf, 0, 6, f"- Planned Duration: {int(duration_minutes)} minutes")
+
+        # 2. Objectives & Scope
+        draw_section_header(pdf, "2. Objectives & Scope")
+        objectives = _as_list(_get(master_plan, "objectives", []))
+        scope = _get(master_plan, "scope", {}) or {}
+        if objectives:
+            pdf.set_font("helvetica", "B", 11)
+            robust_multi_cell(pdf, 0, 6, "Objectives")
+            pdf.set_font("helvetica", "", 10)
+            for o in objectives[:10]:
+                robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(o))}")
+        if isinstance(scope, dict):
+            inc = _as_list(scope.get("included", []))
+            exc = _as_list(scope.get("excluded", []))
+            asm = _as_list(scope.get("assumptions", []))
+            if inc:
+                pdf.set_font("helvetica", "B", 11)
+                robust_multi_cell(pdf, 0, 6, "Included")
+                pdf.set_font("helvetica", "", 10)
+                for x in inc[:12]:
+                    robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(x))}")
+            if exc:
+                pdf.set_font("helvetica", "B", 11)
+                robust_multi_cell(pdf, 0, 6, "Excluded")
+                pdf.set_font("helvetica", "", 10)
+                for x in exc[:12]:
+                    robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(x))}")
+            if asm:
+                pdf.set_font("helvetica", "B", 11)
+                robust_multi_cell(pdf, 0, 6, "Assumptions")
+                pdf.set_font("helvetica", "", 10)
+                for x in asm[:12]:
+                    robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(x))}")
+
+        # 3. Agenda & Housekeeping
+        draw_section_header(pdf, "3. Agenda & Housekeeping")
+        pdf.set_font("helvetica", "", 10)
+        agenda_lines = [
+            "- Welcome, objectives and scope",
+            "- Scenario walk-throughs and decision points",
+            "- Evidence hunts and knowledge checks",
+            "- Decision log and follow-ups",
+        ]
+        for ln in agenda_lines:
+            robust_multi_cell(pdf, 0, 5, ln)
+        if housekeeping_rules:
+            pdf.set_font("helvetica", "B", 11)
+            robust_multi_cell(pdf, 0, 6, "Housekeeping Rules")
+            pdf.set_font("helvetica", "", 10)
+            for r in housekeeping_rules[:10]:
+                robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(r))}")
+
+        # 3. Exercise Summary
+        draw_section_header(pdf, "3. Exercise Summary")
+        pdf.set_font("helvetica", "", 10)
+        try:
+            ex_prof = str(_get(master_plan, "_exercise_profile", _get(master_plan, "exercise_profile", ""))).strip()
+            det_prof = str(_get(master_plan, "_presentation_detail_profile", _get(master_plan, "presentation_detail_profile", ""))).strip()
+            aud = clean_text(str(_get(master_plan, "audience", "")))
+            if ex_prof:
+                robust_multi_cell(pdf, 0, 5, f"- Exercise Profile: {clean_text(ex_prof)}")
+            if det_prof:
+                robust_multi_cell(pdf, 0, 5, f"- Presentation Detail: {clean_text(det_prof)}")
+            if aud:
+                robust_multi_cell(pdf, 0, 5, f"- Audience: {aud}")
+            cbrief = _get(master_plan, "custom_brief", "")
+            if cbrief:
+                robust_multi_cell(pdf, 0, 5, f"Custom Brief: {clean_text(str(cbrief))}")
+            themes = _as_list(_get(master_plan, "selected_themes", []))
+            if themes:
+                robust_multi_cell(pdf, 0, 5, "Selected Themes:")
+                for t in themes[:10]:
+                    robust_multi_cell(pdf, 0, 5, f"  • {clean_text(str(t))}")
+        except Exception:
+            pass
+
+        # 4. Roles & Responsibilities
+        draw_section_header(pdf, "4. Roles & Responsibilities")
+        if audience_roles:
+            pdf.set_font("helvetica", "", 10)
+            for r in audience_roles[:15]:
+                robust_multi_cell(pdf, 0, 5, f"- {clean_text(str(r))}")
+        else:
+            robust_multi_cell(pdf, 0, 5, "N/A")
+
+        # 5. Scenarios & Inject Guide
+        title_lbl = "5. Scenarios & Decision Guide" if str(_get(master_plan, "_exercise_profile", _get(master_plan,'exercise_profile','blended'))).strip().lower() == 'board' else "5. Scenarios & Inject Guide"
+        draw_section_header(pdf, title_lbl)
+        scenarios = _as_list(_get(master_plan, "scenarios", []))
+        if not scenarios:
+            robust_multi_cell(pdf, 0, 5, "No scenarios provided.")
+        for s_idx, scn in enumerate(scenarios, 1):
+            try:
+                stitle = clean_text(str(_get(scn, "scenario_title", f"Scenario {s_idx}")))
+                iv = clean_text(str(_get(scn, "initial_vector", "")))
+                tgt = _as_list(_get(scn, "target_assets", []))
+                robust_multi_cell(pdf, 0, 6, f"Scenario {s_idx}: {stitle}")
+                if iv:
+                    robust_multi_cell(pdf, 0, 5, f"- Initial Vector: {iv}")
+                if tgt:
+                    robust_multi_cell(pdf, 0, 5, "- Target Assets: " + ", ".join([clean_text(str(x)) for x in tgt[:8]]))
+                injects = _as_list(_get(scn, "injects", []))
+                if not injects:
+                    robust_multi_cell(pdf, 0, 5, "  [No injects provided]")
+                for j_idx, inj in enumerate(injects, 1):
+                    try:
+                        ts = clean_text(str(_get(inj, "simulated_timestamp", "")))
+                        narr = clean_text(str(_get(inj, "scenario_narrative", "")))
+                        dec_thr = clean_text(str(_get(inj, "decision_threshold", "")))
+                        exp = clean_text(str(_get(inj, "expected_mature_response", "")))
+                        tis = _as_list(_get(inj, "technical_indicators", []))
+                        probes = _as_list(_get(inj, "facilitator_probe_questions", []))
+                        syschk = _as_list(_get(inj, "systems_to_check", []))
+                        roles = _as_list(_get(inj, "roles_to_engage", []))
+                        runs = _as_list(_get(inj, "runbook_references", []))
+                        hunt = _as_list(_get(inj, "evidence_hunt", []))
+                        kchecks = _as_list(_get(inj, "knowledge_checks", []))
+                        tbox = clean_text(str(_get(inj, "timebox_hint", "")))
+
+                        pdf.set_font("helvetica", "B", 10)
+                        robust_multi_cell(pdf, 0, 5, f"Inject {j_idx}: [{ts}] Decision: {dec_thr or '—'}")
+                        pdf.set_font("helvetica", "", 10)
+                        if narr:
+                            robust_multi_cell(pdf, 0, 5, f"- Narrative: {narr}")
+                        if exp:
+                            robust_multi_cell(pdf, 0, 5, f"- What Good Looks Like: {exp}")
+                        if tis:
+                            robust_multi_cell(pdf, 0, 5, "- Indicators: " + "; ".join([clean_text(str(x)) for x in tis[:6]]))
+                        if syschk:
+                            robust_multi_cell(pdf, 0, 5, "- Systems to Check: " + "; ".join([clean_text(str(x)) for x in syschk[:6]]))
+                        if probes:
+                            robust_multi_cell(pdf, 0, 5, "- Probe Questions: " + "; ".join([clean_text(str(x)) for x in probes[:6]]))
+                        # Board preference: summarise concept communications ahead of deep technical lists
+                        if str(_get(master_plan, "_exercise_profile", _get(master_plan,'exercise_profile','blended'))).strip().lower() == 'board':
+                            try:
+                                arts = _as_list(_get(inj, "artefacts", []))
+                                concept = []
+                                for ar in arts:
+                                    at = _get(ar, "artefact_type", "")
+                                    if at in {"press_release", "news", "regulator_notice", "customer_email", "exec_email", "board_pack", "social"}:
+                                        ttl = clean_text(str(_get(ar, "title", "") or "(untitled)"))
+                                        concept.append(ttl)
+                                if concept:
+                                    robust_multi_cell(pdf, 0, 5, "- Communications/Signals: " + " | ".join(concept[:3]))
+                            except Exception:
+                                pass
+                        if hunt:
+                            robust_multi_cell(pdf, 0, 5, "- Evidence Hunt: " + "; ".join([clean_text(str(x)) for x in hunt[:6]]))
+                        if kchecks:
+                            robust_multi_cell(pdf, 0, 5, "- Knowledge Checks: " + "; ".join([clean_text(str(x)) for x in kchecks[:6]]))
+                        if roles:
+                            robust_multi_cell(pdf, 0, 5, "- Roles to Engage: " + "; ".join([clean_text(str(x)) for x in roles[:6]]))
+                        if runs:
+                            robust_multi_cell(pdf, 0, 5, "- Runbook Refs: " + "; ".join([clean_text(str(x)) for x in runs[:6]]))
+                        if tbox:
+                            robust_multi_cell(pdf, 0, 5, f"- Timebox: {tbox}")
+                        pdf.ln(2)
+                    except Exception:
+                        continue
+                pdf.ln(2)
+            except Exception:
+                continue
+
+        # 6. Decision & Evidence Log
+        draw_section_header(pdf, "6. Decision & Evidence Log")
+        pdf.set_font("helvetica", "", 10)
+        for i in range(1, 8):
+            robust_multi_cell(pdf, 0, 5, f"{i}. Decision: __________________ | Rationale/Evidence: __________________")
+
+        raw_pdf = pdf.output(dest='S')
+        if isinstance(raw_pdf, str):
+            return raw_pdf.encode('latin-1')
+        return bytes(raw_pdf)
+    except Exception:
+        return b""
+
+
+def create_tabletop_pptx(master_plan: dict) -> bytes:
+    """
+    Build a facilitator-friendly PPTX deck using python-pptx.
+    Attempts to load planet_it_tabletop_template.pptx from the project root; if missing,
+    uses a default Presentation. Slides include: Cover, Agenda, Roles, Objectives & Scope,
+    per-scenario Overview and Injects, and a Decision Log.
+    Returns bytes.
+    """
+    try:
+        import os as _os
+        import io as _io
+        from pptx import Presentation as _Presentation
+        from pptx.util import Inches as _Inches, Pt as _Pt
+        from pptx.enum.text import PP_PARAGRAPH_ALIGNMENT as _PP_ALIGN
+
+        def _get(obj, key, default=""):
+            try:
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                return getattr(obj, key, default)
+            except Exception:
+                return default
+
+        def _as_list(v):
+            if isinstance(v, list):
+                return v
+            if v is None or v == "":
+                return []
+            return [v]
+
+        # Load template if present
+        _tpl = _os.path.join(_os.path.dirname(__file__), "planet_it_tabletop_template.pptx")
+        try:
+            prs = _Presentation(_tpl) if _os.path.exists(_tpl) else _Presentation()
+        except Exception:
+            prs = _Presentation()
+
+        # Choose safe layouts
+        def _layout(idx_fallback=1):
+            try:
+                return prs.slide_layouts[idx_fallback]
+            except Exception:
+                try:
+                    return prs.slide_layouts[0]
+                except Exception:
+                    return prs.slide_layouts[0]
+
+        def _add_title_slide(title, subtitle=""):
+            sl = prs.slides.add_slide(_layout(0))
+            try:
+                sl.shapes.title.text = clean_text(str(title))
+            except Exception:
+                pass
+            try:
+                sub = sl.placeholders[1]
+                sub.text = clean_text(str(subtitle))
+            except Exception:
+                # add a simple textbox
+                try:
+                    tb = sl.shapes.add_textbox(_Inches(1), _Inches(4), _Inches(8), _Inches(1))
+                    tf = tb.text_frame
+                    tf.text = clean_text(str(subtitle))
+                except Exception:
+                    pass
+            return sl
+
+        def _add_bullet_slide(title, bullets, levels=None):
+            sl = prs.slides.add_slide(_layout(1))
+            try:
+                sl.shapes.title.text = clean_text(str(title))
+            except Exception:
+                pass
+            # Content placeholder
+            try:
+                body = sl.shapes.placeholders[1].text_frame
+            except Exception:
+                body = sl.shapes.add_textbox(_Inches(1), _Inches(1.6), _Inches(8), _Inches(4)).text_frame
+            body.clear()
+            first = True
+            for idx, txt in enumerate(bullets or []):
+                t = clean_text(str(txt))
+                if first:
+                    body.text = t
+                    p = body.paragraphs[0]
+                    first = False
+                else:
+                    p = body.add_paragraph()
+                    p.text = t
+                try:
+                    p.font.size = _Pt(14)
+                except Exception:
+                    pass
+                try:
+                    lvl = 0
+                    if levels and idx < len(levels):
+                        lvl = int(levels[idx])
+                    p.level = max(0, min(5, lvl))
+                except Exception:
+                    pass
+            return sl
+
+        def _add_notes(slide, text):
+            try:
+                ns = slide.notes_slide
+            except Exception:
+                ns = slide.notes_slide
+            try:
+                tf = ns.notes_text_frame
+                if tf.text:
+                    tf.text += "\n" + text
+                else:
+                    tf.text = text
+            except Exception:
+                pass
+
+        # Extract plan
+        title = _get(master_plan, "exercise_title", "") or "Tabletop Exercise"
+        objectives = _as_list(_get(master_plan, "objectives", []))
+        scope = _get(master_plan, "scope", {}) or {}
+        inc = _as_list(scope.get("included", [])) if isinstance(scope, dict) else []
+        exc = _as_list(scope.get("excluded", [])) if isinstance(scope, dict) else []
+        asm = _as_list(scope.get("assumptions", [])) if isinstance(scope, dict) else []
+        roles = _as_list(_get(master_plan, "audience_roles", []))
+        housekeeping = _as_list(_get(master_plan, "housekeeping_rules", []))
+        detail_profile = str(_get(master_plan, "_presentation_detail_profile", _get(master_plan, "presentation_detail_profile", "standard"))).strip().lower()
+        exercise_profile = str(_get(master_plan, "_exercise_profile", _get(master_plan, "exercise_profile", "blended"))).strip().lower()
+        scenarios = _as_list(_get(master_plan, "scenarios", []))
+
+        # Cover
+        cover = _add_title_slide(title, "Cybersecurity Tabletop Deck")
+        try:
+            notes_text = f"Exercise Profile: {exercise_profile} | Presentation Detail: {detail_profile}"
+            cbrief = str(_get(master_plan, "custom_brief", "") or "")
+            if cbrief:
+                notes_text += "\nCustom Brief: " + clean_text(cbrief)
+            _add_notes(cover, notes_text)
+        except Exception:
+            pass
+
+        # Agenda
+        agenda = ["Objectives & Scope"]
+        for i, scn in enumerate(scenarios, 1):
+            agenda.append(f"Scenario {i}: " + str(_get(scn, "scenario_title", f"Scenario {i}")))
+        agenda.append("Decision Log")
+        if housekeeping:
+            agenda.append("Housekeeping")
+        _add_bullet_slide("Agenda", agenda)
+
+        # Roles
+        if roles:
+            _add_bullet_slide("Roles & Responsibilities", [str(r) for r in roles])
+
+        # Objectives & Scope
+        bullets = []
+        if objectives:
+            bullets.append("Objectives")
+            bullets.extend([f"  - {str(o)}" for o in objectives[:10]])
+        if inc:
+            bullets.append("Scope — Included")
+            bullets.extend([f"  - {str(x)}" for x in inc[:10]])
+        if exc:
+            bullets.append("Scope — Excluded")
+            bullets.extend([f"  - {str(x)}" for x in exc[:10]])
+        if asm:
+            bullets.append("Assumptions")
+            bullets.extend([f"  - {str(x)}" for x in asm[:10]])
+        if bullets:
+            # Compute levels: headings at 0, items at 1
+            levels = []
+            for b in bullets:
+                levels.append(0 if not b.strip().startswith("-") and "—" not in b and not b.strip().startswith("  -") else (1 if b.strip().startswith("  -") else 0))
+            _add_bullet_slide("Objectives & Scope", bullets, levels=levels)
+            # Themes slide (optional)
+            try:
+                sel_themes = _as_list(_get(master_plan, "selected_themes", []))
+                if sel_themes:
+                    _add_bullet_slide("Themes", [str(t) for t in sel_themes])
+            except Exception:
+                pass
+
+        # Scenarios
+        for s_idx, scn in enumerate(scenarios, 1):
+            try:
+                st = str(_get(scn, "scenario_title", f"Scenario {s_idx}"))
+                iv = str(_get(scn, "initial_vector", ""))
+                tgt = _as_list(_get(scn, "target_assets", []))
+                overview = [f"Initial Vector: {iv}"] if iv else []
+                if tgt:
+                    overview.append("Target Assets: " + ", ".join([str(x) for x in tgt[:8]]))
+                _add_bullet_slide(f"Scenario {s_idx}: {st}", overview or ["Overview"])
+
+                injects = _as_list(_get(scn, "injects", []))
+                if injects:
+                    # Paginate injects (5 per slide)
+                    page_size = 5
+                    for start in range(0, len(injects), page_size):
+                        chunk = injects[start:start + page_size]
+                        inj_bullets = []
+                        notes_lines = []
+                        for j_idx, inj in enumerate(chunk, start + 1):
+                            ts = str(_get(inj, "simulated_timestamp", "") or "")
+                            narr = str(_get(inj, "scenario_narrative", "") or "")
+                            dec_thr = str(_get(inj, "decision_threshold", "") or "")
+                            probes = _as_list(_get(inj, "facilitator_probe_questions", []))
+                            line = f"[{ts}] {narr}" if ts else narr
+                            if dec_thr:
+                                line += f" — Decision: {dec_thr}"
+                            # For board profile, surface concept communications from artefacts on-slide
+                            arts = _as_list(_get(inj, "artefacts", []))
+                            if exercise_profile == "board" and isinstance(arts, list):
+                                for ar in arts:
+                                    try:
+                                        at = _get(ar, "artefact_type", "")
+                                        ttl = _get(ar, "title", "") or ""
+                                        if at in {"press_release", "news", "regulator_notice", "customer_email", "exec_email", "board_pack", "social"}:
+                                            if ttl:
+                                                line += f" — {ttl[:100]}"
+                                            break
+                                    except Exception:
+                                        continue
+                            elif detail_profile == "detailed" and probes:
+                                line += f" — Probe: {str(probes[0])}"
+                            inj_bullets.append(line if line else f"Inject {j_idx}")
+                            # Speaker notes (always detailed)
+                            tis = _as_list(_get(inj, "technical_indicators", []))
+                            syschk = _as_list(_get(inj, "systems_to_check", []))
+                            roles_eng = _as_list(_get(inj, "roles_to_engage", []))
+                            runs = _as_list(_get(inj, "runbook_references", []))
+                            hunt = _as_list(_get(inj, "evidence_hunt", []))
+                            kchecks = _as_list(_get(inj, "knowledge_checks", []))
+                            exp = str(_get(inj, "expected_mature_response", "") or "")
+                            tbox = str(_get(inj, "timebox_hint", "") or "")
+                            nl = []
+                            # Include source systems & regulator cues where present for facilitator context
+                            arts_all = [ar for ar in _as_list(_get(inj, "artefacts", [])) if _artefact_allowed_with_inject(ar, inj)]
+                            if arts_all:
+                                try:
+                                    srcs = []
+                                    for ar in arts_all[:4]:
+                                        ss = _get(ar, "source_system", "")
+                                        if ss: srcs.append(str(ss))
+                                    if srcs:
+                                        nl.append("Source systems: " + ", ".join(sorted(set(srcs))[:4]))
+                                except Exception:
+                                    pass
+                            if exp: nl.append(f"WGLR: {exp}")
+                            if tis: nl.append("Indicators: " + "; ".join([str(x) for x in tis[:8]]))
+                            if syschk: nl.append("Systems: " + "; ".join([str(x) for x in syschk[:8]]))
+                            if probes: nl.append("Probes: " + "; ".join([str(x) for x in probes[:8]]))
+                            if hunt: nl.append("Evidence: " + "; ".join([str(x) for x in hunt[:8]]))
+                            if kchecks: nl.append("Knowledge Checks: " + "; ".join([str(x) for x in kchecks[:8]]))
+                            if roles_eng: nl.append("Roles: " + "; ".join([str(x) for x in roles_eng[:8]]))
+                            if runs: nl.append("Runbooks: " + "; ".join([str(x) for x in runs[:8]]))
+                            if dec_thr: nl.append(f"Decision Threshold: {dec_thr}")
+                            if tbox: nl.append(f"Timebox: {tbox}")
+                            notes_lines.append("\n".join([clean_text(x) for x in nl if x]))
+                        sl = _add_bullet_slide(f"Scenario {s_idx}: Injects {start + 1}–{start + len(chunk)}", inj_bullets)
+                        _add_notes(sl, "\n\n".join(notes_lines))
+            except Exception:
+                continue
+
+        # Decision Log
+        _add_bullet_slide("Decision Log", [
+            "1) Decision: __________________ — Rationale/Evidence: __________________",
+            "2) Decision: __________________ — Rationale/Evidence: __________________",
+            "3) Decision: __________________ — Rationale/Evidence: __________________",
+            "4) Decision: __________________ — Rationale/Evidence: __________________",
+            "5) Decision: __________________ — Rationale/Evidence: __________________",
+        ])
+
+        buf = _io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return b""
+
+
 def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_interpretation: str = "", mc_data=None) -> bytes:
     """
     Cybersecurity Maturity Assessment Word export: renders a Word document using planet_it_maturity_assessment_template.docx.
@@ -3707,6 +4627,24 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
         strict_flag = is_tabletop_quality_strict()
     except Exception:
         strict_flag = True
+    # Approval gate (config-driven)
+    try:
+        gates_on = str(get_config("TABLETOP_APPROVAL_GATES_ENABLED", "false")).strip().lower() in ("1","true","yes","on")
+    except Exception:
+        gates_on = False
+    if gates_on:
+        try:
+            state = str((master_plan_data or {}).get("approval_state","SCENARIO_GENERATED"))
+        except Exception:
+            state = "SCENARIO_GENERATED"
+        allowed = {"SCENARIO_APPROVED","DECK_GENERATED","DECK_APPROVED"}
+        if state not in allowed:
+            try:
+                from quality_pipeline import log_observability
+                log_observability("tabletop.approval.block", {"doc": "deck", "state": state, "required": sorted(list(allowed))})
+            except Exception:
+                pass
+            return b""
     # Ensure default independent profiles and record migration notices if omitted (do not infer from any other fields)
     try:
         if not isinstance(master_plan_data, dict):
@@ -3727,9 +4665,19 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
         ok, defects = validate_tabletop_master_plan(master_plan_data if isinstance(master_plan_data, dict) else {})
     except Exception:
         pass
-    if strict_flag and not ok:
-        # Fail closed to avoid distributing incomplete decks
-        return b""
+        try:
+            from quality_pipeline import log_observability
+            log_observability("tabletop.validate", {"ok": ok, "defects": defects})
+            try:
+                from consultation_helpers import snapshot_tabletop_artifact
+                snapshot_tabletop_artifact("tabletop_validation", {"ok": ok, "defects": defects}, plan=master_plan_data)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        if strict_flag and not ok:
+            # Fail closed to avoid distributing incomplete decks
+            return b""
     try:
         template_path = get_config("TABLETOP_TEMPLATE_DECK", os.path.join(os.path.dirname(__file__), "planet_it_tabletop_template.pptx"))
     except Exception:
@@ -3961,7 +4909,7 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                     except Exception:
                         pass
                 # Render structured artefacts (if provided)
-                arts = _dict_get(inj, "artefacts", []) or []
+                arts = [ar for ar in (_dict_get(inj, "artefacts", []) or []) if _artefact_allowed_with_inject(ar, inj)]
                 if arts:
                     try:
                         _add_heading(tf_a, "Evidence Artefacts:", font_size_pt=13, rgb=(35, 80, 106))
@@ -4032,7 +4980,7 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                 if emr: lines_a.append("What Good Looks Like: " + str(emr))
                 dt = _dict_get(inj, "decision_threshold", "")
                 if dt: lines_a.append("Decision Threshold: " + str(dt))
-                arts = _dict_get(inj, "artefacts", []) or []
+                arts = [ar for ar in (_dict_get(inj, "artefacts", []) or []) if _artefact_allowed_with_inject(ar, inj)]
                 if isinstance(arts, list) and arts:
                     lines_a.append("Artefacts:")
                     for ar in arts[:3]:
@@ -4045,6 +4993,30 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                         if body_full:
                             lines_a.append("Artefact Body (full):")
                             lines_a.append(str(body_full))
+                # Facilitator-only guidance (speaker notes only; never on slide)
+                try:
+                    fac_notes = master_plan_data.get("_facilitator_notes", {}) if isinstance(master_plan_data, dict) else {}
+                    _k = f"{scn_idx-1}:{inj_idx-1}"
+                    note = fac_notes.get(_k, {}) if isinstance(fac_notes, dict) else {}
+                    gp = str(note.get("guide_prompt", "")).strip()
+                    pr = str(note.get("probes_rationale", "")).strip()
+                    ec = str(note.get("escalation_cues", "")).strip()
+                    wd = str(note.get("wrap_if_deviation", "")).strip()
+                    if gp or pr or ec or wd:
+                        lines_a.append("Facilitator Guidance:")
+                        if gp:
+                            lines_a.append(f"Guide: {gp}")
+                        if pr:
+                            lines_a.append(f"Rationale: {pr}")
+                        if ec:
+                            lines_a.append("Escalation cues:")
+                            for ln in ec.splitlines():
+                                if ln.strip():
+                                    lines_a.append(ln.strip())
+                        if wd:
+                            lines_a.append(f"If deviation: {wd}")
+                except Exception:
+                    pass
                 lines_a.append(f"DYNAMIC_SLIDE_TYPE: INJECT_EVIDENCE_A")
                 lines_a.append(f"SCENARIO_ORDINAL: {scn_idx}")
                 lines_a.append(f"INJECT_ORDINAL: {inj_idx}")
@@ -4100,6 +5072,30 @@ def create_tabletop_pptx(master_plan_data: dict) -> bytes:
                 ns_b = slide_b.notes_slide
                 ntf_b = ns_b.notes_text_frame
                 lines_b = []
+                # Facilitator-only guidance (speaker notes only; never on slide)
+                try:
+                    fac_notes = master_plan_data.get("_facilitator_notes", {}) if isinstance(master_plan_data, dict) else {}
+                    _k = f"{scn_idx-1}:{inj_idx-1}"
+                    note = fac_notes.get(_k, {}) if isinstance(fac_notes, dict) else {}
+                    gp = str(note.get("guide_prompt", "")).strip()
+                    pr = str(note.get("probes_rationale", "")).strip()
+                    ec = str(note.get("escalation_cues", "")).strip()
+                    wd = str(note.get("wrap_if_deviation", "")).strip()
+                    if gp or pr or ec or wd:
+                        lines_b.append("Facilitator Guidance:")
+                        if gp:
+                            lines_b.append(f"Guide: {gp}")
+                        if pr:
+                            lines_b.append(f"Rationale: {pr}")
+                        if ec:
+                            lines_b.append("Escalation cues:")
+                            for ln in ec.splitlines():
+                                if ln.strip():
+                                    lines_b.append(ln.strip())
+                        if wd:
+                            lines_b.append(f"If deviation: {wd}")
+                except Exception:
+                    pass
                 lines_b.append(f"DYNAMIC_SLIDE_TYPE: INJECT_QUESTIONS_B")
                 lines_b.append(f"SCENARIO_ORDINAL: {scn_idx}")
                 lines_b.append(f"INJECT_ORDINAL: {inj_idx}")
@@ -4318,9 +5314,37 @@ def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
         strict_flag = is_tabletop_quality_strict()
     except Exception:
         strict_flag = True
+    # Approval gate (config-driven)
+    try:
+        gates_on = str(get_config("TABLETOP_APPROVAL_GATES_ENABLED", "false")).strip().lower() in ("1","true","yes","on")
+    except Exception:
+        gates_on = False
+    if gates_on:
+        try:
+            state = str((master_plan_data or {}).get("approval_state","SCENARIO_GENERATED"))
+        except Exception:
+            state = "SCENARIO_GENERATED"
+        allowed = {"SCENARIO_APPROVED","DECK_GENERATED","DECK_APPROVED"}
+        if state not in allowed:
+            try:
+                from quality_pipeline import log_observability
+                log_observability("tabletop.approval.block", {"doc": "facilitator_pdf", "state": state, "required": sorted(list(allowed))})
+            except Exception:
+                pass
+            return b""
     ok, defects = (True, [])
     try:
         ok, defects = validate_tabletop_master_plan(master_plan_data if isinstance(master_plan_data, dict) else {})
+    except Exception:
+        pass
+    try:
+        from quality_pipeline import log_observability
+        log_observability("tabletop.validate", {"ok": ok, "defects": defects})
+        try:
+            from consultation_helpers import snapshot_tabletop_artifact
+            snapshot_tabletop_artifact("tabletop_validation", {"ok": ok, "defects": defects}, plan=master_plan_data)
+        except Exception:
+            pass
     except Exception:
         pass
     if strict_flag and not ok:
@@ -4358,7 +5382,7 @@ def create_tabletop_facilitator_pdf(master_plan_data: dict) -> bytes:
             robust_multi_cell(pdf, 0, 5, f"Situation: {inj.get('scenario_narrative')}")
             # Evidence Artefacts (optional)
             try:
-                arts = inj.get("artefacts", []) or []
+                arts = [ar for ar in (inj.get("artefacts", []) or []) if _artefact_allowed_with_inject(ar, inj)]
                 if isinstance(arts, list) and arts:
                     pdf.set_font("helvetica", "B", 10)
                     pdf.cell(0, 6, "Evidence Artefacts:", ln=True)

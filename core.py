@@ -318,6 +318,12 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                         return response.choices[0].message.parsed
                     return getattr(response.choices[0].message, "content", None)
                 except Exception as e:
+                    # Surface Azure 404 DeploymentNotFound with actionable guidance
+                    err_str = str(e)
+                    if "DeploymentNotFound" in err_str or "404" in err_str:
+                        _logger.error("Azure deployment not found for model '%s'. Check AZURE_OPENAI_DEPLOYMENT and Azure resource configuration.", deployment, exc_info=True)
+                        st.error(f"Azure OpenAI deployment not found: '{deployment}'. Ensure a deployment with this name exists in the configured Azure OpenAI resource and try again after a short delay.")
+                        return None
                     if attempt == max_retries - 1:
                         _logger.error("Structured generation exhausted retries (%d attempts): %s", max_retries, e, exc_info=True)
                         st.error("Report generation failed after multiple attempts. Please try again.")
@@ -326,6 +332,46 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         except Exception as e:
             _logger.error("LLM structured generation error: %s", e, exc_info=True)
             st.error("An error occurred during report generation. Please try again.")
+            return None
+
+    @staticmethod
+    def generate_exercise_blueprint(client, deployment, system_persona, client_inputs: dict, selected_themes: list, audience: str = "Blended"):
+        """
+        Generate an ExerciseBlueprint using the blueprint prompt and validate via tabletop_models.ExerciseBlueprint.
+        Returns a Python dict suitable for session storage.
+        """
+        try:
+            from prompts import build_exercise_blueprint_prompt  # local import to avoid cycles
+            from tabletop_models import ExerciseBlueprint
+            import json
+        except Exception as e:
+            _logger.error("Blueprint prerequisites missing: %s", e, exc_info=True)
+            return None
+
+        prompt = build_exercise_blueprint_prompt(client_inputs, selected_themes, audience)
+        text = LLMEngine.generate_text_report(client, deployment, system_persona, prompt, temperature=0.6)
+        if text is None or not str(text).strip():
+            return None
+
+        data = {}
+        try:
+            data = json.loads(text)
+        except Exception:
+            s = str(text)
+            start = s.find("{")
+            end = s.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    data = json.loads(s[start:end+1])
+                except Exception:
+                    return None
+            else:
+                return None
+        try:
+            eb = ExerciseBlueprint(**data)
+            return eb.model_dump()
+        except Exception as e:
+            _logger.warning("ExerciseBlueprint validation failed: %s", e, exc_info=True)
             return None
 
     @staticmethod

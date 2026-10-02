@@ -1,9 +1,9 @@
 """
-consultation_helpers.py ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã¯Â¿Â½ Sanitisation and migration utilities
+consultation_helpers.py ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¯Ã‚Â¿Ã‚Â½ Sanitisation and migration utilities
 
 Responsibilities:
 - Recursive sanitisation of nested profile data (dicts/lists/tuples)
-- BackwardÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“compatible profile migration for changed option sets
+- BackwardÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¹Ã…â€œcompatible profile migration for changed option sets
 - Minimal structural defaults for legacy profiles
 
 British English comments and labels are used consistently.
@@ -33,7 +33,7 @@ def _sanitise_str(value: str) -> str:
 
 def sanitise_nested(obj: Any) -> Any:
     """Recursively sanitise strings within dicts, lists and tuples.
-    NonÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“string scalars are returned unchanged.
+    NonÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¹Ã…â€œstring scalars are returned unchanged.
     """
     if obj is None:
         return None
@@ -60,7 +60,7 @@ def get_nested(d: Dict[str, Any], path: List[str], default: Any = None) -> Any:
 
 
 _OS_MIGRATION = {
-    # Legacy catchÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“alls ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ specific supported options
+    # Legacy catchÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¹Ã…â€œalls ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ specific supported options
     "Windows Server": "Windows Server 2019",
     "Windows Server (unspecified)": "Windows Server 2019",
     "Windows Server 2012 / 2012 R2 (EoL)": "Windows Server 2012 / 2012 R2",
@@ -78,7 +78,7 @@ def _migrate_operating_systems(profile: Dict[str, Any]) -> None:
     os_val = profile.get("operating_systems")
     if not os_val:
         return
-    # Accept list or commaÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“separated string
+    # Accept list or commaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¹Ã…â€œseparated string
     if isinstance(os_val, str):
         parts = [p.strip() for p in os_val.split(",") if p.strip()]
     elif isinstance(os_val, list):
@@ -88,7 +88,7 @@ def _migrate_operating_systems(profile: Dict[str, Any]) -> None:
     migrated: List[str] = []
     for p in parts:
         migrated.append(_OS_MIGRATION.get(p, p))
-    # DeÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“duplicate while preserving order
+    # DeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¹Ã…â€œduplicate while preserving order
     seen = set()
     dedup = []
     for m in migrated:
@@ -559,10 +559,10 @@ def add_recommendation(
     """Append a capability-led recommendation string respecting evidence status.
 
     Rules:
-    - Unknown ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ recommend assessment/validation (do not suggest procurement).
-    - Existing control ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ recommend configuration review/testing/governance.
-    - Confirmed missing ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ proportionate remediation.
-    - Mature ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ acknowledge maintenance only.
+    - Unknown ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ recommend assessment/validation (do not suggest procurement).
+    - Existing control ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ recommend configuration review/testing/governance.
+    - Confirmed missing ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ proportionate remediation.
+    - Mature ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ acknowledge maintenance only.
     - Vendor options are listed last and optional; external vendor filtering happens upstream.
     """
     parts: List[str] = []
@@ -583,7 +583,7 @@ def add_recommendation(
     if vendor_options:
         parts.append("Options: " + ", ".join(vendor_options))
     # Compose and deduplicate simple duplicates
-    msg = " ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã¯Â¿Â½ ".join(parts)
+    msg = " ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¯Ã‚Â¿Ã‚Â½ ".join(parts)
     if msg not in recs:
         recs.append(msg)
 
@@ -638,6 +638,81 @@ def persist_tabletop_session(
         try:
             with io.open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
+            return path
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+# --------- Reproducibility Snapshotting (config-driven, provider-agnostic) ---------
+def snapshot_tabletop_artifact(
+    kind: str,
+    payload: Dict[str, Any],
+    client_inputs: Dict[str, Any] | None = None,
+    plan: Dict[str, Any] | None = None,
+) -> str | None:
+    """
+    Persist a reproducibility snapshot (validation, plan/presentation_model, etc.) to JSON.
+
+    Controls:
+    - Enabled implicitly when TT_SNAPSHOT_DIR is set (no hardcoded defaults).
+    - Directory via TT_SNAPSHOT_DIR (must be set; returns None otherwise).
+
+    Files are named: {kind}_{YYYYMMDDTHHMMSSZ}_{short_hash}.json
+    The content includes sanitised payload and minimal provenance hashes.
+    """
+    try:
+        from config import get_config  # late import to avoid top-level cycles
+        import os, io, json, hashlib, datetime
+
+        snapshot_dir = get_config("TT_SNAPSHOT_DIR")
+        if not snapshot_dir:
+            return None
+
+        try:
+            os.makedirs(snapshot_dir, exist_ok=True)
+        except Exception:
+            return None
+
+        def _minify(obj: Any) -> str:
+            try:
+                return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+            except Exception:
+                try:
+                    return json.dumps(str(obj), ensure_ascii=False, separators=(",", ":"))
+                except Exception:
+                    return "{}"
+
+        def _sha256_of(obj: Any) -> str:
+            try:
+                return hashlib.sha256(_minify(obj).encode("utf-8")).hexdigest()
+            except Exception:
+                return ""
+
+        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        # Compute hashes for provenance
+        ctx_hash = _sha256_of(client_inputs or {})
+        plan_hash = _sha256_of(plan or {})
+        pay_hash = _sha256_of(payload or {})
+
+        record = {
+            "schema_version": SCHEMA_VERSION,
+            "snapshot_kind": kind,
+            "saved_at": f"{ts}",
+            "customer_context_hash": ctx_hash,
+            "plan_hash": plan_hash,
+            "payload_hash": pay_hash,
+            "payload": sanitise_nested(payload or {}),
+        }
+
+        # Short hash derived from payload for filename stability
+        short = (pay_hash or "")[:8] if pay_hash else "00000000"
+        fname = f"{kind}_{ts}_{short}.json"
+        path = os.path.join(snapshot_dir, fname)
+        try:
+            with io.open(path, "w", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
             return path
         except Exception:
             return None

@@ -221,6 +221,38 @@ def build_compact_vendor_whitelist_text(max_per_domain: int = 3) -> str:
 
 # Compact allow‑list text used in prompts to constrain recommendations to the Planet IT stack
 COMPACT_VENDOR_WHITELIST_TEXT = build_compact_vendor_whitelist_text(3)
+# --- MDR detection remit guardrails (static, deterministic) ---
+MDR_DETECTION_SCOPE = {
+    "Sophos MDR": {
+        "telemetry_in_remit": ["Endpoint (Intercept X)", "Firewall (Sophos Firewall)", "Email (EMS/vendor-agnostic)"],
+        "requires_integration_for": ["Identity (Entra/Okta)", "Cloud control plane (Azure/AWS/GCP)", "OT/ICS"],
+        "out_of_remit_examples": ["Supply chain breach without telemetry", "Shadow IT SaaS without CASB", "Air-gapped backups not monitored"]
+    },
+    "Adlumin MDR": {
+        "telemetry_in_remit": ["SIEM ingested logs (multi-vendor)", "UEBA", "SOAR playbooks"],
+        "requires_integration_for": ["Endpoint agent-specific actions", "Identity provider direct signals (if not ingested)", "Cloud provider APIs (if not configured)"],
+        "out_of_remit_examples": ["Unintegrated third-party tools", "Tenant-level events without ingestion"]
+    },
+    "Microsoft Defender Experts": {
+        "telemetry_in_remit": ["Microsoft 365 Defender signals (endpoint/email/identity/cloud)"],
+        "requires_integration_for": ["Third-party firewalls/EDR", "Non-Microsoft identity", "OT/ICS"],
+        "out_of_remit_examples": ["Multi-vendor telemetry gaps", "Response authority limitations (notify/recommend)"]
+    }
+}
+def build_compact_mdr_scope_text() -> str:
+    lines = [
+        "### STRICT DETECTION REMIT GUARDRAILS",
+        "- Do NOT claim detection where the necessary telemetry is absent or not integrated.",
+        "- Justify every detection/response event by citing the exact telemetry source and vendor action.",
+        "- If required telemetry is missing, state 'Out of Remit — detection not guaranteed without [integration]' and escalate appropriately.",
+        "",
+        "Vendor remit overview:",
+        "- Sophos MDR: Endpoint, Firewall, Email in remit; Identity/Cloud/OT require integration.",
+        "- Adlumin MDR: SIEM-ingested multi-vendor logs, UEBA, SOAR; direct agent actions require integration.",
+        "- Microsoft Defender Experts: Microsoft-native signals; third-party telemetry requires integration; response authority is limited."
+    ]
+    return "\n".join(lines)
+MDR_SCOPE_TEXT = build_compact_mdr_scope_text()
 
 # === DfE 2026 Compliance Catalogue (lightweight, canonical names) ===
 # These titles are used only to anchor LLM output; do not invent new names in prompts.

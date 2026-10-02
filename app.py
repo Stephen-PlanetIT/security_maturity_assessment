@@ -714,7 +714,7 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
                 file_customer_name = export_profile.get('customer_name', 'Client')
                 st.download_button(
                     "🧾 Export current options (.json)",
-                    data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+                    data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode('utf-8'),
                     file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
                     mime="application/json",
                     key="dl_maturity_profile_json_main"
@@ -727,7 +727,7 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
                 try:
                     bytes_docx = get_maturity_docx_bytes()
                     if bytes_docx and len(bytes_docx) > 1000:
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("Export still not available. Please try again.")
                 except Exception:
@@ -736,7 +736,8 @@ if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" 
 with st.expander("Profile: Import Options (.json)", expanded=False):
     import json as _json
     # Import is placed before UI to allow applying defaults prior to rendering controls.
-    uploaded = st.file_uploader("Import options (.json)", type=["json"], key="profile_import_json")
+    nonce = st.session_state.get('_import_nonce', 0)
+    uploaded = st.file_uploader("Import options (.json)", type=["json"], key=f"profile_import_json_{nonce}")
     if uploaded is not None:
         try:
             raw = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded.read()
@@ -749,6 +750,7 @@ with st.expander("Profile: Import Options (.json)", expanded=False):
             # If this exact file has already been applied in the current session, avoid re-import and rerun loops
             if st.session_state.get('_last_import_hash') == _h:
                 st.info("Profile already applied.")
+                st.session_state['_import_nonce'] = (nonce + 1)
             else:
                 data = _json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else _json.loads(raw)
                 profile = data.get("profile") if isinstance(data, dict) and "profile" in data else data
@@ -767,6 +769,9 @@ with st.expander("Profile: Import Options (.json)", expanded=False):
                     st.session_state['use_imported_profile'] = True
                     st.session_state['use_test_data'] = False
                     st.session_state['_last_import_hash'] = _h
+                    # Mark one-shot applied; bump uploader nonce to reset widget key
+                    st.session_state['_profile_import_applied'] = True
+                    st.session_state['_import_nonce'] = (nonce + 1)
                     st.success("Profile imported. Applying to UI...")
                     st.rerun()
         except Exception as e:
@@ -1703,7 +1708,7 @@ with st.expander("Profile: Export (.json)", expanded=False):
     if export_profile:
         st.download_button(
             "⬇️ Export current options (.json)",
-            data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2),
+            data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode('utf-8'),
             file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
             mime="application/json"
         )
