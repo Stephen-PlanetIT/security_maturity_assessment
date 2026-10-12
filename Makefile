@@ -16,3 +16,16 @@ verify:
 	fi
 
 qa: test verify
+
+# Python 3.12 virtualenv and run helpers
+venv-3.12:
+	python3.12 -m venv .venv && .venv/bin/python -m pip install --upgrade pip && .venv/bin/python -m pip install -r requirements.txt
+
+run:
+	. .venv/bin/activate && streamlit run app.py
+
+docker-build:
+	docker build -t secusecase:latest .
+
+docker-run:
+	docker run --rm -p 8501:8501 secusecase:latest

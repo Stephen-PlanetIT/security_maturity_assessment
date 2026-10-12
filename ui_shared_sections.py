@@ -24,6 +24,230 @@ from consultation_schema import (
     RECOVERY_PRIORITIES_OPTIONS,
 )
 
+def _rp_state():
+    """
+    Initialises and returns the Review Panel state in st.session_state.
+    Namespaced to avoid collisions with other UI features.
+    """
+    if "review_panel" not in st.session_state or not isinstance(st.session_state.get("review_panel"), dict):
+        st.session_state["review_panel"] = {"decisions": {}, "inputs": {}}
+    rp = st.session_state["review_panel"]
+    rp.setdefault("decisions", {})
+    rp.setdefault("inputs", {})
+    return rp
+
+
+def _rule_options(rule_id: str) -> tuple[list[str], str]:
+    """
+    Map validator rule IDs to safe default decision options and a recommended default.
+    This is UI-only guidance and does not weaken fail-closed gating.
+    """
+    mapping = {
+        "UNSUPPORTED_FINANCIAL_FIGURE": [
+            "Generalise to validation language",
+            "Remove value",
+            "Provide approved evidence",
+        ],
+        "UNAPPROVED_CVE": [
+            "Remove specific CVE",
+            "Generalise to external-service risk",
+            "Provide approved evidence",
+        ],
+        "UNAPPROVED_VENDOR": [
+            "Vendor-neutral capability requirement",
+            "Use approved product",
+            "Provide approval",
+        ],
+        "CONSULTANT_ONLY_CONTENT": [
+            "Remove block",
+            "Keep for review",
+        ],
+        "PUBLICATION_PLACEHOLDER": [
+            "Resolve now",
+            "Mark as missing input",
+        ],
+    }
+    default = ["Generalise to validation language", "Provide approved evidence", "Defer"]
+    opts = mapping.get(str(rule_id), default)
+    rec = opts[0] if opts else "Defer"
+    return opts, rec
+
+
+def build_unresolved_rows(validation) -> list[dict]:
+    """
+    Build a deterministic list of unresolved issues from a ReportValidationResult-like object.
+
+    Returns items with:
+      - section_name, rule_id, issue_label, why_automation_deferred
+      - evidence_ids, affected_excerpt, cross_section_impact
+      - decision_contract: {question, options, recommended_default, state_key}
+    """
+    rows: list[dict] = []
+    try:
+        section_results = getattr(validation, "section_results", None)
+        if section_results is None and isinstance(validation, dict):
+            section_results = validation.get("section_results", [])
+    except Exception:
+        section_results = []
+    for sres in (section_results or []):
+        try:
+            sname = getattr(sres, "section_name", None) or (sres.get("section_name") if isinstance(sres, dict) else "")
+        except Exception:
+            sname = ""
+        try:
+            issues = getattr(sres, "issues", None)
+            if issues is None and isinstance(sres, dict):
+                issues = sres.get("issues", [])
+        except Exception:
+            issues = []
+        for iss in (issues or []):
+            try:
+                rid = getattr(iss, "rule_id", None) or (iss.get("rule_id") if isinstance(iss, dict) else "")
+            except Exception:
+                rid = ""
+            try:
+                status = getattr(iss, "status", None) or (iss.get("status") if isinstance(iss, dict) else "")
+            except Exception:
+                status = ""
+            # Only include blocking/human-review issues
+            if str(status).upper() not in ("BLOCK", "HUMAN_REVIEW"):
+                continue
+            try:
+                eids = getattr(iss, "evidence_ids", None)
+                if eids is None and isinstance(iss, dict):
+                    eids = iss.get("evidence_ids", [])
+                eids = list(eids or [])
+            except Exception:
+                eids = []
+            try:
+                excerpt = getattr(iss, "excerpt", None) or (iss.get("excerpt") if isinstance(iss, dict) else "")
+                excerpt = (excerpt or "")[:240]
+            except Exception:
+                excerpt = ""
+            opts, rec = _rule_options(str(rid))
+            state_key = f"{sname}:{rid}"
+            rows.append({
+                "section_name": sname,
+                "rule_id": rid,
+                "issue_label": str(rid).replace("_", " ").title() if rid else "Validation Issue",
+                "why_automation_deferred": ("Requires explicit business judgement" if str(status).upper() == "HUMAN_REVIEW" else "Blocked by evidence policy"),
+                "evidence_ids": eids,
+                "affected_excerpt": excerpt,
+                "cross_section_impact": False,
+                "decision_contract": {
+                    "question": "Select remediation disposition",
+                    "options": opts,
+                    "recommended_default": rec,
+                    "state_key": state_key,
+                },
+            })
+    return rows
+
+
+def render_validation_review_panel(validation, template_missing_inputs: list | None = None) -> None:
+    """
+    Render the Validation Review Panel UI:
+      - Displays unresolved issues with safe options and recommended defaults
+      - Captures structured decisions into st.session_state['review_panel']['decisions']
+      - Renders structured missing template inputs as focused fields
+
+    This does not publish changes or weaken guardrails; it only captures intent for the orchestrator/pipeline.
+    """
+    st.subheader("Validation Review Panel")
+    # Make next-step guidance immediately visible on rerun after save (before any other sections)
+    if st.session_state.get("_validation_next_steps"):
+        with st.expander("Next steps after saving inputs", expanded=True):
+            st.info("Post‑processing will re‑run automatically. Then:")
+            st.markdown("- Scroll to the Export & Validation panel at the bottom")
+            st.markdown("- If Validation status is PASS, use ‘Download Cybersecurity Maturity Report (Word)’")
+            st.markdown("- If publication is blocked, use ‘Download Review Copy’ and ‘Download Review Pack (JSON)’ for approvals")
+            if st.button("Dismiss next steps"):
+                st.session_state["_validation_next_steps"] = False
+
+    state = _rp_state()
+    rows = build_unresolved_rows(validation) if validation is not None else []
+
+    # Show unresolved template inputs (focused collection)
+    mi = [x for x in list(template_missing_inputs or []) if 'logo' not in str(x).lower()]
+    placeholders = st.session_state.get("_publication_placeholders", []) or []
+    if mi or placeholders:
+        with st.expander("Template inputs required", expanded=True):
+            # Wrap inputs in a form to avoid mid-edit reruns/reset
+            with st.form("validation_consultant_inputs", clear_on_submit=False):
+                for item in mi:
+                    st.text(f"- {item}")
+                report_date = st.date_input("Report date", value=state["inputs"].get("report_date"))
+                account_manager_name = st.text_input("Account Manager (for [AM NAME])", value=state["inputs"].get("account_manager_name", ""))
+                approver_name = st.text_input("Approver (for [APPROVER NAME])", value=state["inputs"].get("approver_name", ""))
+                logo_file = st.file_uploader("Customer Logo (.png/.jpg)", type=["png","jpg","jpeg"], key="customer_logo_upload")
+                strip_markers = st.checkbox("Strip consultant-only markers (“Consultant Only”, “Remove Before Sending”)", value=True)
+                submitted = st.form_submit_button("Save template inputs", type="primary")
+                if submitted:
+                    state["inputs"]["report_date"] = report_date
+                    state["inputs"]["account_manager_name"] = account_manager_name
+                    state["inputs"]["approver_name"] = approver_name
+                    # Persist into client_inputs for export layer
+                    try:
+                        ci = st.session_state.setdefault("client_inputs", {})
+                        ci["report_date"] = str(report_date) if report_date else ci.get("report_date")
+                        ci["account_manager_name"] = account_manager_name
+                        ci["approver_name"] = approver_name
+                        ci["strip_consultant_only_markers"] = bool(strip_markers)
+                        if logo_file is not None:
+                            ci["customer_logo_bytes"] = logo_file.getvalue()
+                            ci["customer_logo_mime"] = getattr(logo_file, "type", "image/png")
+                    except Exception:
+                        pass
+                    # Trigger post-processing re-run and show an explicit next-steps panel
+                    st.session_state["_postprocess_done"] = False
+                    st.session_state["_validation_next_steps"] = True
+                    # Assert workflow to avoid landing-page fall-through on rerun
+                    st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"
+                    # Persist workflow and focus to Export & Validation for the next run
+                    try:
+                        if hasattr(st, "query_params"):
+                            st.query_params.update({"wf": "maturity"})
+                        else:
+                            st.experimental_set_query_params(wf="maturity")
+                    except Exception:
+                        pass
+                    st.markdown("<script>location.hash = '#export_validation';</script>", unsafe_allow_html=True)
+                    st.success("Template inputs saved. Post‑processing will be re‑run automatically.")
+                    st.rerun()
+
+    # Batch decisions inside a form to avoid per-widget reruns
+    with st.form("validation_decisions", clear_on_submit=False):
+        pending = {}
+        for r in rows:
+            with st.expander(f"{r.get('section_name','')} — {r.get('issue_label','')}"):
+                st.caption(r.get("why_automation_deferred", ""))
+                if r.get("affected_excerpt"):
+                    try:
+                        st.code(str(r["affected_excerpt"]))
+                    except Exception:
+                        st.text(str(r["affected_excerpt"]))
+                dc = r.get("decision_contract", {}) or {}
+                opts = list(dc.get("options") or [])
+                rec = dc.get("recommended_default", opts[0] if opts else "Defer")
+                key = str(dc.get("state_key") or f"{r.get('section_name','')}:{r.get('rule_id','')}")
+                cur = state["decisions"].get(key, rec)
+                try:
+                    idx = opts.index(cur) if cur in opts else 0
+                except Exception:
+                    idx = 0
+                # Use form-scoped keys to prevent per-widget reruns
+                sel = st.selectbox("Decision", opts or ["Defer"], index=idx, key=f"vf_{key}")
+                pending[key] = sel
+        submitted = st.form_submit_button("Save decisions", type="primary")
+        if submitted:
+            # Commit all selections at once
+            for k, v in pending.items():
+                state["decisions"][k] = v
+            st.session_state["_validation_next_steps"] = True
+            st.success("Decisions saved. Post‑processing can be re-run or final export attempted if gates pass.")
+
+    st.success("Decisions captured. Publication controls remain fail‑closed until explicit approval in the pipeline.")
+
 
 def _safe_index(options, value):
     """Return index of value in options; 0 if missing or invalid."""

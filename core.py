@@ -9,6 +9,26 @@ from config import get_config, ConfigKey
 
 _logger = logging.getLogger(__name__)
 
+def _is_valid_response_model(response_model) -> bool:
+    """
+    Validate that response_model is a Pydantic v2 model class or compatible type that the SDK can parse.
+    Returns False for None or unsupported types to prevent calling beta.parse with an invalid response_format.
+    """
+    try:
+        if response_model is None:
+            return False
+        # Pydantic v2 model classes expose model_validate_json/model_validate
+        if hasattr(response_model, "model_validate_json") or hasattr(response_model, "model_validate"):
+            return True
+        # Accept BaseModel subclasses if available
+        try:
+            from pydantic import BaseModel  # type: ignore
+            return isinstance(response_model, type) and issubclass(response_model, BaseModel)
+        except Exception:
+            return False
+    except Exception:
+        return False
+
 
 class LLMEngine:
     @staticmethod
@@ -298,6 +318,45 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                     LLMEngine._dbg_phase(f"Composite:domain[{name}]_light failed")
                     return {"analysis": "", "impact": "", "remediation": ""}
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
+            # Fallback: if no structured response model is provided OR model is invalid, use Azure JSON-object responses
+            if not _is_valid_response_model(response_model):
+                try:
+                    import json as _json
+                except Exception:
+                    _json = None
+                try:
+                    resp = client.chat.completions.create(
+                        model=deployment,
+                        messages=[
+                            {"role": "system", "content": system_persona},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        response_format={"type": "json_object"},
+                        **extra_params
+                    )
+                    content = getattr(resp.choices[0].message, "content", None)
+                    if _json and isinstance(content, str) and content.strip():
+                        try:
+                            # Return parsed JSON object when possible for downstream consumers
+                            return _json.loads(content)
+                        except Exception:
+                            # Recovery: trim to last closing brace to rescue a single JSON object
+                            s = str(content)
+                            end_idx = s.rfind("}")
+                            if end_idx != -1:
+                                try:
+                                    return _json.loads(s[:end_idx + 1])
+                                except Exception:
+                                    pass
+                    # As a last resort, return raw content
+                    return content
+                except Exception as e:
+                    # Continue into the structured path retries
+                    _logger.debug("JSON-object fallback failed; continuing to structured path: %s", e, exc_info=True)
+
+            if not _is_valid_response_model(response_model):
+                _logger.debug("Skipping structured parse due to invalid response_model; JSON fallback either succeeded or failed.")
+                return None
             max_retries = 3
             for attempt in range(max_retries):
                 try:
@@ -318,8 +377,41 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                         return response.choices[0].message.parsed
                     return getattr(response.choices[0].message, "content", None)
                 except Exception as e:
+                    # If SDK complains about response_format type (e.g. None), fall back to JSON-object response immediately
+                    msg = str(e)
+                    if "Unsupported response_format type" in msg or "response_format type - None" in msg:
+                        try:
+                            import json as _json
+                        except Exception:
+                            _json = None
+                        try:
+                            resp = client.chat.completions.create(
+                                model=deployment,
+                                messages=[
+                                    {"role": "system", "content": system_persona},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                response_format={"type": "json_object"},
+                                **extra_params
+                            )
+                            content = getattr(resp.choices[0].message, "content", None)
+                            if _json and isinstance(content, str) and content.strip():
+                                try:
+                                    return _json.loads(content)
+                                except Exception:
+                                    s = str(content)
+                                    end_idx = s.rfind("}")
+                                    if end_idx != -1:
+                                        try:
+                                            return _json.loads(s[:end_idx + 1])
+                                        except Exception:
+                                            pass
+                            return content
+                        except Exception:
+                            # Continue with standard error handling below
+                            pass
                     # Surface Azure 404 DeploymentNotFound with actionable guidance
-                    err_str = str(e)
+                    err_str = msg
                     if "DeploymentNotFound" in err_str or "404" in err_str:
                         _logger.error("Azure deployment not found for model '%s'. Check AZURE_OPENAI_DEPLOYMENT and Azure resource configuration.", deployment, exc_info=True)
                         st.error(f"Azure OpenAI deployment not found: '{deployment}'. Ensure a deployment with this name exists in the configured Azure OpenAI resource and try again after a short delay.")
@@ -449,11 +541,12 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         if not client:
             return None
 
-        # 1) Historic beta.parse path
+        # 1) Historic beta.parse path (only if response_model is valid)
         try:
-            extra_params = LLMEngine._build_extra_params()
-            LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
-            response = client.beta.chat.completions.parse(
+            if _is_valid_response_model(response_model):
+                extra_params = LLMEngine._build_extra_params()
+                LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
+                response = client.beta.chat.completions.parse(
                 model=deployment,
                 messages=[
                     {"role": "system", "content": system_persona},
@@ -1241,9 +1334,11 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         try:
             from prompts import build_maturity_header_prompt
             header_prompt = build_maturity_header_prompt(client_inputs)
-            header_obj = LLMEngine.generate_structured_report(
-                client, deployment, system_persona, header_prompt, header_model
-            )
+            header_obj = None
+            if _is_valid_response_model(header_model):
+                header_obj = LLMEngine.generate_structured_report(
+                    client, deployment, system_persona, header_prompt, header_model
+                )
         except Exception:
             header_obj = None
 
@@ -1367,10 +1462,12 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                 header_prompt = build_maturity_header_prompt(client_inputs)
                 LLMEngine._dbg_phase("Header start (structured)")
                 _t0 = time.perf_counter()
-                header_obj = LLMEngine.generate_structured_report(
-                    client, deployment, system_persona, header_prompt, header_model
-                )
-                LLMEngine._dbg_phase(f"Header {'ok' if header_obj else 'none'} in {time.perf_counter() - _t0:.1f}s")
+                header_obj = None
+                if _is_valid_response_model(header_model):
+                    header_obj = LLMEngine.generate_structured_report(
+                        client, deployment, system_persona, header_prompt, header_model
+                    )
+                LLMEngine._dbg_phase(f"Header {'ok' if header_obj else 'skipped'} in {time.perf_counter() - _t0:.1f}s")
             except Exception:
                 LLMEngine._dbg_phase("Header skipped (exception)")
                 header_obj = None

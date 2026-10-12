@@ -526,44 +526,72 @@ def process_maturity_report(client_inputs: dict, report_data: Any) -> Tuple[Any,
     """Rewrite key narrative fields, compute quality, and return (report_data, quality_summary).
     Keys inspected: executive_summary, domain_assessments[*] narrative fields, optional block fields.
     """
+    specialist_valid = bool(getattr(report_data, "_specialist_content_validated", False))
+    # Auto-detect specialist presence to prevent semantic rewrites of validated sections
+    try:
+        _spec_present = any(bool(getattr(report_data, k, None)) for k in (
+            "executive_summary_specialist",
+            "attack_scenario_specialist",
+            "compliance_alignment_specialist",
+            "domain_assessments_specialist",
+            "security_rating",
+        ))
+        if _spec_present:
+            specialist_valid = True
+    except Exception:
+        pass
     # Executive summary
     if hasattr(report_data, "executive_summary"):
-        summary = _rewrite_text_block(getattr(report_data, "executive_summary", ""))
-        # Optional optimiser: replace generic summaries with structured one
-        if stage_enabled("EXEC_SUMMARY_OPTIMISER_ENABLED", "1"):
-            generic_markers = [
-                "unique threat landscape",
-                "ever-evolving threat landscape",
-                "in today's environment",
-            ]
-            if any(m in summary.lower() for m in generic_markers) or len(summary.split()) < 120:
-                summary = generate_executive_summary(client_inputs, report_data)
-        # Optional humanisation pass (LLM)
-        summary = humanise_text_with_llm(summary)
+        summary = getattr(report_data, "executive_summary", "")
+        if not specialist_valid:
+            summary = _rewrite_text_block(summary)
+            # Optional optimiser: replace generic summaries with structured one
+            if stage_enabled("EXEC_SUMMARY_OPTIMISER_ENABLED", "1"):
+                generic_markers = [
+                    "unique threat landscape",
+                    "ever-evolving threat landscape",
+                    "in today's environment",
+                ]
+                if any(m in (summary or "").lower() for m in generic_markers) or len((summary or "").split()) < 120:
+                    summary = generate_executive_summary(client_inputs, report_data)
+            # Optional humanisation pass (LLM)
+            summary = humanise_text_with_llm(summary)
+        else:
+            # Formatting-only normalisation for specialist-validated content
+            summary = _rewrite_text_block(summary) if summary else summary
         report_data.executive_summary = summary
 
     # Domain narratives
-    for item in getattr(report_data, "domain_assessments", []) or []:
-        for field in [
-            "current_state_analysis",
-            "business_impact_narrative",
-            "remediation_rationale",
-            "shared_responsibility",
-        ]:
-            if hasattr(item, field):
-                setattr(item, field, _rewrite_text_block(getattr(item, field)))
+    if not specialist_valid:
+        for item in getattr(report_data, "domain_assessments", []) or []:
+            for field in [
+                "current_state_analysis",
+                "business_impact_narrative",
+                "remediation_rationale",
+                "shared_responsibility",
+            ]:
+                if hasattr(item, field):
+                    setattr(item, field, _rewrite_text_block(getattr(item, field)))
+    else:
+        # Preserve specialist domain outputs; do not semantically rewrite validated narratives
+        pass
 
     # Executive summary action blocks
     for blk in getattr(report_data, "executive_summary_action_blocks", []) or []:
-        if hasattr(blk, "finding"):
-            blk.finding = humanise_text_with_llm(_rewrite_text_block(getattr(blk, "finding", "")))
-        if hasattr(blk, "risk"):
-            blk.risk = humanise_text_with_llm(_rewrite_text_block(getattr(blk, "risk", "")))
-        if hasattr(blk, "remediation_actions") and isinstance(blk.remediation_actions, list):
-            blk.remediation_actions = [govern_vendor_bias(x) for x in blk.remediation_actions]
+        if not specialist_valid:
+            if hasattr(blk, "finding"):
+                blk.finding = humanise_text_with_llm(_rewrite_text_block(getattr(blk, "finding", "")))
+            if hasattr(blk, "risk"):
+                blk.risk = humanise_text_with_llm(_rewrite_text_block(getattr(blk, "risk", "")))
+            if hasattr(blk, "remediation_actions") and isinstance(blk.remediation_actions, list):
+                blk.remediation_actions = [govern_vendor_bias(x) for x in blk.remediation_actions]
+        else:
+            # For specialist-validated content, apply vendor bias governance only (no humanisation)
+            if hasattr(blk, "remediation_actions") and isinstance(blk.remediation_actions, list):
+                blk.remediation_actions = [govern_vendor_bias(x) for x in blk.remediation_actions]
 
     # Normalise recommendations where enabled
-    if stage_enabled("RECOMMENDATION_NORMALISATION_ENABLED", "1"):
+    if (not specialist_valid) and stage_enabled("RECOMMENDATION_NORMALISATION_ENABLED", "1"):
         normalize_recommendations(report_data)
     # Enforce banned vendor scrub post-normalisation
     banned = client_inputs.get("banned_vendors", []) if isinstance(client_inputs, dict) else []
@@ -799,7 +827,7 @@ def tabletop_quality_review(plan: dict, client_inputs: dict | None = None) -> tu
                 dqs = it.get("decision_questions", []) or []
                 for k, dq in enumerate(dqs, 1):
                     prm = _norm(dq.get("prompt", ""))
-                    if len(prm) < 12 or "?" not in dq.get("prompt", "")):
+                    if len(prm) < 12 or "?" not in dq.get("prompt", ""):
                         issues.append(f"QR-107: Scenario {si} Inject {ji} question {k} looks generic/short (advisory)")
         passed = len([e for e in issues if e.startswith("QR-0")]) == 0
         return passed, issues, plan

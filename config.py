@@ -14,7 +14,17 @@ Usage:
 
 import os
 from typing import Optional
-import streamlit as st
+try:
+    import streamlit as st  # type: ignore
+except Exception:
+    # Optional shim to avoid hard dependency when running outside Streamlit.
+    # Provides st.secrets.get(...) → default fallback.
+    class _StShim:  # minimal interface
+        class _Secrets(dict):
+            def get(self, key, default=None):  # noqa: A003 - match dict.get signature
+                return default
+        secrets = _Secrets()
+    st = _StShim()
 
 
 class ConfigKey:
@@ -51,6 +61,21 @@ class ConfigKey:
     # Tabletop: template deck and legacy alias (presentation detail profile)
     TABLETOP_TEMPLATE_DECK = "TABLETOP_TEMPLATE_DECK"
     TABLETOP_PRESENTATION_PROFILE = "TABLETOP_PRESENTATION_PROFILE"
+
+    # Post-processing / logging
+    POSTPROCESS_ENABLED = "POSTPROCESS_ENABLED"
+    LOG_STORAGE_DIR = "LOG_STORAGE_DIR"
+    APP_VERSION = "APP_VERSION"
+
+    # Evidence enforcement
+    EVIDENCE_ENFORCEMENT_ENABLED = "EVIDENCE_ENFORCEMENT_ENABLED"
+    EVIDENCE_ENFORCEMENT_MAX_RETRIES = "EVIDENCE_ENFORCEMENT_MAX_RETRIES"
+    # Evidence fallback narratives
+    EVIDENCE_FALLBACK_COST_TEXT = "EVIDENCE_FALLBACK_COST_TEXT"
+
+    # Remediation toggles (Phase 2+)
+    REMEDIATION_ENABLED = "REMEDIATION_ENABLED"
+    REMEDIATION_MAX_MODEL_PASSES = "REMEDIATION_MAX_MODEL_PASSES"
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -229,6 +254,28 @@ def _as_bool(val: Optional[str], default: bool = False) -> bool:
         return default
     except Exception:
         return default
+
+
+def is_specialist_enabled() -> bool:
+    """
+    Specialist Generators feature toggle.
+    Default: enabled (true) unless explicitly disabled via config.
+    """
+    try:
+        return _as_bool(get_config("SPECIALIST_GENERATORS_ENABLED", "true"), default=True)
+    except Exception:
+        return True
+
+
+def is_specialist_strict_lineage() -> bool:
+    """
+    Strict-lineage enforcement toggle for specialist outputs.
+    Default: enabled (true) — block export if required specialist bindings are missing.
+    """
+    try:
+        return _as_bool(get_config("SPECIALIST_STRICT_LINEAGE", "true"), default=True)
+    except Exception:
+        return True
 
 
 def is_tabletop_quality_strict() -> bool:

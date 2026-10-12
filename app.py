@@ -135,6 +135,39 @@ with open(os.path.join(os.path.dirname(__file__), "VERSION"), "r") as f:
     APP_VERSION = f.read().strip()
 from ui_shared_sections import render_footer
 
+# --- DIAGNOSTIC RUNTIME TRACE (env-gated) ---
+try:
+    from services.report_improvement import lineage as _lin  # type: ignore
+    from services.report_improvement.diagnostics_runtime import enable_runtime_tracing, merge_runtime_configuration  # type: ignore
+    if callable(getattr(_lin, "is_diagnostics_enabled", None)) and _lin.is_diagnostics_enabled():
+        rid = _lin.ensure_run_id()
+        enable_runtime_tracing()
+        # Capture effective runtime configuration at entry
+        try:
+            def _flag(name, default="false"):
+                try:
+                    return str(get_config(name, default)).strip().lower() in ("1", "true", "yes", "on")
+                except Exception:
+                    return False
+            eff = {
+                "specialist_generators_enabled": _flag("SPECIALIST_GENERATORS_ENABLED", "false"),
+                "remediation_enabled": _flag("REMEDIATION_ENABLED", "false"),
+                "strict_lineage": _flag("STRICT_LINEAGE", "false"),
+                "evidence_enforcement_max_retries": int(str(get_config("EVIDENCE_ENFORCEMENT_MAX_RETRIES", "0")) or "0"),
+                "template_version": APP_VERSION,
+                "template_path": os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template.docx"),
+                "export_mode": str(get_config("EXPORT_MODE", "docx") or "docx"),
+                "compatibility_mode": str(get_config("COMPATIBILITY_MODE", "") or ""),
+                "model_deployment": str(get_config("AZURE_OPENAI_DEPLOYMENT", get_config("OPENAI_MODEL", "")) or ""),
+                "prompt_versions": {},
+                "generator_versions": {},
+            }
+            merge_runtime_configuration("ui_entry", {"workflow": "📈 Cybersecurity Maturity Assessment"}, eff)
+        except Exception:
+            pass
+except Exception:
+    pass
+
 def validate_platform_config():
     """Validates that necessary Azure secrets exist before runtime."""
     try:
@@ -363,18 +396,170 @@ def get_threat_json_bytes():
 
 def get_maturity_docx_bytes():
     """Lazy-generate and cache Cybersecurity Maturity Assessment Word Doc bytes."""
+    # Diagnostics: establish run id and enable runtime tracing (env-gated)
+    try:
+        from services.report_improvement.diagnostics_runtime import enable_runtime_tracing, merge_runtime_configuration, write_call_event  # type: ignore
+        enable_runtime_tracing()
+        write_call_event("enter", "ui", "app.get_maturity_docx_bytes", input_obj={"session": True})
+        merge_runtime_configuration("ui_entry", {"workflow": st.session_state.get('workflow')}, None)
+    except Exception as _exc:
+        from services.report_improvement.diagnostics_runtime import write_diagnostic_error, RuntimeLineageDiagnosticError  # type: ignore
+        write_diagnostic_error({"where": "app.get_maturity_docx_bytes", "error": repr(_exc)})
+        raise RuntimeLineageDiagnosticError from _exc
+    # Authoritative publication gate: block final export if validator disallows
+    ppres = st.session_state.get('postprocess_result')
+    try:
+        final_allowed = bool(getattr(ppres, 'final_export_allowed'))
+    except Exception:
+        final_allowed = bool(ppres.get('final_export_allowed')) if isinstance(ppres, dict) else True
+    # If bytes are cached from a prior run and no validation state exists yet, allow final export by default.
+    if st.session_state.get('maturity_docx_bytes') is not None and st.session_state.get('postprocess_result') is None:
+        try:
+            from types import SimpleNamespace
+            st.session_state['postprocess_result'] = SimpleNamespace(validation=None, final_export_allowed=True)
+        except Exception:
+            st.session_state['postprocess_result'] = {'validation': None, 'final_export_allowed': True}
+    if not final_allowed:
+        # Defer to Review Copy path in the bottom Export section
+        st.error("Automatic publication blocked by validation. Use 'Download Review Copy' and 'Review Pack' for approval.")
+        return None
     if st.session_state.get('maturity_docx_bytes') is None and st.session_state.get('maturity_obj'):
         # Re-attach threat scenarios from session state (survives pickle round-trip)
         ts_data = st.session_state.get('maturity_threat_scenarios')
         if ts_data is not None:
             st.session_state['maturity_obj'].threat_scenarios = ts_data
         try:
-            st.session_state['maturity_docx_bytes'] = create_maturity_docx(
+            # Generate DOCX bytes
+            # Ensure required publication fields exist in client_inputs (best-effort propagation)
+            try:
+                ci = st.session_state.get('client_inputs', {}) or {}
+                rp = st.session_state.get('review_panel', {}) or {}
+                rpi = rp.get('inputs', {}) if isinstance(rp, dict) else {}
+                for k in ('account_manager_name','approver_name','report_date'):
+                    if (not ci.get(k)) and rpi.get(k) not in (None, ""):
+                        ci[k] = rpi[k]
+                st.session_state['client_inputs'] = ci
+            except Exception:
+                pass
+            # Minimal specialist integration: use shared integration service before export (single pass)
+            try:
+                if not st.session_state.get('_specialist_applied', False):
+                    from services.report_improvement.integration import improve_generated_maturity_report
+                    _mr = st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')
+                    ci = st.session_state.get('client_inputs', {}) or {}
+                    transcript = st.session_state.get('meeting_transcript', '') or ''
+                    summary = st.session_state.get('meeting_summary', '') or ''
+                    import json, hashlib
+                    def _h(x):
+                        try:
+                            return hashlib.sha256(json.dumps(x, sort_keys=True, default=str).encode('utf-8')).hexdigest()
+                        except Exception:
+                            return hashlib.sha256(str(x).encode('utf-8')).hexdigest()
+                    raw_hash = _h(_mr.model_dump() if hasattr(_mr, 'model_dump') else (_mr.dict() if hasattr(_mr, 'dict') else {}))
+                    ci_hash = _h(ci)
+                    tx_hash = _h(transcript)
+                    sm_hash = _h(summary)
+                    cache_key = f"{raw_hash}:{ci_hash}:{tx_hash}:{sm_hash}"
+                    if st.session_state.get('_improve_cache_key') != cache_key:
+                        res = improve_generated_maturity_report(
+                            raw_report=_mr,
+                            client_inputs=ci,
+                            transcript=transcript or None,
+                            meeting_summary=summary or None,
+                            run_id=None,
+                        )
+                        # Persist results and gating state
+                        st.session_state['raw_maturity_obj'] = _mr
+                        if getattr(res, 'improved_report', None):
+                            st.session_state['improved_maturity_obj'] = res.improved_report
+                            st.session_state['maturity_obj'] = res.improved_report
+                            try:
+                                setattr(st.session_state['maturity_obj'], '_specialist_content_validated', True)
+                            except Exception:
+                                pass
+                        st.session_state['report_improvement_validation'] = res.validation_result
+                        st.session_state['report_improvement_run_id'] = res.run_id
+                        st.session_state['_improve_cache_key'] = cache_key
+                        # Publication gating (fail-closed)
+                        try:
+                            from types import SimpleNamespace
+                            st.session_state['postprocess_result'] = SimpleNamespace(
+                                validation=res.validation_result,
+                                final_export_allowed=bool(getattr(res.validation_result, 'automatic_publication_allowed', False)) and bool(getattr(res, 'orchestration_executed', False)),
+                            )
+                        except Exception:
+                            st.session_state['postprocess_result'] = {
+                                'validation': res.validation_result,
+                                'final_export_allowed': bool(getattr(res.validation_result, 'automatic_publication_allowed', False)) and bool(getattr(res, 'orchestration_executed', False)),
+                            }
+                        st.session_state['_specialist_applied'] = True
+            except Exception:
+                # If specialist path fails, continue with legacy export (publication gating still enforced below)
+                pass
+
+            bytes_out = create_maturity_docx(
                 st.session_state['client_inputs'], 
                 st.session_state['maturity_obj'],
                 st.session_state.get('mc_llm_interpretation', ""),
                 st.session_state.get('mc_summary')
             )
+            # Run assembled-DOCX placeholder validation (fail-closed)
+            try:
+                import tempfile, os
+                from pathlib import Path
+                from services.report_improvement.evidence_enforcement.docx_publication_validator import validate_assembled_docx
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tf:
+                    tf.write(bytes_out or b"")
+                    tf.flush()
+                    tf_path = Path(tf.name)
+                res = validate_assembled_docx(tf_path)
+                try:
+                    os.unlink(tf_path)
+                except Exception:
+                    pass
+                status_str = str(getattr(res, "status", "pass")).strip().lower()
+                if status_str != "pass":
+                    placeholders = list(getattr(res, "placeholders", []) or [])
+                    st.session_state["_publication_placeholders"] = placeholders
+                    # Persist assembled-DOCX validation result so the bottom UI can render status and review controls
+                    try:
+                        from types import SimpleNamespace
+                        st.session_state['postprocess_result'] = SimpleNamespace(validation=res, final_export_allowed=False)
+                    except Exception:
+                        # Fallback dict (downstream uses getattr, so this is best-effort only)
+                        st.session_state['postprocess_result'] = {'validation': res, 'final_export_allowed': False}
+                    st.error(f"Publication blocked: unresolved placeholders detected: {', '.join(placeholders)}")
+                    # Offer inline remedy for common name placeholders
+                    with st.expander("Provide publication inputs", expanded=True):
+                        am = st.text_input("Account Manager (for [AM NAME])", value=st.session_state.get('client_inputs', {}).get('account_manager_name', ""))
+                        ap = st.text_input("Approver (for [APPROVER NAME])", value=st.session_state.get('client_inputs', {}).get('approver_name', ""))
+                        if st.button("Save publication inputs"):
+                            try:
+                                ci = st.session_state.setdefault('client_inputs', {})
+                                ci['account_manager_name'] = am
+                                ci['approver_name'] = ap
+                                st.success("Publication inputs saved. Re‑attempting export...")
+                                # Clear previous cached bytes and rerun this section
+                                st.session_state.pop('maturity_docx_bytes', None)
+                                st.rerun()
+                            except Exception:
+                                st.warning("Failed to persist inputs. Please try again.")
+                    return None
+                else:
+                    # PASS: persist positive validation result and enable final export
+                    try:
+                        from types import SimpleNamespace
+                        st.session_state['postprocess_result'] = SimpleNamespace(validation=res, final_export_allowed=True)
+                    except Exception:
+                        st.session_state['postprocess_result'] = {'validation': res, 'final_export_allowed': True}
+            except Exception:
+                # If validator not available, allow export (no assembled-DOCX validator present)
+                try:
+                    from types import SimpleNamespace
+                    st.session_state['postprocess_result'] = SimpleNamespace(validation=None, final_export_allowed=True)
+                except Exception:
+                    st.session_state['postprocess_result'] = {'validation': None, 'final_export_allowed': True}
+            st.session_state['maturity_docx_bytes'] = bytes_out
         except Exception as e:
             import logging
             logging.getLogger(__name__).error("Maturity Word export failed: %s", e, exc_info=True)
@@ -506,8 +691,53 @@ if not st.session_state.get('workflow'):
 validate_platform_config() # Fails fast if keys are missing
 # Authentication gate (env-driven). If AUTH_ENABLED=true, blocks UI until sign-in.
 login_gate()
+# Session defaults guard (idempotent; prevents early-run fallthrough)
+st.session_state.setdefault("review_panel", {"decisions": {}, "inputs": {}})
+st.session_state.setdefault("_validation_next_steps", False)
+st.session_state.setdefault("_postprocess_done", True)
+# If a maturity report already exists, enforce the Maturity workflow immediately
+if st.session_state.get("maturity_obj") and not st.session_state.get("workflow"):
+    st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"
 
 # (Removed query-parameter router; navigation uses Streamlit-native page links to preserve session)
+# Lightweight workflow persistence via query params to survive reruns/new sessions
+try:
+    _qp = st.query_params.to_dict() if hasattr(st, "query_params") else st.experimental_get_query_params()
+except Exception:
+    _qp = {}
+
+def _set_wf_param(slug: str):
+    try:
+        if hasattr(st, "query_params"):
+            st.query_params.update({"wf": slug})
+        else:
+            st.experimental_set_query_params(wf=slug)
+    except Exception:
+        pass
+
+def _wf_from_params(qp: dict):
+    try:
+        val = qp.get("wf")
+        if isinstance(val, list):
+            val = val[0] if val else None
+        return str(val or "").strip().lower()
+    except Exception:
+        return ""
+
+slug_map = {
+    "maturity": "📈 Cybersecurity Maturity Assessment",
+    "threats": "🔥 Tactical Threat Simulator",
+    "tabletop": "🎯 Tabletop Exercise & Facilitator",
+}
+wf_slug = _wf_from_params(_qp)
+# Restore missing workflow from query params or last known value
+if not st.session_state.get("workflow"):
+    if wf_slug in slug_map:
+        st.session_state["workflow"] = slug_map[wf_slug]
+    else:
+        last = st.session_state.get("_last_workflow")
+        if isinstance(last, str) and last:
+            st.session_state["workflow"] = last
 
 # [PLANET BRANDING LOAD] Inject branding palette if provided (Azure/Env based)
 try:
@@ -622,14 +852,26 @@ if not st.session_state.get('workflow'):
     with col1:
         if st.button("📈 Cybersecurity Maturity Assessment", use_container_width=True):
             st.session_state['workflow'] = "📈 Cybersecurity Maturity Assessment"
+            try:
+                _set_wf_param("maturity")
+            except Exception:
+                pass
             st.rerun()
     with col2:
         if st.button("🎯 Tabletop Exercise (Designer) (BETA) ➡️", use_container_width=True):
             st.session_state['workflow'] = "🎯 Tabletop Exercise & Facilitator"
+            try:
+                _set_wf_param("tabletop")
+            except Exception:
+                pass
             st.rerun()
     with col3:
         if st.button("🔥 Tactical Threat Simulator", use_container_width=True):
             st.session_state['workflow'] = "🔥 Tactical Threat Simulator"
+            try:
+                _set_wf_param("threats")
+            except Exception:
+                pass
             st.rerun()
 
     # Footer (standardised)
@@ -679,6 +921,11 @@ _title_map = {
 }
 _current_workflow = st.session_state.get('workflow', "📈 Cybersecurity Maturity Assessment")
 st.title(_title_map.get(_current_workflow, "Planet IT Advisory Engine"))
+# Persist last known workflow for recovery on subsequent reruns
+st.session_state["_last_workflow"] = _current_workflow
+# If a maturity report exists but workflow differs (or is missing), enforce Maturity
+if st.session_state.get('maturity_obj') and st.session_state.get('workflow') != '📈 Cybersecurity Maturity Assessment':
+    st.session_state['workflow'] = '📈 Cybersecurity Maturity Assessment'
 
 # Top navigation (no sidebar) — unified renderer
 with st.container():
@@ -690,48 +937,40 @@ with st.container():
     )
     render_top_nav(active=_active)
 
-# Maturity Export — always show when a maturity report exists
-if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment" and (st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')):
-    with st.expander("Export", expanded=True):
-        try:
-            bytes_docx = get_maturity_docx_bytes()
-        except Exception:
-            bytes_docx = None
-        if bytes_docx and isinstance(bytes_docx, (bytes, bytearray)) and len(bytes_docx) > 1000:
-            ci = st.session_state.get('client_inputs', {}) or {}
-            fname = f"{ci.get('customer_name','Client').replace(' ', '_')}_Cybersecurity_Maturity_Report.docx"
-            st.download_button(
-                "📄 Download Cybersecurity Maturity Report (Word)",
-                data=bytes_docx,
-                file_name=f"{ci.get('customer_name','Client').replace(' ', '_')}_Cybersecurity_Maturity_Report.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="dl_maturity_docx_main"
-            )
-            # Also provide a JSON export for current options for discoverability within Export section
-            try:
-                import json as _json
-                export_profile = st.session_state.get('client_inputs', {}) or {}
-                file_customer_name = export_profile.get('customer_name', 'Client')
-                st.download_button(
-                    "🧾 Export current options (.json)",
-                    data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode('utf-8'),
-                    file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
-                    mime="application/json",
-                    key="dl_maturity_profile_json_main"
-                )
-            except Exception:
-                pass
-        else:
-            st.warning("Export not ready. You can retry rendering the report.")
-            if st.button("Retry Export", key="retry_export_docx_main"):
+# Consultation Evidence (transcript + summary)
+if st.session_state.get('workflow') == "📈 Cybersecurity Maturity Assessment":
+    with st.expander("Consultation Evidence", expanded=False):
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+            uploaded = st.file_uploader("Upload meeting transcript (.txt, .md, .docx)", type=["txt", "md", "docx"], key="transcript_upload")
+            if uploaded is not None:
                 try:
-                    bytes_docx = get_maturity_docx_bytes()
-                    if bytes_docx and len(bytes_docx) > 1000:
-                        st.rerun()
+                    name = (getattr(uploaded, "name", "") or "").lower()
+                    if name.endswith(".docx"):
+                        try:
+                            import docx as _docx
+                            _d = _docx.Document(uploaded)
+                            _text = "\n".join([p.text for p in _d.paragraphs])
+                        except Exception:
+                            _text = uploaded.read().decode("utf-8", errors="ignore")
                     else:
-                        st.error("Export still not available. Please try again.")
+                        _text = uploaded.read().decode("utf-8", errors="ignore")
+                    st.session_state['meeting_transcript'] = _text
+                    st.success("Transcript uploaded.")
                 except Exception:
-                    st.error("Export failed. Please try again.")
+                    st.error("Failed to read transcript file.")
+            transcript_text = st.text_area("Or paste transcript", value=st.session_state.get('meeting_transcript', ''), height=200, key="transcript_textarea")
+            if transcript_text and transcript_text != st.session_state.get('meeting_transcript'):
+                st.session_state['meeting_transcript'] = transcript_text
+        with col_e2:
+            summary_text = st.text_area("Meeting summary", value=st.session_state.get('meeting_summary', ''), height=200, key="summary_textarea")
+            if summary_text and summary_text != st.session_state.get('meeting_summary'):
+                st.session_state['meeting_summary'] = summary_text
+if st.session_state.get('meeting_transcript') and st.session_state.get('meeting_summary'):
+    st.info("Evidence detected: transcript + summary present.")
+
+# Maturity Export — always show when a maturity report exists
+# [Removed legacy top-of-page export path]
 
 with st.expander("Profile: Import Options (.json)", expanded=False):
     import json as _json
@@ -1569,6 +1808,25 @@ def _norm(v, unk="Unknown"):
     except Exception:
         return unk
 
+def _pp_get(name, default=None):
+    """Safely read a field from postprocess_result whether it is an object or a dict."""
+    pp = st.session_state.get('postprocess_result')
+    try:
+        return getattr(pp, name)
+    except Exception:
+        try:
+            return pp.get(name, default) if isinstance(pp, dict) else default
+        except Exception:
+            return default
+
+def _pp_final_allowed() -> bool:
+    """Return True if postprocess_result.final_export_allowed is truthy (object or dict)."""
+    try:
+        v = _pp_get('final_export_allowed', None)
+        return bool(v)
+    except Exception:
+        return False
+
 client_inputs = {
     "customer_name": customer_name, 
     "consultant_name": consultant_name, 
@@ -1700,10 +1958,136 @@ if st.session_state.get('_client_inputs_hash') != _client_hash:
         pass
 cached_customer_name = st.session_state['client_inputs'].get('customer_name', 'Client')
 
-# Export placed after inputs to guarantee all UI fields are included
+# Export/Import placed after inputs to guarantee all UI fields are included
+
+def _build_export_profile():
+    """
+    Build a complete, JSON-serialisable export profile:
+    - Start from sanitised client_inputs
+    - Merge key UI/session decisions (mdr_decision, governance selections)
+    - Ensure structured profiles exist using the same defaults used during input sanitisation
+    """
+    profile = {}
+    try:
+        base = st.session_state.get('client_inputs', {}) or {}
+        if isinstance(base, dict):
+            profile = dict(base)
+    except Exception:
+        profile = {}
+
+    # Merge session-bound decisions and governance selections if present
+    for k in ("mdr_decision", "mdr_decision_rationale", "managed_service_status", "co_managed_units", "partnership_type"):
+        try:
+            v = st.session_state.get(k, None)
+            if v is not None and (k not in profile or profile.get(k) in (None, "")):
+                profile[k] = v
+        except Exception:
+            continue
+
+    # Ensure structured consultation profiles exist with deterministic defaults
+    try:
+        for key, default in [
+            ("critical_asset_profile", DEFAULT_CRITICAL_ASSET_PROFILE),
+            ("service_resilience_profile", DEFAULT_SERVICE_RESILIENCE_PROFILE),
+            ("information_protection_profile", DEFAULT_INFORMATION_PROTECTION),
+            ("identity_governance_profile", DEFAULT_IDENTITY_GOVERNANCE),
+            ("saas_governance_profile", DEFAULT_SAAS_GOVERNANCE),
+            ("asset_assurance_profile", DEFAULT_ASSET_ASSURANCE),
+            ("monitoring_assurance_profile", DEFAULT_MONITORING_ASSURANCE),
+            ("supplier_assurance_profile", DEFAULT_SUPPLIER_ASSURANCE),
+            ("third_party_access_profile", DEFAULT_THIRD_PARTY_ACCESS_PROFILE),
+            ("recovery_assurance_profile", DEFAULT_RECOVERY_ASSURANCE),
+            ("incident_response_assurance_profile", DEFAULT_IR_ASSURANCE),
+            ("assurance_status", ASSURANCE_STATUS_DEFAULT),
+        ]:
+            if key not in profile or profile.get(key) is None:
+                profile[key] = default
+    except Exception:
+        pass
+
+    # Final normalisation (e.g., sets → lists)
+    try:
+        def _normalise(v):
+            if isinstance(v, set):
+                return list(v)
+            return v
+        for k, v in list(profile.items()):
+            profile[k] = _normalise(v)
+    except Exception:
+        pass
+
+    return profile
+
+def _ingest_import_profile(imported: dict) -> dict:
+    """
+    Ingest an imported JSON profile to match live app expectations:
+    - Accept top-level dict or exported format { "profile": {...} }
+    - Ensure structured profile defaults exist
+    - Run through _sanitise_client_inputs for defensive normalisation
+    - Persist key decisions into session for UI consistency
+    """
+    raw = {}
+    try:
+        if isinstance(imported, dict):
+            raw = dict(imported.get("profile", imported))
+    except Exception:
+        raw = {}
+
+    # Ensure structured defaults (same list as export)
+    try:
+        for key, default in [
+            ("critical_asset_profile", DEFAULT_CRITICAL_ASSET_PROFILE),
+            ("service_resilience_profile", DEFAULT_SERVICE_RESILIENCE_PROFILE),
+            ("information_protection_profile", DEFAULT_INFORMATION_PROTECTION),
+            ("identity_governance_profile", DEFAULT_IDENTITY_GOVERNANCE),
+            ("saas_governance_profile", DEFAULT_SAAS_GOVERNANCE),
+            ("asset_assurance_profile", DEFAULT_ASSET_ASSURANCE),
+            ("monitoring_assurance_profile", DEFAULT_MONITORING_ASSURANCE),
+            ("supplier_assurance_profile", DEFAULT_SUPPLIER_ASSURANCE),
+            ("third_party_access_profile", DEFAULT_THIRD_PARTY_ACCESS_PROFILE),
+            ("recovery_assurance_profile", DEFAULT_RECOVERY_ASSURANCE),
+            ("incident_response_assurance_profile", DEFAULT_IR_ASSURANCE),
+            ("assurance_status", ASSURANCE_STATUS_DEFAULT),
+        ]:
+            if key not in raw or raw.get(key) is None:
+                raw[key] = default
+    except Exception:
+        pass
+
+    # Defensive sanitisation via existing app helper
+    try:
+        cleaned = _sanitise_client_inputs(raw)
+    except Exception:
+        cleaned = raw
+
+    # Persist governance decisions back into session for UI consistency
+    try:
+        for k in ("mdr_decision", "mdr_decision_rationale", "managed_service_status", "co_managed_units", "partnership_type"):
+            if k in cleaned:
+                st.session_state[k] = cleaned.get(k)
+    except Exception:
+        pass
+
+    return cleaned
+
+with st.expander("Profile: Import (.json)", expanded=False):
+    import json as _json
+    uploaded = st.file_uploader("Upload profile JSON", type=["json"], accept_multiple_files=False)
+    if uploaded is not None:
+        try:
+            content = uploaded.getvalue().decode("utf-8", errors="replace")
+            data = _json.loads(content)
+            new_profile = _ingest_import_profile(data if isinstance(data, dict) else {})
+            # Store and refresh hash
+            st.session_state['client_inputs'] = new_profile
+            st.session_state['_client_inputs_hash'] = _json.dumps(new_profile, sort_keys=True, default=str)
+            st.success("Profile imported successfully.")
+        except Exception as e:
+            st.error(f"Import failed: {e}")
+
 with st.expander("Profile: Export (.json)", expanded=False):
     import json as _json
-    export_profile = st.session_state.get('client_inputs', {})
+    export_profile = _build_export_profile()
     file_customer_name = export_profile.get('customer_name', 'Client')
     if export_profile:
         st.download_button(
@@ -2385,25 +2769,122 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
             st.session_state.pop(key, None)
         st.success("Cybersecurity Maturity Roadmap Generated Successfully.")
     else:
-        st.error("Engine failed to generate the roadmap.")
-        # Offer a skeleton export based on current inputs to unblock delivery (best-effort)
+        
+        if st.session_state.get('maturity_obj'):
+            st.markdown("<div id='export_validation'></div>", unsafe_allow_html=True)
+            if st.session_state.get("_validation_next_steps"):
+                st.markdown("<script>location.hash = '#export_validation';</script>", unsafe_allow_html=True)
+            st.subheader("📥 Export & Validation")
+            # Persist “Next steps” guidance independent of validation status (PASS/BLOCK)
+            try:
+                if st.session_state.get("_validation_next_steps"):
+                    with st.expander("Next steps after saving inputs", expanded=True):
+                        st.info("Post‑processing will re‑run automatically. Then:")
+                        st.markdown("- Scroll to the Export & Validation panel at the bottom")
+                        st.markdown("- If Validation status is PASS, use ‘Download Cybersecurity Maturity Report (Word)’")
+                        st.markdown("- If publication is blocked, use ‘Download Review Copy’ and ‘Download Review Pack (JSON)’ for approvals")
+                        if st.button("Dismiss next steps", key="dismiss_next_steps_export"):
+                            st.session_state["_validation_next_steps"] = False
+            except Exception:
+                pass
+
+        # 1) Ensure post-processing (validation) runs once here (bottom-only path)
         try:
-            from types import SimpleNamespace
-            sk_obj = SimpleNamespace()
-            sk_bytes = create_maturity_docx(st.session_state['client_inputs'], sk_obj)
-            if sk_bytes:
-                st.warning("LLM generation failed. You can still export a skeleton report from the current inputs.")
-                st.download_button(
-                    "📄 Download Maturity Skeleton (Word)",
-                    data=sk_bytes,
-                    file_name=f"{cached_customer_name.replace(' ','_')}_Maturity_Skeleton.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
+            from config import get_config
+            if _to_bool(get_config("POSTPROCESS_ENABLED", "true")) and not st.session_state.get('_postprocess_done'):
+                transcript = st.session_state.get('meeting_transcript', '') or ''
+                summary = st.session_state.get('meeting_summary', '') or ''
+                if transcript and summary:
+                    try:
+                        from postprocess_pipeline import run_postprocessing
+                        ppres, _logs = run_postprocessing(
+                            st.session_state.get('client_inputs', {}) or {},
+                            transcript,
+                            summary,
+                            st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')
+                        )
+                        if ppres and getattr(ppres, 'report', None):
+                            st.session_state['maturity_obj'] = getattr(ppres, 'report', None)
+                            st.session_state['postprocess_result'] = ppres
+                            st.session_state['postprocess_logs'] = _logs
+                    except Exception:
+                        pass
+                st.session_state['_postprocess_done'] = True
         except Exception:
             pass
-        
-    if st.session_state.get('maturity_obj'):
-        st.subheader("📥 Export Deliverables")
+
+        # 2) Validation Review Panel (always visible if a result exists)
+        val = _pp_get('validation', None)
+        if val:
+            try:
+                status = str(getattr(val, 'status', '')).split('.')[-1]
+            except Exception:
+                status = str(getattr(val, 'status', ''))
+            st.markdown(f"**Validation status:** `{status}`")
+            # Show per-section BLOCK/HUMAN_REVIEW issues (summarised)
+            try:
+                sections = getattr(val, 'section_results', []) or []
+            except Exception:
+                sections = []
+            if sections:
+                import itertools
+                blocked = [s for s in sections if getattr(s, 'has_blocking_errors', False) or str(getattr(s,'status','')).lower().endswith('block')]
+                review = [s for s in sections if str(getattr(s,'status','')).lower().endswith('human_review')]
+                if blocked or review:
+                    st.markdown("**Sections requiring attention:**")
+                    for s in itertools.chain(blocked, review):
+                        name = getattr(s,'section_name','unknown')
+                        cnt = len(getattr(s,'issues',[]) or [])
+                        # Best-effort first offending text
+                        snip = ""
+                        try:
+                            issues = getattr(s,'issues',[]) or []
+                            if issues:
+                                snip = getattr(issues[0],'offending_text','')[:160]
+                        except Exception:
+                            pass
+                        st.write(f"- {name}: {cnt} issues{(' — ' + snip) if snip else ''}")
+
+        # 3) Re-run control
+        if st.button("Re-run post-processing", key="rerun_postprocess_bottom"):
+            # Ensure export panel is brought into view on next render
+            st.session_state['_validation_next_steps'] = True
+            st.session_state['_postprocess_done'] = False
+            # Clear cached artefacts and stale validation state
+            st.session_state.pop('maturity_docx_bytes', None)
+            st.session_state.pop('_publication_placeholders', None)
+            st.session_state.pop('postprocess_result', None)
+
+            # Guard: post-processing requires both transcript and summary
+            transcript = st.session_state.get('meeting_transcript', '') or ''
+            summary = st.session_state.get('meeting_summary', '') or ''
+            if not transcript or not summary:
+                st.session_state['_postprocess_done'] = True
+                st.info("Re‑run requires both a meeting transcript and meeting summary. Provide both, then click Re‑run.")
+                # Force immediate UI refresh to reflect guard status
+                st.rerun()
+            else:
+                try:
+                    from postprocess_pipeline import run_postprocessing as _rerun_pp
+                    with st.spinner("Re‑running post‑processing..."):
+                        ppres2, _logs2 = _rerun_pp(
+                            st.session_state.get('client_inputs', {}) or {},
+                            transcript,
+                            summary,
+                            st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')
+                        )
+                        if ppres2 and getattr(ppres2, 'report', None):
+                            st.session_state['maturity_obj'] = getattr(ppres2, 'report', None)
+                            st.session_state['postprocess_result'] = ppres2
+                            st.session_state['postprocess_logs'] = _logs2
+                    st.info("Post‑processing re‑run completed. Validation results updated below.")
+                    st.session_state['_postprocess_done'] = True
+                    # Force immediate UI refresh so updated validation panel and export state render now
+                    st.rerun()
+                except Exception:
+                    st.warning("Post‑processing re‑run failed.")
+
+        # 4) Final Export (only when PASS; gated in get_maturity_docx_bytes and here)
         with st.spinner("Preparing Word document..."):
             docx_data = get_maturity_docx_bytes()
         if docx_data:
@@ -2412,8 +2893,118 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
                 data=docx_data, 
                 file_name=f"{cached_customer_name.replace(' ', '_')}_Cybersecurity_Maturity_Report.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"maturity_docx_dl_{st.session_state.get('_client_inputs_hash','')}"
+                key=f"maturity_docx_dl_{st.session_state.get('_client_inputs_hash','')}",
+                disabled=not _pp_final_allowed()
             )
+
+        # 5) Review pathway: show when final publication is blocked
+        if (st.session_state.get('postprocess_result') is not None) and (not _pp_final_allowed()):
+            st.warning("Automatic publication blocked. Download a review copy and share the review pack for approval.")
+            # Structured Validation Review Panel — captures decisions without weakening gates
+            try:
+                from ui_shared_sections import render_validation_review_panel  # type: ignore
+                _val_obj = _pp_get('validation', None)
+                _logs = st.session_state.get('postprocess_logs', {}) or {}
+                _mi = []
+                try:
+                    _mi = list(((_logs.get("RemediationManifest") or {}).get("unresolved_consultant_decisions")) or [])
+                except Exception:
+                    _mi = []
+                render_validation_review_panel(_val_obj, template_missing_inputs=_mi)
+                # Discreet review hint — do not leak validator internals
+                try:
+                    _cnt = len(_mi)
+                    st.caption(f"Review items outstanding: {_cnt}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # - Show unresolved issues with: section, issue, why automation could not decide, available evidence,
+            #   exact decision required, two or more safe options with a recommended default, affected content,
+            #   and whether decisions impact other sections.
+            # - Editable structured fields for missing inputs: report date, customer logo, account manager, approver.
+            # - Additional structured fields: disputed environment fact, disputed maturity score, approved financial calculation,
+            #   approved scenario route, approved vendor/product recommendation.
+            # - Persist decisions via the exact-content consultant approval mechanism; do not alter enforcement gates.
+
+            # 5a) Download Review Copy (.docx) — always enabled for review
+            try:
+                from io import BytesIO
+                def _get_review_docx():
+                    # Generate raw docx
+                    from export import create_maturity_docx
+                    obj = st.session_state.get('maturity_obj') or st.session_state.get('maturity_report')
+                    if not obj:
+                        return None
+                    data = create_maturity_docx(
+                        st.session_state.get('client_inputs', {}),
+                        obj,
+                        st.session_state.get('mc_llm_interpretation', ""),
+                        st.session_state.get('mc_summary')
+                    )
+                    # Optional: best-effort header mark "REVIEW COPY"
+                    try:
+                        import docx as _docx
+                        buf = BytesIO(data)
+                        doc = _docx.Document(buf)
+                        for sec in doc.sections:
+                            hdr = sec.header
+                            p = hdr.add_paragraph()
+                            run = p.add_run("REVIEW COPY — NOT FOR PUBLICATION")
+                            run.bold = True
+                        out = BytesIO()
+                        doc.save(out); out.seek(0)
+                        return out.getvalue()
+                    except Exception:
+                        return data
+                _rv = _get_review_docx()
+            except Exception:
+                _rv = None
+            if _rv:
+                st.download_button(
+                    "📰 Download Review Copy (.docx)",
+                    data=_rv,
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Cybersecurity_Maturity_Report_REVIEW.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="dl_maturity_docx_review"
+                )
+
+            # 5b) Download Review Pack (.json) — includes validation + logs bundle
+            try:
+                import json as _json
+                pack = {
+                    "validation": _pp_get('validation', None),
+                    "logs": st.session_state.get('postprocess_logs', {}),
+                }
+                try:
+                    if hasattr(pack["validation"], 'model_dump'):
+                        pack["validation"] = pack["validation"].model_dump()
+                except Exception:
+                    pass
+                st.download_button(
+                    "📦 Download Review Pack (.json)",
+                    data=_json.dumps(pack, default=str, ensure_ascii=False, indent=2).encode('utf-8'),
+                    file_name=f"{cached_customer_name.replace(' ', '_')}_Review_Pack.json",
+                    mime="application/json",
+                    key="dl_maturity_review_pack"
+                )
+            except Exception:
+                pass
+
+        # 6) Also provide current options JSON here (single location)
+        try:
+            import json as _json
+            export_profile = st.session_state.get('client_inputs', {}) or {}
+            file_customer_name = export_profile.get('customer_name', 'Client')
+            st.download_button(
+                "🧾 Export current options (.json)",
+                data=_json.dumps({"version": APP_VERSION, "profile": export_profile}, ensure_ascii=False, indent=2).encode('utf-8'),
+                file_name=f"{file_customer_name.replace(' ', '_')}_options.json",
+                mime="application/json",
+                key="dl_maturity_profile_json_bottom"
+            )
+        except Exception:
+            pass
 
     if st.session_state.get('maturity_obj'):
         st.divider()
@@ -2484,19 +3075,25 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         with tab2:
             st.markdown("### Security Domain Analysis")
         for domain in getattr(maturity, 'domain_assessments', []):
-                with st.expander(f"{domain.domain_name} — {domain.current_maturity_level}"):
+                name = domain.get("domain_name") if isinstance(domain, dict) else getattr(domain, "domain_name", "")
+                level = domain.get("current_maturity_level") if isinstance(domain, dict) else getattr(domain, "current_maturity_level", "")
+                with st.expander(f"{name} — {level}"):
                     st.markdown("**Technical Analysis:**")
-                    st.markdown(domain.current_state_analysis)
+                    tech = domain.get("current_state_analysis") if isinstance(domain, dict) else getattr(domain, "current_state_analysis", "")
+                    st.markdown(tech)
                     
                     st.markdown("**Business Impact:**")
-                    st.markdown(domain.business_impact_narrative)
+                    impact = domain.get("business_impact_narrative") if isinstance(domain, dict) else getattr(domain, "business_impact_narrative", "")
+                    st.markdown(impact)
                     
                     st.markdown("**Critical Gaps:**")
-                    for gap in domain.critical_gaps:
+                    gaps = domain.get("critical_gaps") if isinstance(domain, dict) else getattr(domain, "critical_gaps", [])
+                    for gap in (gaps or []):
                         st.markdown(f"- {gap}")
                         
                     st.markdown("**Remediation Rationale:**")
-                    st.markdown(domain.remediation_rationale)
+                    rationale = domain.get("remediation_rationale") if isinstance(domain, dict) else getattr(domain, "remediation_rationale", "")
+                    st.markdown(rationale)
                     
         with tab3:
             st.markdown("### Phased Implementation")

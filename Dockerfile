@@ -1,7 +1,7 @@
 # ================================================================
 # STAGE 1: Build stage — installs dependencies into a virtual env
 # ================================================================
-FROM python:3.10-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -18,7 +18,7 @@ RUN python -m venv /opt/venv && \
 # ================================================================
 # STAGE 2: Production stage — minimal, non-root, read-only capable
 # ================================================================
-FROM python:3.10-slim AS production
+FROM python:3.12-slim AS production
 
 RUN apt-get update && apt-get install -y \
     curl \

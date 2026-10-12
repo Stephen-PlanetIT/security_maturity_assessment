@@ -13,6 +13,7 @@ venv.bak/
 .venv*/
 tools/
 tests/
+scripts/
 
 # Secrets & environment
 .env
@@ -35,3 +36,8 @@ security_executive_fragments*
 security_rating_fragment*
 smoke*
 Smoke*
+exports/logs/*
+diagnostic_maturity.docx
+logs/*
+mapping*
+exports/verify/*

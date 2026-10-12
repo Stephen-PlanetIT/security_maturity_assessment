@@ -186,7 +186,18 @@ def create_tabletop_aar_docx_v2(master_plan: dict, session_notes: list, aar_obj,
         return b""
 
     # Alias reconciliation (common aliases -> canonical keys)
-    from export import _reconcile_context_for_template, _xml_escape_dict  # reuse existing helpers
+    from export import _reconcile_context_for_template, _xml_escape_dict, apply_template_resolution_to_context  # reuse existing helpers
+    # Apply deterministic template resolution before alias reconciliation
+    try:
+        ctx, _tpl_bundle = apply_template_resolution_to_context(
+            ctx,
+            {
+                "customer_name": (ctx.get("customer_name") if isinstance(ctx, dict) else "")
+            },
+            include_missing_flags=True
+        )
+    except Exception:
+        _tpl_bundle = {"missing_inputs": []}
     ctx = _reconcile_context_for_template(doc, ctx, extra_alias={
         "ExecutiveSummary": "executive_summary",
         "SessionNotes": "session_notes_render",
