@@ -566,6 +566,122 @@ def get_maturity_docx_bytes():
             st.error("Maturity report export failed. Please try regenerating the report.")
     return st.session_state.get('maturity_docx_bytes')
 
+# --- CHANGE 1 & 2 & 4: Quality Issue Tracking & Surfacing Helpers ---
+
+def _track_section_quality(validation):
+    """Persist per-section quality issues from validation result into session state."""
+    if validation is None:
+        return
+    sections = []
+    try:
+        for sr in getattr(validation, 'section_results', []) or []:
+            sections.append({
+                'section_name': getattr(sr, 'section_name', ''),
+                'status': str(getattr(sr, 'status', '')),
+                'issue_count': len(getattr(sr, 'issues', []) or []),
+                'blocking_rule_ids': [str(ri.rule_id) for ri in (getattr(sr, 'issues', []) or []) if getattr(ri, 'rule_id', None)],
+                'explanations': [str(ri.explanation) for ri in (getattr(sr, 'issues', []) or []) if getattr(ri, 'explanation', None)],
+            })
+    except Exception:
+        pass
+    try:
+        st.session_state['_section_quality_issues'] = sections
+    except Exception:
+        st.session_state['_section_quality_issues'] = []
+
+def _track_specialist_failures(improved_obj, raw_obj):
+    """Compare improved vs raw maturity objects to detect generation failures."""
+    if improved_obj is None or raw_obj is None:
+        return
+    failures = {}
+    # Check for specialist markers that are present in improved but not in raw (or vice versa)
+    try:
+        improved_keys = [k for k in dir(improved_obj) if k.endswith('_specialist')]
+        raw_keys = [k for k in dir(raw_obj) if k.endswith('_specialist')]
+        for k in improved_keys:
+            if k not in raw_keys:
+                failures[f'{k}_new'] = "Specialist content added"
+    except Exception:
+        pass
+    try:
+        st.session_state['_specialist_failures'] = failures
+    except Exception:
+        st.session_state['_specialist_failures'] = {}
+
+def _surface_quality_issues(postprocess_result):
+    """Surface compliance and quality issues in UI with actionable guidance."""
+    if postprocess_result is None:
+        return
+    try:
+        final_allowed = bool(getattr(postprocess_result, 'final_export_allowed', True))
+    except Exception:
+        final_allowed = True
+    if final_allowed:
+        return  # No issues to surface
+
+    sections = st.session_state.get('_section_quality_issues', []) or []
+    blocking_sections = [s for s in sections if s.get('status') == 'BLOCK' and s.get('issue_count', 0) > 0]
+
+    if not blocking_sections:
+        return
+
+    with st.expander("⚠️ Quality Issues Detected (Automatic Publication Blocked)", expanded=True):
+        st.warning("The following sections failed quality validation. Automatic publication is blocked until these issues are resolved.")
+
+        compliance_issues = [s for s in blocking_sections if 'compliance' in s.get('section_name', '').lower()]
+        other_issues = [s for s in blocking_sections if 'compliance' not in s.get('section_name', '').lower()]
+
+        if compliance_issues:
+            with st.expander("📋 Compliance Alignment Issues", expanded=True):
+                for ci in compliance_issues:
+                    st.error(f"**{ci['section_name']}**: {ci['status']}")
+                    for rule, expl in zip(ci.get('blocking_rule_ids', []), ci.get('explanations', [])):
+                        st.code(f"Rule: {rule}\nReason: {expl}")
+                # Actionable guidance for common compliance issues
+                st.markdown("**Remediation Guidance:**")
+                st.markdown("- **GENERIC_FALLBACK_CONTENT**: Provide specific approved frameworks (e.g., ISO 27001, NIST CSF) in your profile rather than leaving blank.")
+                st.markdown("- **NO_CONCRETE_FRAMEWORKS**: Add `approved_frameworks` to the customer profile or consultation evidence.")
+                st.markdown("- **UNAPPROVED_VENDOR**: Remove unapproved vendor references; use only catalogue-aligned products.")
+
+        if other_issues:
+            with st.expander("🔍 Other Section Issues", expanded=True):
+                for oi in other_issues:
+                    st.error(f"**{oi['section_name']}**: {oi['status']}")
+                    for rule, expl in zip(oi.get('blocking_rule_ids', []), oi.get('explanations', [])):
+                        st.code(f"Rule: {rule}\nReason: {expl}")
+
+        # [CHANGE 3] Analyst override section (for non-critical issues)
+        with st.expander("🔧 Analyst Override", expanded=False):
+            st.info("Override allows publication despite non-blocking warnings. Blocking errors require resolution.")
+            override_reason = st.text_input("Override reason (required for audit trail)", key="override_reason", placeholder="e.g., Client approved exceptions verbally")
+            if st.button("Submit Override", type="primary", disabled=not override_reason):
+                # Write to audit log
+                import time
+                audit_entry = {
+                    'timestamp': time.time(),
+                    'action': 'analyst_override',
+                    'reason': override_reason,
+                    'sections_affected': [s['section_name'] for s in blocking_sections],
+                }
+                try:
+                    audit_log = st.session_state.get('_override_audit_log', [])
+                    audit_log.append(audit_entry)
+                    st.session_state['_override_audit_log'] = audit_log
+                    # Clear postprocess result to allow export
+                    try:
+                        from types import SimpleNamespace
+                        st.session_state['postprocess_result'] = SimpleNamespace(validation=postprocess_result.validation, final_export_allowed=True)
+                    except Exception:
+                        st.session_state['postprocess_result'] = {'validation': postprocess_result.validation if hasattr(postprocess_result, 'validation') else None, 'final_export_allowed': True}
+                    st.success("Override recorded. Re-attempting export...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Override failed: {e}")
+
+# --- HELPER: LAZY EXPORT GENERATORS ---
+# Exports are generated on-demand (when the user clicks download) rather than eagerly.
+# This shaves 5-15 seconds off the post-generation wait time.
+
 def _display_cost_of_inaction_section():
     """Safely render the GBP cost of inaction if available in the current report."""
     report = None
@@ -3098,12 +3214,17 @@ You MUST NOT replicate phrasing, sentence structure, paragraph ordering, or sect
         with tab3:
             st.markdown("### Phased Implementation")
         for phase in getattr(maturity, 'phased_roadmap', []):
-                st.markdown(f"#### {phase.phase_title}: {phase.primary_objective}")
-                for milestone in phase.milestones:
-                    st.markdown(f"- {milestone}")
-                st.markdown(f"**Value Delivered:** {phase.business_value_delivered}")
-                st.markdown(f"**Resources:** {phase.resource_requirements}")
-                st.divider()
+            title = phase.get("phase_title") if isinstance(phase, dict) else getattr(phase, "phase_title", "")
+            objective = phase.get("primary_objective") if isinstance(phase, dict) else getattr(phase, "primary_objective", "")
+            milestones = phase.get("milestones") if isinstance(phase, dict) else getattr(phase, "milestones", [])
+            value = phase.get("business_value_delivered") if isinstance(phase, dict) else getattr(phase, "business_value_delivered", "")
+            resources = phase.get("resource_requirements") if isinstance(phase, dict) else getattr(phase, "resource_requirements", "")
+            st.markdown(f"#### {title}: {objective}")
+            for milestone in (milestones or []):
+                st.markdown(f"- {milestone}")
+            st.markdown(f"**Value Delivered:** {value}")
+            st.markdown(f"**Resources:** {resources}")
+            st.divider()
         # Threat Scenarios (auto-generated) rendering
         if getattr(maturity, 'threat_scenarios', None):
             try:

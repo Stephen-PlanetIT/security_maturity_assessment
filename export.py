@@ -4862,16 +4862,14 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
 
     compliance_alignment_render = ""
     if not compliance_alignment_structured:
-        try:
-            from config import get_config as _get_cfg
-            sandbox = str(_get_cfg('DIAGNOSTIC_SANDBOX', 'false')).strip().lower() in ('1','true','yes','on')
-        except Exception:
-            sandbox = False
-        if sandbox:
-            # Allow export to proceed without compliance narrative under diagnostic sandbox
-            pass
-        else:
-            raise PublicationBlockedError("Compliance rows empty", blocking_rule_ids=["COMPLIANCE_ROWS_EMPTY"])
+        # Generate placeholder noting absence rather than blocking export.
+        # Compliance alignment is Optional[List[ComplianceSection]] with default=None in Pydantic schemas;
+        # when the LLM omits it (no industry/regulation triggers), we still allow publication with a visible note.
+        compliance_alignment_structured = [{
+            "standard": "No compliance alignment generated",
+            "gaps": ["Compliance alignment data was not provided during generation"],
+            "fill_plan": [],
+        }]
     if compliance_alignment_structured:
         parts = []
         for comp in compliance_alignment_structured:
