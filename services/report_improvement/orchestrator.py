@@ -453,6 +453,33 @@ def enforce_report(
         # Rebuild pass is best-effort; non-fatal
         pass
 
+    # Section-Owned and Monotonic Guardrail Integration
+    try:
+        from services.report_improvement.monotonic_repair import (
+            compute_report_snapshot,
+            evaluate_monotonic_repair,
+        )
+        from services.report_improvement.repair_policy_registry import (
+            get_repair_policy,
+            RepairAction,
+            EscalationState,
+        )
+        from services.report_improvement.consultant_exceptions import (
+            build_consultant_exception,
+            ConsultantExceptionCategory,
+            ConsultantExceptionReport,
+        )
+
+        all_collected_issues = []
+        for r in section_results:
+            all_collected_issues.extend(getattr(r, "issues", []) or [])
+
+        # Record monotonic snapshot
+        final_snapshot = compute_report_snapshot(final_report, all_collected_issues, [])
+        final_report["_monotonic_snapshot"] = final_snapshot.model_dump()
+    except Exception:
+        pass
+
     # Aggregate overall status post rewrite/rebuild passes
     # Metrics: compute post-rewrite blocking issues and resolution counts
     try:

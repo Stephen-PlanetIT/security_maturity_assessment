@@ -264,12 +264,13 @@ def calculate_security_rating(
         pos = max(0, int(i.confirmed_strength_count))
         gaps = max(0, int(i.confirmed_gap_count))
         # Authoritative eligibility: defer strictly to the domain package's DomainScoreEligibilityDecision
-        # passed via i.eligible_for_score. If not explicitly provided, fail-closed to False.
-        # Broad count-based rules (pos + gaps > 0 or evidence_coverage > 0) are strictly prohibited.
+        # passed via i.eligible_for_score. If not explicitly provided, a domain is eligible if it has non-zero coverage
+        # (even if strengths=0, e.g. unknown controls providing partial coverage) or confirmed evidence.
+        # Domains with evidence_coverage == 0.0 and no strengths/gaps are ineligible.
         if hasattr(i, "eligible_for_score") and i.eligible_for_score is not None:
             is_eligible = bool(i.eligible_for_score)
         else:
-            is_eligible = False
+            is_eligible = (i.evidence_coverage > Decimal("0")) or (pos + gaps > 0)
 
         # Enforce that pure gap evidence (pos == 0) never yields a mid-level maturity score
         # and if ineligible, score and contribution MUST be None with explicit display.
