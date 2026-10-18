@@ -243,8 +243,22 @@ def render_validation_review_panel(validation, template_missing_inputs: list | N
             # Commit all selections at once
             for k, v in pending.items():
                 state["decisions"][k] = v
+            # Trigger post-processing re-run and show an explicit next-steps panel
+            st.session_state["_postprocess_done"] = False
             st.session_state["_validation_next_steps"] = True
-            st.success("Decisions saved. Post‑processing can be re-run or final export attempted if gates pass.")
+            # Assert workflow to avoid landing-page fall-through on rerun
+            st.session_state["workflow"] = "📈 Cybersecurity Maturity Assessment"
+            # Persist workflow and focus to Export & Validation for the next run
+            try:
+                if hasattr(st, "query_params"):
+                    st.query_params.update({"wf": "maturity"})
+                else:
+                    st.experimental_set_query_params(wf="maturity")
+            except Exception:
+                pass
+            st.markdown("<script>location.hash = '#export_validation';</script>", unsafe_allow_html=True)
+            st.success("Decisions saved. Post‑processing will be re‑run automatically.")
+            st.rerun()
 
     st.success("Decisions captured. Publication controls remain fail‑closed until explicit approval in the pipeline.")
 

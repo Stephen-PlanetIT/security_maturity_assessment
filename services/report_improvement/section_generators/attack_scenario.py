@@ -277,13 +277,15 @@ def generate_attack_scenario(
         mdr_opportunity=mdr_op_text,
         metadata=md,
     )
-    # Diagnostics: inject sentinel token and record generator-stage lineage (diagnostic mode only)
+    # Diagnostics: record generator-stage lineage in sidecar/metadata without leaking into customer-facing title
     try:
         if is_diagnostics_enabled():
             _rid = ensure_run_id()
             try:
-                # Inject a runtime-only marker into the scenario title (diagnostic)
-                out.scenario_title = f"{out.scenario_title} — TRACE_SCENARIO_{_rid}".strip()
+                # Isolate trace marker into metadata dictionary, never customer-facing scenario_title
+                if isinstance(out.metadata, dict):
+                    out.metadata["trace_sentinel"] = f"TRACE_SCENARIO_{_rid}"
+                    out.metadata["run_id"] = _rid
             except Exception:
                 pass
             try:

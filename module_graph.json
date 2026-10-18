@@ -1,0 +1,1183 @@
+{
+  "catalog": {
+    "filepath": "./catalog.py",
+    "imports": [],
+    "called_by": [
+      "app",
+      "pages.03_Tabletop_Designer"
+    ]
+  },
+  "validate_docx": {
+    "filepath": "./validate_docx.py",
+    "imports": [],
+    "called_by": []
+  },
+  "domain_evidence_packager": {
+    "filepath": "./domain_evidence_packager.py",
+    "imports": [],
+    "called_by": []
+  },
+  "postprocess_pipeline": {
+    "filepath": "./postprocess_pipeline.py",
+    "imports": [
+      "evidence_extraction",
+      "config",
+      "consistency_validator",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "ui_shared_sections": {
+    "filepath": "./ui_shared_sections.py",
+    "imports": [
+      "consultation_schema"
+    ],
+    "called_by": [
+      "pages.05_After_Action_Review",
+      "app",
+      "pages.03_Tabletop_Designer",
+      "pages.04_Live_Facilitation"
+    ]
+  },
+  "config": {
+    "filepath": "./config.py",
+    "imports": [],
+    "called_by": [
+      "risk",
+      "quality_pipeline",
+      "postprocess_pipeline",
+      "export_aar_v2",
+      "prompts",
+      "tools.verification_script_smoke",
+      "pages.04_Live_Facilitation",
+      "services.report_improvement.evidence_adjudicator",
+      "participant_artefacts",
+      "app",
+      "tools.test_palette_loader",
+      "pages.03_Tabletop_Designer",
+      "pages.05_After_Action_Review",
+      "evidence_extraction",
+      "export",
+      "core",
+      "services.report_improvement.auto_remediation.audit",
+      "services.report_improvement.evidence_enforcement.validator",
+      "pages.01_Maturity_Relay",
+      "scripts.run_branded_integration"
+    ]
+  },
+  "test_corrupt_paragraph_insert": {
+    "filepath": "./test_corrupt_paragraph_insert.py",
+    "imports": [],
+    "called_by": []
+  },
+  "debug_word4": {
+    "filepath": "./debug_word4.py",
+    "imports": [],
+    "called_by": []
+  },
+  "phase4_quality_comparison": {
+    "filepath": "./phase4_quality_comparison.py",
+    "imports": [],
+    "called_by": []
+  },
+  "consultation_helpers": {
+    "filepath": "./consultation_helpers.py",
+    "imports": [],
+    "called_by": [
+      "pages.05_After_Action_Review",
+      "app",
+      "export",
+      "tests.test_sanitisation",
+      "tests.test_derived_maturity",
+      "prompts",
+      "tests.test_migration",
+      "pages.04_Live_Facilitation"
+    ]
+  },
+  "phase4_report_generation": {
+    "filepath": "./phase4_report_generation.py",
+    "imports": [],
+    "called_by": []
+  },
+  "debug_word": {
+    "filepath": "./debug_word.py",
+    "imports": [],
+    "called_by": []
+  },
+  "evidence_adjudication": {
+    "filepath": "./evidence_adjudication.py",
+    "imports": [],
+    "called_by": [
+      "phase1a_validation"
+    ]
+  },
+  "core": {
+    "filepath": "./core.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": [
+      "pages.05_After_Action_Review",
+      "pages.03_Tabletop_Designer",
+      "app",
+      "evidence_extraction",
+      "pages.01_Maturity_Relay",
+      "scripts.run_branded_integration",
+      "tools.verification_script_smoke",
+      "pages.04_Live_Facilitation"
+    ]
+  },
+  "evidence_extraction": {
+    "filepath": "./evidence_extraction.py",
+    "imports": [
+      "config",
+      "core"
+    ],
+    "called_by": [
+      "section_improvers.main_findings",
+      "section_improvers.security_rating",
+      "services.report_improvement.evidence_adjudicator",
+      "postprocess_pipeline",
+      "section_improvers.attack_scenario",
+      "services.report_improvement.section_generators.models",
+      "services.report_improvement.section_generators.evidence_selector",
+      "section_improvers.compliance",
+      "consistency_validator",
+      "section_improvers.executive_summary",
+      "section_improvers",
+      "tests.test_cost_of_inaction",
+      "section_improvers.environment",
+      "services.report_improvement.section_generators.cost_of_inaction",
+      "section_improvers.roadmap"
+    ]
+  },
+  "debug_word5": {
+    "filepath": "./debug_word5.py",
+    "imports": [],
+    "called_by": []
+  },
+  "export": {
+    "filepath": "./export.py",
+    "imports": [
+      "consultation_helpers",
+      "config",
+      "data"
+    ],
+    "called_by": [
+      "tools.verify_maturity_render",
+      "tests.test_export_smoke",
+      "tools.verification_script",
+      "tools.run_allerton_post_phase1_validation",
+      "tools.print_tt_validation",
+      "tools.verification_script_smoke",
+      "tools.verify_pptx",
+      "app",
+      "tools.verify_pptx_runner",
+      "tools.verification_script_local",
+      "pages.03_Tabletop_Designer",
+      "tools.run_phase1_5_validation",
+      "tools.print_pptx_debug_full",
+      "tools.check_tabletop_static_placement",
+      "tools.execute_full_allerton_checks",
+      "tools.tmp_rag_test",
+      "tools.tmp_anchor_render",
+      "tests.test_decision_questions",
+      "tools.print_pptx_debug",
+      "scripts.run_branded_integration",
+      "pages.01_Maturity_Relay"
+    ]
+  },
+  "phase1a_validation": {
+    "filepath": "./phase1a_validation.py",
+    "imports": [
+      "evidence_adjudication"
+    ],
+    "called_by": []
+  },
+  "facilitator_guidance": {
+    "filepath": "./facilitator_guidance.py",
+    "imports": [],
+    "called_by": [
+      "tests.test_facilitation_mapping"
+    ]
+  },
+  "prompts": {
+    "filepath": "./prompts.py",
+    "imports": [
+      "consultation_helpers",
+      "config",
+      "data"
+    ],
+    "called_by": [
+      "tests.test_tabletop_custom",
+      "pages.05_After_Action_Review",
+      "pages.03_Tabletop_Designer",
+      "app",
+      "tests.test_prompts_build",
+      "tests.test_export_smoke",
+      "tests.test_programme_controls",
+      "tools.verification_script",
+      "scripts.run_branded_integration",
+      "pages.01_Maturity_Relay",
+      "tools.verification_script_local",
+      "tools.run_allerton_post_phase1_validation",
+      "tools.verification_script_smoke",
+      "pages.04_Live_Facilitation"
+    ]
+  },
+  "consultant_assessment_layer": {
+    "filepath": "./consultant_assessment_layer.py",
+    "imports": [],
+    "called_by": []
+  },
+  "export_aar_v2": {
+    "filepath": "./export_aar_v2.py",
+    "imports": [
+      "aar_renderer",
+      "config"
+    ],
+    "called_by": []
+  },
+  "consultation_schema": {
+    "filepath": "./consultation_schema.py",
+    "imports": [],
+    "called_by": [
+      "app",
+      "ui_shared_sections"
+    ]
+  },
+  "debug_word2": {
+    "filepath": "./debug_word2.py",
+    "imports": [],
+    "called_by": []
+  },
+  "run_allerton_phase2": {
+    "filepath": "./run_allerton_phase2.py",
+    "imports": [],
+    "called_by": []
+  },
+  "aar_renderer": {
+    "filepath": "./aar_renderer.py",
+    "imports": [],
+    "called_by": [
+      "tests.test_aar_renderer_redflags",
+      "tools.quick_validate_aar_renderer",
+      "export_aar_v2"
+    ]
+  },
+  "scenario_selection": {
+    "filepath": "./scenario_selection.py",
+    "imports": [],
+    "called_by": [
+      "tests.test_scenario_selection"
+    ]
+  },
+  "test_corrupt2": {
+    "filepath": "./test_corrupt2.py",
+    "imports": [],
+    "called_by": []
+  },
+  "test_corrupt": {
+    "filepath": "./test_corrupt.py",
+    "imports": [],
+    "called_by": []
+  },
+  "quality_pipeline": {
+    "filepath": "./quality_pipeline.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": []
+  },
+  "participant_artefacts": {
+    "filepath": "./participant_artefacts.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": [
+      "tests.test_participant_artefacts"
+    ]
+  },
+  "app": {
+    "filepath": "./app.py",
+    "imports": [
+      "consultation_helpers",
+      "ui_shared_sections",
+      "export",
+      "consultation_schema",
+      "core",
+      "data",
+      "prompts",
+      "config",
+      "catalog"
+    ],
+    "called_by": []
+  },
+  "debug_word3": {
+    "filepath": "./debug_word3.py",
+    "imports": [],
+    "called_by": []
+  },
+  "risk": {
+    "filepath": "./risk.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": []
+  },
+  "test_corrupt_tree2": {
+    "filepath": "./test_corrupt_tree2.py",
+    "imports": [],
+    "called_by": []
+  },
+  "specialist_consumption": {
+    "filepath": "./specialist_consumption.py",
+    "imports": [],
+    "called_by": []
+  },
+  "test_corrupt_tree": {
+    "filepath": "./test_corrupt_tree.py",
+    "imports": [],
+    "called_by": []
+  },
+  "test_corrupt_docx": {
+    "filepath": "./test_corrupt_docx.py",
+    "imports": [],
+    "called_by": []
+  },
+  "consistency_validator": {
+    "filepath": "./consistency_validator.py",
+    "imports": [
+      "evidence_extraction"
+    ],
+    "called_by": [
+      "postprocess_pipeline"
+    ]
+  },
+  "data": {
+    "filepath": "./data.py",
+    "imports": [],
+    "called_by": [
+      "app",
+      "export",
+      "tests.test_mdr_decision_assist",
+      "prompts",
+      "pages.03_Tabletop_Designer"
+    ]
+  },
+  "test_corrupt_vml": {
+    "filepath": "./test_corrupt_vml.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tabletop_models": {
+    "filepath": "./tabletop_models.py",
+    "imports": [],
+    "called_by": [
+      "tests.test_tabletop_models"
+    ]
+  },
+  "tools.verification_script_local": {
+    "filepath": "./tools/verification_script_local.py",
+    "imports": [
+      "prompts",
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.print_pptx_debug": {
+    "filepath": "./tools/print_pptx_debug.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.stamp_aar_template_schema": {
+    "filepath": "./tools/stamp_aar_template_schema.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.verify_pptx": {
+    "filepath": "./tools/verify_pptx.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.run_phase1_5_validation": {
+    "filepath": "./tools/run_phase1_5_validation.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.print_pptx_debug_full": {
+    "filepath": "./tools/print_pptx_debug_full.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.sanitize_docx": {
+    "filepath": "./tools/sanitize_docx.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.check_tabletop_static_placement": {
+    "filepath": "./tools/check_tabletop_static_placement.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.repair_docx_fragments": {
+    "filepath": "./tools/repair_docx_fragments.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.run_allerton_post_phase1_validation": {
+    "filepath": "./tools/run_allerton_post_phase1_validation.py",
+    "imports": [
+      "prompts",
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.quick_validate_aar_renderer": {
+    "filepath": "./tools/quick_validate_aar_renderer.py",
+    "imports": [
+      "aar_renderer"
+    ],
+    "called_by": []
+  },
+  "tools.generate_tag_catalog": {
+    "filepath": "./tools/generate_tag_catalog.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.run_maturity_smoke": {
+    "filepath": "./tools/run_maturity_smoke.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.ast_explorer": {
+    "filepath": "./tools/ast_explorer.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.verification_script": {
+    "filepath": "./tools/verification_script.py",
+    "imports": [
+      "prompts",
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.create_security_rating_fragment": {
+    "filepath": "./tools/create_security_rating_fragment.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.fix_templates": {
+    "filepath": "./tools/fix_templates.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.execute_full_allerton_checks": {
+    "filepath": "./tools/execute_full_allerton_checks.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.verification_script_smoke": {
+    "filepath": "./tools/verification_script_smoke.py",
+    "imports": [
+      "prompts",
+      "config",
+      "core",
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.test_palette_loader": {
+    "filepath": "./tools/test_palette_loader.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": []
+  },
+  "tools.verify_pptx_runner": {
+    "filepath": "./tools/verify_pptx_runner.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.tmp_rag_test": {
+    "filepath": "./tools/tmp_rag_test.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.print_tt_validation": {
+    "filepath": "./tools/print_tt_validation.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.insert_placeholder_to_docx": {
+    "filepath": "./tools/insert_placeholder_to_docx.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tools.tmp_anchor_render": {
+    "filepath": "./tools/tmp_anchor_render.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.verify_maturity_render": {
+    "filepath": "./tools/verify_maturity_render.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tools.diagnostics.lineage_trace_runner": {
+    "filepath": "./tools/diagnostics/lineage_trace_runner.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_decision_questions": {
+    "filepath": "./tests/test_decision_questions.py",
+    "imports": [
+      "export"
+    ],
+    "called_by": []
+  },
+  "tests.test_facilitation_mapping": {
+    "filepath": "./tests/test_facilitation_mapping.py",
+    "imports": [
+      "facilitator_guidance"
+    ],
+    "called_by": []
+  },
+  "tests.test_programme_controls": {
+    "filepath": "./tests/test_programme_controls.py",
+    "imports": [
+      "prompts"
+    ],
+    "called_by": []
+  },
+  "tests.conftest": {
+    "filepath": "./tests/conftest.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_mdr_decision_assist": {
+    "filepath": "./tests/test_mdr_decision_assist.py",
+    "imports": [
+      "data"
+    ],
+    "called_by": []
+  },
+  "tests.test_security_rating": {
+    "filepath": "./tests/test_security_rating.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_prompts_build": {
+    "filepath": "./tests/test_prompts_build.py",
+    "imports": [
+      "prompts"
+    ],
+    "called_by": []
+  },
+  "tests.test_evaluation_baseline": {
+    "filepath": "./tests/test_evaluation_baseline.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.acc_17_unchanged_hash_stops_loop": {
+    "filepath": "./tests/acc_17_unchanged_hash_stops_loop.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_aar_renderer_redflags": {
+    "filepath": "./tests/test_aar_renderer_redflags.py",
+    "imports": [
+      "aar_renderer"
+    ],
+    "called_by": []
+  },
+  "tests.acc_11_template_missing_inputs_exposed": {
+    "filepath": "./tests/acc_11_template_missing_inputs_exposed.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_sanitisation": {
+    "filepath": "./tests/test_sanitisation.py",
+    "imports": [
+      "consultation_helpers"
+    ],
+    "called_by": []
+  },
+  "tests.test_maturity_canonical_publication": {
+    "filepath": "./tests/test_maturity_canonical_publication.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_scenario_selection": {
+    "filepath": "./tests/test_scenario_selection.py",
+    "imports": [
+      "scenario_selection"
+    ],
+    "called_by": []
+  },
+  "tests.acc_01_currency_removal": {
+    "filepath": "./tests/acc_01_currency_removal.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_tabletop_custom": {
+    "filepath": "./tests/test_tabletop_custom.py",
+    "imports": [
+      "prompts"
+    ],
+    "called_by": []
+  },
+  "tests.test_tabletop_models": {
+    "filepath": "./tests/test_tabletop_models.py",
+    "imports": [
+      "tabletop_models"
+    ],
+    "called_by": []
+  },
+  "tests.test_migration": {
+    "filepath": "./tests/test_migration.py",
+    "imports": [
+      "consultation_helpers"
+    ],
+    "called_by": []
+  },
+  "tests.test_participant_artefacts": {
+    "filepath": "./tests/test_participant_artefacts.py",
+    "imports": [
+      "participant_artefacts"
+    ],
+    "called_by": []
+  },
+  "tests.test_existing_control_conversions": {
+    "filepath": "./tests/test_existing_control_conversions.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.acc_16_model_claim_not_trusted": {
+    "filepath": "./tests/acc_16_model_claim_not_trusted.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_orchestrator_typeerror": {
+    "filepath": "./tests/test_orchestrator_typeerror.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_phase2_1_semantic_eligibility": {
+    "filepath": "./tests/test_phase2_1_semantic_eligibility.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.acc_04_cve_removed_no_invention": {
+    "filepath": "./tests/acc_04_cve_removed_no_invention.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_derived_maturity": {
+    "filepath": "./tests/test_derived_maturity.py",
+    "imports": [
+      "consultation_helpers"
+    ],
+    "called_by": []
+  },
+  "tests.test_export_smoke": {
+    "filepath": "./tests/test_export_smoke.py",
+    "imports": [
+      "prompts",
+      "export"
+    ],
+    "called_by": []
+  },
+  "tests.test_cost_of_inaction": {
+    "filepath": "./tests/test_cost_of_inaction.py",
+    "imports": [
+      "evidence_extraction"
+    ],
+    "called_by": []
+  },
+  "tests.acc_02_mfa_existing_to_validation": {
+    "filepath": "./tests/acc_02_mfa_existing_to_validation.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.acc_10_consultant_only_removed_review_copy": {
+    "filepath": "./tests/acc_10_consultant_only_removed_review_copy.py",
+    "imports": [],
+    "called_by": []
+  },
+  "tests.test_deterministic_handlers": {
+    "filepath": "./tests/test_deterministic_handlers.py",
+    "imports": [
+      "services.report_improvement.auto_remediation.deterministic_fixes"
+    ],
+    "called_by": []
+  },
+  "section_improvers.main_findings": {
+    "filepath": "./section_improvers/main_findings.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.roadmap": {
+    "filepath": "./section_improvers/roadmap.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.compliance": {
+    "filepath": "./section_improvers/compliance.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.executive_summary": {
+    "filepath": "./section_improvers/executive_summary.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.shared_rules": {
+    "filepath": "./section_improvers/shared_rules.py",
+    "imports": [],
+    "called_by": []
+  },
+  "section_improvers": {
+    "filepath": "./section_improvers/__init__.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": [
+      "section_improvers.main_findings",
+      "section_improvers.security_rating",
+      "postprocess_pipeline",
+      "section_improvers.attack_scenario",
+      "section_improvers.compliance",
+      "section_improvers.executive_summary",
+      "section_improvers",
+      "section_improvers.environment",
+      "section_improvers.roadmap"
+    ]
+  },
+  "section_improvers.environment": {
+    "filepath": "./section_improvers/environment.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.security_rating": {
+    "filepath": "./section_improvers/security_rating.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "section_improvers.attack_scenario": {
+    "filepath": "./section_improvers/attack_scenario.py",
+    "imports": [
+      "evidence_extraction",
+      "section_improvers"
+    ],
+    "called_by": []
+  },
+  "scripts.run_maturity_export": {
+    "filepath": "./scripts/run_maturity_export.py",
+    "imports": [],
+    "called_by": []
+  },
+  "scripts.inspect_template_bindings": {
+    "filepath": "./scripts/inspect_template_bindings.py",
+    "imports": [],
+    "called_by": []
+  },
+  "scripts.run_branded_integration": {
+    "filepath": "./scripts/run_branded_integration.py",
+    "imports": [
+      "export",
+      "core",
+      "services.report_improvement.evidence_enforcement.validator",
+      "prompts",
+      "config"
+    ],
+    "called_by": []
+  },
+  "scripts.build_section_source_report": {
+    "filepath": "./scripts/build_section_source_report.py",
+    "imports": [],
+    "called_by": []
+  },
+  "pages.04_Live_Facilitation": {
+    "filepath": "./pages/04_Live_Facilitation.py",
+    "imports": [
+      "consultation_helpers",
+      "ui_shared_sections",
+      "core",
+      "prompts",
+      "config"
+    ],
+    "called_by": []
+  },
+  "pages.02_Threats_Relay": {
+    "filepath": "./pages/02_Threats_Relay.py",
+    "imports": [],
+    "called_by": []
+  },
+  "pages.05_After_Action_Review": {
+    "filepath": "./pages/05_After_Action_Review.py",
+    "imports": [
+      "consultation_helpers",
+      "ui_shared_sections",
+      "core",
+      "prompts",
+      "config"
+    ],
+    "called_by": []
+  },
+  "pages.03_Tabletop_Designer": {
+    "filepath": "./pages/03_Tabletop_Designer.py",
+    "imports": [
+      "ui_shared_sections",
+      "export",
+      "core",
+      "data",
+      "prompts",
+      "config",
+      "catalog"
+    ],
+    "called_by": []
+  },
+  "pages.01_Maturity_Relay": {
+    "filepath": "./pages/01_Maturity_Relay.py",
+    "imports": [
+      "prompts",
+      "config",
+      "core",
+      "export"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.diagnostics_runtime": {
+    "filepath": "./services/report_improvement/diagnostics_runtime.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.template_projection": {
+    "filepath": "./services/report_improvement/template_projection.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.canonical_score": {
+    "filepath": "./services/report_improvement/canonical_score.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.integration": {
+    "filepath": "./services/report_improvement/integration.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.orchestrator": {
+    "filepath": "./services/report_improvement/orchestrator.py",
+    "imports": [
+      "services.report_improvement.evidence_enforcement.validator"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_adjudicator": {
+    "filepath": "./services/report_improvement/evidence_adjudicator.py",
+    "imports": [
+      "evidence_extraction",
+      "config"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.lineage": {
+    "filepath": "./services/report_improvement/lineage.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.classifier": {
+    "filepath": "./services/report_improvement/auto_remediation/classifier.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.audit": {
+    "filepath": "./services/report_improvement/auto_remediation/audit.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.section_rebuilder": {
+    "filepath": "./services/report_improvement/auto_remediation/section_rebuilder.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.models": {
+    "filepath": "./services/report_improvement/auto_remediation/models.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.environment_builder": {
+    "filepath": "./services/report_improvement/auto_remediation/environment_builder.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.evidence_selector": {
+    "filepath": "./services/report_improvement/auto_remediation/evidence_selector.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.evidence_rewriter": {
+    "filepath": "./services/report_improvement/auto_remediation/evidence_rewriter.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation": {
+    "filepath": "./services/report_improvement/auto_remediation/__init__.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.safe_language": {
+    "filepath": "./services/report_improvement/auto_remediation/safe_language.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.deterministic_fixes": {
+    "filepath": "./services/report_improvement/auto_remediation/deterministic_fixes.py",
+    "imports": [],
+    "called_by": [
+      "tests.test_deterministic_handlers"
+    ]
+  },
+  "services.report_improvement.auto_remediation.document_fixes": {
+    "filepath": "./services/report_improvement/auto_remediation/document_fixes.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.auto_remediation.exceptions": {
+    "filepath": "./services/report_improvement/auto_remediation/exceptions.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.validator": {
+    "filepath": "./services/report_improvement/evidence_enforcement/validator.py",
+    "imports": [
+      "config"
+    ],
+    "called_by": [
+      "scripts.run_branded_integration",
+      "services.report_improvement.orchestrator"
+    ]
+  },
+  "services.report_improvement.evidence_enforcement.canonical_models": {
+    "filepath": "./services/report_improvement/evidence_enforcement/canonical_models.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.rule_registry": {
+    "filepath": "./services/report_improvement/evidence_enforcement/rule_registry.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.models": {
+    "filepath": "./services/report_improvement/evidence_enforcement/models.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.semantic_normalisation": {
+    "filepath": "./services/report_improvement/evidence_enforcement/semantic_normalisation.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement": {
+    "filepath": "./services/report_improvement/evidence_enforcement/__init__.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.consultation_ingestion": {
+    "filepath": "./services/report_improvement/evidence_enforcement/consultation_ingestion.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.revision": {
+    "filepath": "./services/report_improvement/evidence_enforcement/revision.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.exceptions": {
+    "filepath": "./services/report_improvement/evidence_enforcement/exceptions.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.docx_publication_validator": {
+    "filepath": "./services/report_improvement/evidence_enforcement/docx_publication_validator.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.normalisation": {
+    "filepath": "./services/report_improvement/evidence_enforcement/normalisation.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.publication_invariants": {
+    "filepath": "./services/report_improvement/evidence_enforcement/publication_invariants.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.canonical_normalisation": {
+    "filepath": "./services/report_improvement/evidence_enforcement/canonical_normalisation.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.adapters": {
+    "filepath": "./services/report_improvement/evidence_enforcement/adapters.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evidence_enforcement.domain_registry": {
+    "filepath": "./services/report_improvement/evidence_enforcement/domain_registry.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.runner": {
+    "filepath": "./services/report_improvement/evaluation/runner.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.models": {
+    "filepath": "./services/report_improvement/evaluation/models.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.factual_alignment": {
+    "filepath": "./services/report_improvement/evaluation/factual_alignment.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.contradiction_check": {
+    "filepath": "./services/report_improvement/evaluation/contradiction_check.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.recommendation_traceability": {
+    "filepath": "./services/report_improvement/evaluation/recommendation_traceability.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.control_recognition": {
+    "filepath": "./services/report_improvement/evaluation/control_recognition.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.narrative_quality": {
+    "filepath": "./services/report_improvement/evaluation/narrative_quality.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.evaluation.customer_specificity": {
+    "filepath": "./services/report_improvement/evaluation/customer_specificity.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.cost_of_inaction": {
+    "filepath": "./services/report_improvement/section_generators/cost_of_inaction.py",
+    "imports": [
+      "evidence_extraction"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.models": {
+    "filepath": "./services/report_improvement/section_generators/models.py",
+    "imports": [
+      "evidence_extraction"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.evidence_selector": {
+    "filepath": "./services/report_improvement/section_generators/evidence_selector.py",
+    "imports": [
+      "evidence_extraction"
+    ],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.executive_summary": {
+    "filepath": "./services/report_improvement/section_generators/executive_summary.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.transformers": {
+    "filepath": "./services/report_improvement/section_generators/transformers.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators": {
+    "filepath": "./services/report_improvement/section_generators/__init__.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.cross_section_context": {
+    "filepath": "./services/report_improvement/section_generators/cross_section_context.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.quality_checks": {
+    "filepath": "./services/report_improvement/section_generators/quality_checks.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.security_rating": {
+    "filepath": "./services/report_improvement/section_generators/security_rating.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.domain_assessments": {
+    "filepath": "./services/report_improvement/section_generators/domain_assessments.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.attack_scenario": {
+    "filepath": "./services/report_improvement/section_generators/attack_scenario.py",
+    "imports": [],
+    "called_by": []
+  },
+  "services.report_improvement.section_generators.compliance_alignment": {
+    "filepath": "./services/report_improvement/section_generators/compliance_alignment.py",
+    "imports": [],
+    "called_by": []
+  }
+}

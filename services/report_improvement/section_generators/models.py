@@ -153,13 +153,14 @@ class DomainScoreInput(BaseModel):
     approved_score_inputs: List[ScoreInputItem] = Field(default_factory=list, min_items=0, max_items=50)
     supporting_claim_ids: List[str] = Field(default_factory=list, min_items=0, max_items=50)
     scoring_policy_version: str
+    eligible_for_score: Optional[bool] = None
 
 
 class DomainScoreResult(BaseModel):
     domain_name: str
     weight: Decimal
-    indicative_score: Decimal
-    weighted_contribution: Decimal
+    indicative_score: Optional[Decimal] = None
+    weighted_contribution: Optional[Decimal] = None
     maturity_band: str
 
     rationale: str
@@ -168,10 +169,13 @@ class DomainScoreResult(BaseModel):
     assurance_penalty_applied: Decimal = Decimal("0")
     consultant_review_required: bool = False
     consultant_question: Optional[str] = None
+    eligible_for_score: bool = True
+    current_maturity_display: str = ""
 
 
 class SecurityRatingOutput(BaseModel):
-    overall_score: Decimal
+    overall_score: Optional[Decimal] = None
+    overall_score_status: Optional[str] = None
     maturity_band: str
     direction_of_travel: str
 

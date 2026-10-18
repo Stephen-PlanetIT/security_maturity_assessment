@@ -159,18 +159,32 @@ def _zero_cost_quick_wins(ev: DomainEvidence) -> List[str]:
 def _recommended_solutions(ev: DomainEvidence) -> List[str]:
     """
     Recommendations must trace to a confirmed gap or validation requirement.
-    Recognise working technology; prefer validate/optimise/phase before replace.
+    Phase 2 Branching:
+    - UNKNOWN / INSUFFICIENT -> validate/assess/confirm only (STRICT: no procurement or new tool deployment)
+    - REPORTED_PRESENT -> validate configuration, testing and coverage
+    - REPORTED_ABSENT -> proportionate implementation or risk acceptance
+    - VERIFIED_PRESENT -> maintain, monitor, and optimise
+    - REQUIRES_SUPPLIER_CONFIRMATION -> request supplier evidence / SLA review
     """
     recs: List[str] = []
     has_gap = len(ev.confirmed_gaps or []) > 0
     has_unknown = len(ev.known_unknowns or []) > 0
-    # Avoid naming unapproved products
-    approved: List[ApprovedProductRecommendation] = list(ev.approved_products or [])[:3]
-    if has_gap or has_unknown:
-        if approved:
-            recs.append("Plan phased optimisation and validation aligned to approved tools")
-        else:
-            recs.append("Validate current controls before considering procurement")
+    has_controls = len(ev.supported_controls or []) > 0
+
+    if not has_controls and not has_gap:
+        # Purely unknown / unestablished
+        recs.append(f"Conduct baseline operational discovery to validate current practices and asset coverage for {ev.domain_name}.")
+        return recs
+
+    if has_unknown and not has_gap:
+        recs.append("Verify existing configurations, logging, and operational procedures before considering additional controls.")
+
+    if has_gap:
+        recs.append("Develop a proportionate remediation plan to address identified domain gaps.")
+
+    if has_controls:
+        recs.append("Review documented operational procedures and schedule periodic control testing.")
+
     # Bound and dedupe
     seen = set()
     out: List[str] = []

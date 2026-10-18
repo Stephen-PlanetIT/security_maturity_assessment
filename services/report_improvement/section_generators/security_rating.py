@@ -138,6 +138,19 @@ def _indicative_score(i: DomainScoreInput) -> Decimal:
     uv = max(0, int(i.unvalidated_control_count))
     pen = min(uv * 0.1, 0.3)
     score = score - Decimal(str(pen))
+
+    # Multi-dimensional cap / Single-control cap:
+    # A single reported control or low-coverage evidence cannot exceed 2.0 (Phase 2 boundary)
+    if total_pos <= 1:
+        if score > Decimal("2.00"):
+            score = Decimal("2.00")
+
+    # Negative evidence does not establish mid-level maturity:
+    # A confirmed absence or coverage limitation may establish a gap, but it does not prove
+    # remaining maturity dimensions. If confirmed positive controls = 0, score cannot exceed 1.0.
+    if total_pos == 0 and total_gap > 0:
+        score = Decimal("1.00")
+
     # Clamp to [1.0, 3.0]
     if score < Decimal("1.0"):
         score = Decimal("1.0")
@@ -244,25 +257,57 @@ def calculate_security_rating(
     norm = _normalise_weights(domain_inputs)
     domain_results: List[DomainScoreResult] = []
     metadata_claims: List[GeneratedClaim] = []
-    # Compute per-domain
+    # Compute per-domain using explicit scale contract
+    # Phase 2: If evidence is insufficient (pos=0 and gaps=0), domain is ineligible for score!
+    # No synthetic scores allowed.
     for (i, w_percent) in norm:
-        score = _indicative_score(i)
-        weight_fraction = (w_percent / Decimal("100")).quantize(Decimal("0.0001"))
-        contrib = (score * weight_fraction).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        band = _maturity_band(score)
-        rationale = _distinct_rationale(i.domain_name, i)
-        dr = DomainScoreResult(
-            domain_name=i.domain_name,
-            weight=w_percent.quantize(Decimal("0.01")),
-            indicative_score=score,
-            weighted_contribution=contrib,
-            maturity_band=band,
-            rationale=rationale,
-            rationale_claim_ids=list(i.supporting_claim_ids or [])[:10],
-            assurance_penalty_applied=Decimal("0"),
-            consultant_review_required=False,
-            consultant_question=None,
-        )
+        pos = max(0, int(i.confirmed_strength_count))
+        gaps = max(0, int(i.confirmed_gap_count))
+        # Authoritative eligibility: defer strictly to the domain package's DomainScoreEligibilityDecision
+        # passed via i.eligible_for_score. If not explicitly provided, fail-closed to False.
+        # Broad count-based rules (pos + gaps > 0 or evidence_coverage > 0) are strictly prohibited.
+        if hasattr(i, "eligible_for_score") and i.eligible_for_score is not None:
+            is_eligible = bool(i.eligible_for_score)
+        else:
+            is_eligible = False
+
+        # Enforce that pure gap evidence (pos == 0) never yields a mid-level maturity score
+        # and if ineligible, score and contribution MUST be None with explicit display.
+        if not is_eligible:
+            dr = DomainScoreResult(
+                domain_name=i.domain_name,
+                weight=w_percent.quantize(Decimal("0.01")),
+                indicative_score=None,
+                weighted_contribution=None,
+                maturity_band="Not established during consultation",
+                rationale=f"[{i.domain_name}] Insufficient domain-specific evidence collected during consultation to establish a defensible maturity rating. Validation required.",
+                rationale_claim_ids=list(i.supporting_claim_ids[:20]),
+                assurance_penalty_applied=Decimal("0"),
+                consultant_review_required=False,
+                consultant_question=None,
+                eligible_for_score=False,
+                current_maturity_display="Not established during consultation",
+            )
+        else:
+            score = _indicative_score(i)
+            pres_score = ((score / Decimal("3")) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            contrib = ((pres_score * w_percent) / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            band = _maturity_band(score)
+            rationale = _distinct_rationale(i.domain_name, i)
+            dr = DomainScoreResult(
+                domain_name=i.domain_name,
+                weight=w_percent.quantize(Decimal("0.01")),
+                indicative_score=score,
+                weighted_contribution=contrib,
+                maturity_band=band,
+                rationale=rationale,
+                rationale_claim_ids=list(i.supporting_claim_ids[:20]),
+                assurance_penalty_applied=Decimal("0"),
+                consultant_review_required=False,
+                consultant_question=None,
+                eligible_for_score=True,
+                current_maturity_display=f"{score} / 3.0 ({band})",
+            )
         domain_results.append(dr)
         # Create internal GeneratedClaim linking rationale to evidence
         if i.supporting_claim_ids:
@@ -272,9 +317,24 @@ def calculate_security_rating(
                 evidence_ids=list(i.supporting_claim_ids or [])[:10],
                 confidence="medium",
             ))
-    # Overall score = sum contributions
-    overall = sum((d.weighted_contribution for d in domain_results), Decimal("0")).quantize(Decimal("0.01"))
-    overall_band = _maturity_band(overall)
+    # Overall score calculation:
+    # Phase 2: If any domains are ineligible, check partial scoring policy.
+    # By default, withhold overall numeric score or mark as provisional.
+    valid_contribs = [d.weighted_contribution for d in domain_results if d.weighted_contribution is not None]
+    ineligible_count = sum(1 for d in domain_results if not d.eligible_for_score)
+
+    if ineligible_count > 0:
+        # Partial scoring: Overall score withheld.
+        # Strict semantic distinction: null (None) = unavailable/withheld evidence, never 0.00.
+        overall_band = "Assessment Incomplete (Evidence Pending)"
+        overall = None
+        overall_status = "WITHHELD_INSUFFICIENT_EVIDENCE"
+    else:
+        overall_contrib = sum(valid_contribs, Decimal("0")).quantize(Decimal("0.01"))
+        native_overall = ((overall_contrib / Decimal("100")) * Decimal("3")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        overall_band = _maturity_band(native_overall)
+        overall = overall_contrib
+        overall_status = "PUBLISHED"
     # Capability Mismatch clamp (Phase 1) when supported
     assurance_penalty = Decimal("0")
     if _capability_mismatch_present(ctx, adjudication):
@@ -299,6 +359,9 @@ def calculate_security_rating(
         strengths = list(dict.fromkeys(strengths))[:5]
     except Exception:
         strengths = []
+    if not strengths:
+        strengths = ["Pending baseline discovery"]
+
     try:
         # Confirmed gaps from adjudication (unsupported/contradicted claims)
         for cl in ((adjudication.unsupported_claims or []) + (adjudication.contradicted_claims or []))[:8]:
@@ -308,6 +371,8 @@ def calculate_security_rating(
         gaps_list = list(dict.fromkeys(gaps_list))[:5]
     except Exception:
         gaps_list = []
+    if not gaps_list:
+        gaps_list = ["Validation of current controls required"]
     # Board takeaway (concise, customer-specific placeholder; specialist ES will refine)
     board_takeaway = "Stabilise foundational hygiene, validate unverified controls, and strengthen detection and response capabilities proportionately."
     # Scoring limitations disclosure
@@ -324,6 +389,7 @@ def calculate_security_rating(
     )
     out = SecurityRatingOutput(
         overall_score=overall,
+        overall_score_status=overall_status,
         maturity_band=overall_band,
         direction_of_travel=direction,
         primary_strengths=strengths,
@@ -333,15 +399,10 @@ def calculate_security_rating(
         scoring_limitations=scoring_limitations,
         metadata=md,
     )
-    # Diagnostics: inject sentinel token and record generator-stage lineage (diagnostic mode only)
+    # Diagnostics: record generator-stage lineage without polluting customer-facing content
     try:
         if is_diagnostics_enabled():
             _rid = ensure_run_id()
-            try:
-                # Inject runtime-only marker into board takeaway
-                out.board_takeaway = f"{out.board_takeaway} TRACE_SECURITY_{_rid}".strip()
-            except Exception:
-                pass
             try:
                 _payload = out.model_dump() if hasattr(out, "model_dump") else out
                 _trace = SectionLineageTrace(run_id=_rid, section_name="security_rating")

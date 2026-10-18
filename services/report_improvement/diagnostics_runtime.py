@@ -423,16 +423,11 @@ def add_gen_token_pydantic(out: Any, section: str) -> Any:
             if hasattr(obj, "scenario_title") and isinstance(getattr(obj, "scenario_title"), str):
                 obj.scenario_title = f"{getattr(obj, 'scenario_title') or ''} {tok}".strip()
         elif section == "compliance_alignment":
-            # ComplianceAlignmentOutput: add one diagnostic FrameworkAlignmentRow
+            # ComplianceAlignmentOutput: record diagnostic sentinel in metadata rather than visible rows
             try:
-                if hasattr(obj, "rows") and isinstance(obj.rows, list):
-                    obj.rows.append(type(obj.rows[0])(
-                        framework_name=f"TRACE_COMPLIANCE_{rid}",
-                        framework_area="diagnostic",
-                        current_position="n/a",
-                        assurance_gap_or_consideration="diagnostic",
-                        recommended_focus="diagnostic",
-                    ))
+                if hasattr(obj, "metadata") and isinstance(obj.metadata, dict):
+                    obj.metadata["trace_sentinel"] = f"TRACE_COMPLIANCE_{rid}"
+                    obj.metadata["run_id"] = rid
             except Exception:
                 pass
         elif section == "cost_of_inaction":

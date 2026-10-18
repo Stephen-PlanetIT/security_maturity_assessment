@@ -128,9 +128,8 @@ def _build_qualitative_narrative(drivers: List[CostDriver]) -> str:
     Compose a proportionate qualitative narrative using the provided drivers.
     """
     if not drivers:
-        return ("Potential impacts should be qualified through validation of current processes and assurance evidence. "
-                "Common business effects include time diverted to investigation, adjustments to delivery schedules, "
-                "and coordination effort across teams.")
+        return ("Potential operational disruption and administrative diversion require ongoing validation of core workflows. "
+                "Planning considerations include investigator time, restoration testing, and stakeholder communications.")
     names = [d.driver_name for d in drivers]
     return ("The consultation highlighted areas where disruption could introduce indirect costs. "
             f"Likely drivers include {', '.join(names[:3])}. "

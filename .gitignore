@@ -15,6 +15,12 @@ tools/
 tests/
 scripts/
 exports/
+diagnostics/
+debug_*
+test_*
+DIAGNOSTIC_*
+*allerton*
+*branded*
 
 # Secrets & environment
 .env

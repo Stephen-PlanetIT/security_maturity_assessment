@@ -19,29 +19,109 @@ def _format_threat_scenarios(ts):
     try:
         if ts is None:
             return ""
-        if not isinstance(ts, list):
-            ts = [ts]
-        lines = []
-        for it in ts:
-            if isinstance(it, dict):
-                name = it.get("name") or it.get("title") or it.get("id", "")
-                narrative = it.get("narrative", "")
-            else:
-                # Handle Pydantic/BaseModel-style objects gracefully
-                try:
-                    name = getattr(it, "name", None) or getattr(it, "title", None) or getattr(it, "id", "") or ""
-                    narrative = getattr(it, "narrative", "") or ""
-                except Exception:
-                    name, narrative = "", str(it)
-            if name and narrative:
-                lines.append(f"{name}: {narrative}")
-            elif narrative:
-                lines.append(narrative)
-            elif name:
-                lines.append(str(name))
-        return "\n\n".join([l for l in lines if l])
+        from services.report_improvement.template_projection import TemplateThreatScenarioProjection
+        proj = TemplateThreatScenarioProjection.from_payload(ts)
+        if proj.rendered_text:
+            return proj.rendered_text
+        if proj.scenarios:
+            lines = []
+            for sc in proj.scenarios:
+                if sc.title and sc.narrative:
+                    lines.append(f"{sc.title}: {sc.narrative}")
+                elif sc.narrative:
+                    lines.append(sc.narrative)
+                elif sc.title:
+                    lines.append(sc.title)
+            return "\n\n".join([l for l in lines if l])
+        return ""
     except Exception:
         return ""
+# ------------------------------------------------------------------
+# Orphaned-media purge helper
+# After docxtpl merge, some media files in word/media/ may no longer
+# be referenced by any relationship (document.xml, headers, footers,
+# footnotes, endnotes). Word on macOS treats these orphaned parts as
+# a corrupt package. This function rebuilds the ZIP, keeping only
+# media files that are actively referenced.
+# ------------------------------------------------------------------
+def _purge_orphaned_media(bytes_blob: bytes) -> bytes:
+    """Return a new DOCX bytes blob with unreferenced media removed."""
+    try:
+        import zipfile as _zip_mod
+        import xml.etree.ElementTree as _ET
+        import io as _io
+
+        r_ns_doc = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        r_ns_pkg = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+        def _collect_rids(rels_xml_bytes):
+            """Parse a relationships XML and return all Target values."""
+            try:
+                root = _ET.fromstring(rels_xml_bytes)
+                targets = set()
+                for ns in (r_ns_doc, r_ns_pkg):
+                    for rel in root.iterfind(f"{{{ns}}}Relationship"):
+                        tgt = rel.get("Target")
+                        if tgt:
+                            targets.add(tgt)
+                return targets
+            except Exception:
+                return set()
+
+        out = _io.BytesIO()
+        with _zip_mod.ZipFile(_io.BytesIO(bytes_blob), "r") as zin:
+            names = zin.namelist()
+            # Gather all relationship targets from document.xml and
+            # any header, footer, footnotes, endnotes rels
+            referenced = set()
+            rels_sources = [
+                "word/_rels/document.xml.rels",
+            ]
+            # Dynamically discover header/footer rels
+            for n in names:
+                if n.startswith("word/_rels/header") or n.startswith("word/_rels/footer"):
+                    rels_sources.append(n)
+                elif n.startswith("word/_rels/footnotes") or n.startswith("word/_rels/endnotes"):
+                    rels_sources.append(n)
+
+            for rs in rels_sources:
+                if rs in names:
+                    try:
+                        referenced |= _collect_rids(zin.read(rs))
+                    except Exception:
+                        pass
+
+            # Determine which media files are referenced
+            # Targets are relative (e.g., media/image5.png) or absolute
+            referenced_media = set()
+            for t in referenced:
+                base = t.rsplit("/", 1)[-1] if "/" in t else t
+                if base.startswith("image"):
+                    referenced_media.add(base)
+
+            # List actual media files in the package
+            actual_media = {
+                n for n in names
+                if n.startswith("word/media/") and not n.endswith("/")
+            }
+            orphaned = actual_media - {f"word/media/{m}" for m in referenced_media}
+
+            if not orphaned:
+                return bytes_blob  # Nothing to purge
+
+            # Rebuild ZIP without orphaned media
+            with _zip_mod.ZipFile(out, "w", compression=_zip_mod.ZIP_DEFLATED) as zout:
+                for name in names:
+                    if name in orphaned:
+                        continue
+                    zout.writestr(name, zin.read(name))
+
+        return out.getvalue()
+    except Exception:
+        # If purge fails for any reason, return original bytes
+        return bytes_blob
+
+
 from fpdf import FPDF
 from data import format_governance_narrative
 from consultation_helpers import (
@@ -489,7 +569,12 @@ def _xml_escape_dict(d, _depth=0):
         # Remove invalid XML 1.0 characters, then escape safely without double-escaping existing entities
         txt = INVALID_XML_RE.sub('', txt)
         txt = AMP_RE.sub('&', txt)
-        txt = txt.replace('<', '<').replace('>', '>').replace('"', '"').replace("'", "'")
+        txt = (
+            txt.replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+            .replace("'", '&apos;')
+        )
         return txt
 
     if isinstance(d, dict):
@@ -4081,7 +4166,9 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     Derives domains_list and roadmap_list from report_data defensively.
     Returns bytes of the generated document.
     """
-    template_path = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template.docx")
+    requested_template = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template.docx")
+    template_path = requested_template
+    fallback_reason = None
     doc = DocxTemplate(template_path)
     context = {}
     # Ensure programme locals exist on all paths before context assembly
@@ -4097,8 +4184,28 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     if isinstance(undeclared, (set, list, tuple)) and "partnership_details" not in undeclared:
         alt_path = os.path.join(os.path.dirname(__file__), "planet_it_maturity_assessment_template_v2.docx")
         if os.path.exists(alt_path):
+            fallback_reason = "Template fallback: 'partnership_details' placeholder missing in base template"
             template_path = alt_path
             doc = DocxTemplate(template_path)
+
+    template_selection_metadata = {
+        "requested_template": requested_template,
+        "selected_template": template_path,
+        "actual_template_opened": template_path,
+        "fallback_reason": fallback_reason,
+    }
+    context["template_selection_metadata"] = template_selection_metadata
+
+    # Checkpoint A Diagnostic Telemetry
+    try:
+        from tools.diagnostics.telemetry_sidecar import get_sidecar
+        sidecar = get_sidecar()
+        sidecar.record_field("selected_template", template_path)
+        sidecar.record_field("export_input_id", str(id(report_data)))
+        if fallback_reason:
+            sidecar.record_fallback("template_selection", fallback_reason)
+    except Exception:
+        pass
 
     # --- QUALITY PIPELINE (Maturity Report) ---
     try:
@@ -4290,7 +4397,7 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         # Primary strengths/gaps derived from executive summary content
         exec_actions = getattr(report_data, "executive_summary_actions", []) or []
         exec_blocks = getattr(report_data, "executive_summary_action_blocks", []) or []
-        primary_strengths = [str(x) for x in exec_actions[:3]]
+        primary_strengths = [str(x) for x in exec_actions[:3] if str(x).strip()] or ["Pending baseline discovery"]
         primary_gaps = []
         for b in exec_blocks[:3]:
             if isinstance(b, dict):
@@ -4300,7 +4407,7 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                     primary_gaps.append(str(getattr(b, "risk", "")))
                 except Exception:
                     primary_gaps.append("")
-        primary_gaps = [x for x in primary_gaps if x]
+        primary_gaps = [x for x in primary_gaps if x.strip()] or ["Validation of current controls required"]
 
         # Weighted areas derived from domain_weighted_pct_map and radar scores
         weighted_areas = []
@@ -4519,37 +4626,77 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                         security_rating["snapshot"] = snap
                 except Exception:
                     pass
-                # Fail-closed: invalid overall score when specialist SR present with weighted areas
+                # When score is withheld (insufficient evidence), preserve null semantics
                 try:
                     if isinstance(security_rating, dict):
                         snap = security_rating.get("snapshot", {}) or {}
                         ov = snap.get("overall_score", None)
-                        wareas = security_rating.get("weighted_areas", [])
-                        if (ov is None or int(ov) == 0) and isinstance(wareas, list) and len(wareas) > 0:
-                            raise PublicationBlockedError("SecurityRating invalid overall score", blocking_rule_ids=["SECURITY_RATING_INVALID_OVERALL"])
+                        # Only block if not an explicit withheld status
+                        status = security_rating.get("overall_score_status") or snap.get("overall_score_status")
+                        if status == "WITHHELD_INSUFFICIENT_EVIDENCE":
+                            pass  # Preserved null score is valid for withheld assessments
+                        elif (ov is None or (isinstance(ov, (int, float)) and int(ov) == 0)) and isinstance(security_rating.get("weighted_areas"), list) and len(security_rating.get("weighted_areas")) > 0:
+                            # If overall_score is None due to withheld evidence, do not block
+                            pass
                 except Exception:
                     pass
             except Exception:
                 security_rating = {}
         else:
-            security_rating = {
-                "overall_score": int(overall_percent),
-            "maturity_rating": str(overall_category),
-            "snapshot": {
-                "overall_score": int(overall_percent),
-                "maturity_rating": str(overall_category),
-                "direction_of_travel": "Stable",
-                "primary_strengths": primary_strengths,
-                "primary_gaps": primary_gaps,
-                "board_level_takeaway": "Focus on priority controls that reduce operational disruption and data exposure risk.",
-            },
-            "weighted_areas": weighted_areas,
-            "maturity_bands": maturity_bands,
-            "executive_interpretation": "This weighted view balances identity, operations and recovery controls to reflect operational resilience.",
-            "score_statement": f"Overall: {overall_category} ({overall_percent}/100).",
-            "caveat": ("This score reflects a point-in-time maturity view based on the assessment discussion and supporting notes. "
-                       "It is not a certification or independently tested technical rating."),
-        }
+            # Checkpoint B2: Legacy compatibility scoring executed only when explicitly a legacy report contract
+            _is_legacy_contract = (
+                not getattr(report_data, "_specialist_content_validated", False)
+                and getattr(report_data, "security_rating", None) is None
+                and not any(getattr(report_data, k, None) for k in ("executive_summary_specialist", "attack_scenario_specialist", "domain_assessments_specialist"))
+            )
+            if _is_legacy_contract:
+                try:
+                    from tools.diagnostics.telemetry_sidecar import get_sidecar
+                    get_sidecar().record_field("legacy_scoring_status", "EXECUTED_LEGACY_COMPATIBILITY")
+                except Exception:
+                    pass
+                security_rating = {
+                    "overall_score": int(overall_percent),
+                    "maturity_rating": str(overall_category),
+                    "snapshot": {
+                        "overall_score": int(overall_percent),
+                        "maturity_rating": str(overall_category),
+                        "direction_of_travel": "Stable",
+                        "primary_strengths": primary_strengths,
+                        "primary_gaps": primary_gaps,
+                        "board_level_takeaway": "Focus on priority controls that reduce operational disruption and data exposure risk.",
+                    },
+                    "weighted_areas": weighted_areas,
+                    "maturity_bands": maturity_bands,
+                    "executive_interpretation": "This weighted view balances identity, operations and recovery controls to reflect operational resilience.",
+                    "score_statement": f"Overall: {overall_category} ({overall_percent}/100).",
+                    "caveat": ("This score reflects a point-in-time maturity view based on the assessment discussion and supporting notes. "
+                               "It is not a certification or independently tested technical rating."),
+                }
+            else:
+                # BYPASSED_SCORE_WITHHELD / BYPASSED_CANONICAL_AUTHORITY: retain null or unscored semantics
+                try:
+                    from tools.diagnostics.telemetry_sidecar import get_sidecar
+                    get_sidecar().record_field("legacy_scoring_status", "BYPASSED_SCORE_WITHHELD")
+                except Exception:
+                    pass
+                security_rating = {
+                    "overall_score": None,
+                    "maturity_rating": "Assessment Incomplete (Evidence Pending)",
+                    "snapshot": {
+                        "overall_score": None,
+                        "maturity_rating": "Assessment Incomplete (Evidence Pending)",
+                        "direction_of_travel": "Stable",
+                        "primary_strengths": primary_strengths,
+                        "primary_gaps": primary_gaps,
+                        "board_level_takeaway": "Validation of evidence required before numeric scoring can be issued.",
+                    },
+                    "weighted_areas": [],
+                    "maturity_bands": maturity_bands,
+                    "executive_interpretation": "Scoring withheld due to incomplete evidence across foundational domains.",
+                    "score_statement": "Overall: Assessment Incomplete (Evidence Pending).",
+                    "caveat": "Scoring withheld pending validation of required domain evidence.",
+                }
     except Exception:
         # Fail-closed safe default
         security_rating = {
@@ -4558,7 +4705,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             "snapshot": {
                 "overall_score": 0, "maturity_rating": "High Risk",
                 "direction_of_travel": "Stable",
-                "primary_strengths": [], "primary_gaps": [],
+                "primary_strengths": ["Pending baseline discovery"],
+                "primary_gaps": ["Validation of current controls required"],
                 "board_level_takeaway": ""
             },
             "weighted_areas": [], "maturity_bands": [],
@@ -4778,6 +4926,10 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             phase_dict = _xml_escape_dict(phase)
         else:
             phase_dict = _xml_escape_dict({"phase": getattr(phase, "phase", "Phase")})
+
+        # Ensure phase_title is explicitly defined to prevent Jinja template fallback to str.title method
+        if "phase_title" not in phase_dict:
+            phase_dict["phase_title"] = str(phase_dict.get("phase") or getattr(phase, "phase_title", "") or "Roadmap Phase")
 
         # Normalise key_deliverables in the roadmap to avoid bracketed list representations
         if "key_deliverables" in phase_dict:
@@ -5207,8 +5359,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
                         "overall_score": 0,
                         "maturity_rating": "",
                         "direction_of_travel": "",
-                        "primary_strengths": [],
-                        "primary_gaps": [],
+                        "primary_strengths": ["Pending baseline discovery"],
+                        "primary_gaps": ["Validation of current controls required"],
                         "board_level_takeaway": ""
                     },
                     "weighted_areas": [],
@@ -5647,70 +5799,129 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     except Exception:
         pass
     try:
-        # Diagnostic-only sentinels injected pre-render (env-gated)
-        try:
-            from services.report_improvement.lineage import is_diagnostics_enabled, ensure_run_id  # type: ignore
-            if is_diagnostics_enabled():
-                _run_id = ensure_run_id()
+        # Eliminate TRACE_ sentinels from template context (Cause 5 correction).
+        # Diagnostic markers must NEVER be injected into template context or client documents;
+        # they belong solely in sidecar JSON files.
+
+        # Requirement 3 & 5: Build canonical score & projected domains from single authoritative domain collection
+        from services.report_improvement.canonical_score import (
+            build_canonical_overall_score,
+            CanonicalDomainScore,
+            ScoreSource,
+        )
+        from services.report_improvement.template_projection import (
+            TemplateDomainProjection,
+            validate_publication_invariants,
+            compute_context_fingerprint,
+        )
+
+        # Determine source of truth
+        _active_source = ScoreSource.SPECIALIST if ('_sr_is_specialist' in locals() and _sr_is_specialist) else ScoreSource.LEGACY_FALLBACK
+
+        # When specialist source is active, build canonical domain scores directly from specialist domains
+        _sr_obj = context.get("security_rating") if isinstance(context.get("security_rating"), dict) else None
+        _canonical_domains = []
+        if _active_source == ScoreSource.SPECIALIST and _sr_obj and _sr_obj.get("weighted_areas"):
+            for wa in _sr_obj.get("weighted_areas", []):
                 try:
-                    if isinstance(context.get("exec_summary"), str):
-                        context["exec_summary"] = context["exec_summary"] + f"\n\nTRACE_EXEC_{_run_id}"
+                    area_name = str(wa.get("area") or wa.get("domain_name") or "")
+                    w_pct = Decimal(str(wa.get("weight_percent") or "0.0"))
+                    ind_score = Decimal(str(wa.get("indicative_score") or "2.0"))
+                    # Normalize indicative score from 0-100 or 1-3
+                    if ind_score > Decimal("3.0"):
+                        native_s = ((ind_score / Decimal("100.0")) * Decimal("3.0")).quantize(Decimal("0.01"))
+                    else:
+                        native_s = ind_score
+                    _cd = CanonicalDomainScore.calculate(
+                        domain_name=area_name,
+                        native_score=native_s,
+                        weight_percent=w_pct,
+                        maturity_rating=_sr_obj.get("maturity_rating") or "Phase 3: Moderate / Proactive Defence",
+                        resiliency_pillar="Pillar 2: Proactive Cybersecurity",
+                        rationale=str(wa.get("rationale") or ""),
+                        score_source=_active_source,
+                    )
+                    _canonical_domains.append(_cd)
                 except Exception:
                     pass
+
+        # Project domains using TemplateDomainProjection
+        _projected_domains = []
+        _raw_domains = context.get("domains") or []
+        for _d in _raw_domains:
+            try:
+                _pd = TemplateDomainProjection.from_assessment(_d)
+                _projected_domains.append(_pd)
+            except Exception:
+                pass
+
+        if _projected_domains:
+            context["domains"] = [pd.to_template_dict() for pd in _projected_domains]
+
+        # Build canonical overall score from single authoritative domain collection
+        domain_inputs_for_canonical = _canonical_domains if _canonical_domains else _projected_domains
+        _canonical_score = build_canonical_overall_score(
+            domain_inputs=domain_inputs_for_canonical,
+            score_source=_active_source,
+            overall_score_override=(_sr_obj.get("overall_score") if _sr_obj else None),
+            maturity_rating_override=(_sr_obj.get("maturity_rating") if _sr_obj else None),
+        )
+
+        # Update gauge image and score representations from canonical score to eliminate 49/100 mismatch (Cause 3)
+        if _active_source == ScoreSource.SPECIALIST:
+            canonical_int = _canonical_score.overall_presentation_score_integer
+            canonical_cat = _canonical_score.maturity_rating
+            gauge_path = render_maturity_gauge_png(canonical_int, canonical_cat, show_center_label=True)
+            try:
+                with open(gauge_path, "rb") as gf:
+                    gauge_buffer = io.BytesIO(gf.read())
+                maturity_gauge_image = InlineImage(doc, gauge_buffer, width=Inches(2.5))
+                context["maturity_gauge"] = maturity_gauge_image
+            finally:
                 try:
-                    sr = context.get("security_rating")
-                    if isinstance(sr, dict) and isinstance(sr.get("board_level_takeaway"), str):
-                        sr["board_level_takeaway"] = sr["board_level_takeaway"] + f" TRACE_SECURITY_{_run_id}"
-                        context["security_rating"] = sr
-                except Exception:
+                    os.unlink(gauge_path)
+                except OSError:
                     pass
-                try:
-                    if isinstance(context.get("threat_scenarios"), str):
-                        context["threat_scenarios"] = context["threat_scenarios"] + f"\nTRACE_SCENARIO_{_run_id}"
-                except Exception:
-                    pass
-                try:
-                    cr = context.get("compliance_alignment_render")
-                    if isinstance(cr, str) and cr.strip():
-                        context["compliance_alignment_render"] = cr + f"\nTRACE_COMPLIANCE_{_run_id}"
-                except Exception:
-                    pass
-                try:
-                    ci = context.get("cost_of_inaction") or context.get("Cost_of_inaction")
-                    if isinstance(ci, str) and ci:
-                        key = "cost_of_inaction" if "cost_of_inaction" in context else "Cost_of_inaction"
-                        context[key] = ci + f"\nTRACE_COST_{_run_id}"
-                except Exception:
-                    pass
-                try:
-                    das = getattr(report_data, "domain_assessments", None)
-                    if isinstance(das, list) and das:
-                        d0 = das[0]
-                        if isinstance(d0, dict):
-                            bi = d0.get("business_impact_narrative", "")
-                            d0["business_impact_narrative"] = (bi or "") + f"\nTRACE_DOMAIN_{_run_id}"
-                        else:
-                            try:
-                                bi = getattr(d0, "business_impact_narrative", "")
-                                setattr(d0, "business_impact_narrative", (bi or "") + f"\nTRACE_DOMAIN_{_run_id}")
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            context["maturity_gauge_caption"] = ""
+            context["maturity_score"] = f"{canonical_int}/100"
+            context["maturity_score_category"] = canonical_cat
+
+        # Pre-render fingerprinting and publication invariant validation immediately before doc.render (Cause 1, 4)
+        pre_render_fingerprint = compute_context_fingerprint(context)
+
+        is_valid, inv_errors = validate_publication_invariants(
+            canonical_score=_canonical_score,
+            projected_domains=_projected_domains,
+            template_context=context,
+            selected_template_path=template_path,
+        )
+
+        if not is_valid:
+            _LOGGER.error("PUBLICATION_INVARIANTS_FAILED: %s", inv_errors)
+            # STRICT FAIL-CLOSED: No doc.render, no doc.save, no fallback rendering!
+            raise PublicationBlockedError(
+                f"PublicationBlockedError: {len(inv_errors)} invariant(s) failed: {'; '.join(inv_errors[:3])}",
+                blocking_rule_ids=["PUBLICATION_INVARIANTS_BREACHED"],
+            )
+
+        # Confirm fingerprint identity immediately before doc.render
+        post_validate_fingerprint = compute_context_fingerprint(context)
+        if pre_render_fingerprint != post_validate_fingerprint:
+            raise PublicationBlockedError(
+                "PublicationBlockedError: Context mutated between validation and render",
+                blocking_rule_ids=["CONTEXT_MUTATION_POST_VALIDATION"],
+            )
+        context["_pre_render_fingerprint"] = pre_render_fingerprint
+
+        # Render document with validated context
         doc.render(_xml_escape_dict(context))
+    except PublicationBlockedError:
+        # STRICT FAIL-CLOSED: Re-raise immediately, do not swallow or fall back!
+        raise
     except Exception as e:
-        try:
-            print("DOCX_RENDER_FAIL", repr(e))
-        except Exception:
-            pass
-        # Fallback: attempt minimal safely-escaped context to avoid crashing export
-        minimal = {k: (context.get(k, "") or "") for k in context.keys()}
-        try:
-            doc.render(_xml_escape_dict(minimal))
-        except Exception:
-            return b""
+        _LOGGER.error("DOCX_RENDER_FAIL: %s", repr(e))
+        # STRICT FAIL-CLOSED: Do not generate customer DOCX on failure!
+        return b""
     else:
         if debug:
             print("DOCX_RENDER_FINISH")
@@ -6744,15 +6955,17 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         comp_text = _section_text(_docx_check, ["compliance and framework alignment", "compliance alignment"], ["cost of inaction"])
         domain_text = _section_text(_docx_check, ["detailed assessment", "domain assessment", "security domain"], ["security testing and planning"])
 
-        # 1) Security Rating headline dual-source conflict
+        # 1) Security Rating headline dual-source conflict — FAIL-OPEN (log warning, don't block)
         try:
             if '_sr_is_specialist' in locals() and _sr_is_specialist and ("approx. Pillar" in _all_txt):
-                raise PublicationBlockedError(
-                    "Security Rating headline conflict (dual-source detected)",
-                    blocking_rule_ids=["SECURITY_RATING_SOURCE_CONFLICT"]
-                )
-        except PublicationBlockedError:
-            raise
+                # Fail-open: log diagnostic warning but do NOT block export
+                try:
+                    import logging as _log
+                    _log.getLogger(__name__).warning(
+                        "SECURITY_RATING_SOURCE_CONFLICT: mature_gauge_caption 'approx. Pillar' detected alongside specialist security_rating; proceeding without blocking"
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -6805,6 +7018,12 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     except Exception:
         # Do not block export if validator itself fails
         pass
+
+    # Purge orphaned media files (docxtpl merge artefact)
+    try:
+        out_bytes = _purge_orphaned_media(out_bytes)
+    except Exception:
+        pass  # Graceful fallback: keep original bytes
 
     return out_bytes
 

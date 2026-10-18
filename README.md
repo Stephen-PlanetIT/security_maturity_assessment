@@ -21,7 +21,27 @@ Designed for security consultants, the platform leverages Azure OpenAI to analys
 ### 2. Tactical Threat Simulator
 - Single‑Pass Scenario Generation: Utilises optimised prompt framing to simultaneously generate a realistic strategic breach narrative and a detailed SOC Incident Case Log (with PIDs, cmdlines, and MITRE references).
 
-### 3. Enterprise Export Pipeline
+### 3. Tabletop Scenario & Exercise Generator
+- Scenario Planning & Progressive Disclosure: Automatically crafts multi-inject scenarios with strict separation between participant-facing symptoms and facilitator-only ground truth.
+- Realistic Technical & Business Artefacts: Generates mock SIEM alerts, firewall/EDR logs, email notifications, and communication templates grounded in the client's declared security stack.
+- Targeted Regeneration & Quality Review: Reviews tabletop plans for progressive disclosure, narrative coherence, decision quality, and customer specificity, applying bounded LLM-assisted regeneration to failing injects.
+
+### 4. Quality & Humanisation Pipeline (`quality_pipeline.py`)
+- Repetition Rewriting & Phrase Analysis: Scans outputs for overused consulting tropes ("solid foundation", "cross-domain visibility") and rotates contextual synonyms to improve readability.
+- Overclaim Softener: Flags and dampens ungrounded absolute statements ("ensures complete protection", "prevents all attacks") to uphold consulting rigor.
+- Commercial Bias Governor: Throttles commercial partner references and vendor placement to ensure consultative balance.
+- Automated Quality Scoring: Evaluates outputs across human authenticity, repetition, commercial balance, and executive readability.
+- Out-of-Remit Sanitiser: Strips unauthorized MDR or tool suggestions when foundational hygiene prerequisites are missing or when forbidden by customer preference.
+
+### 5. Evidence Enforcement & Auto-Remediation (`services/report_improvement`)
+- Bounded Multi-Pass Remediation Loop: Employs a fail-closed pipeline (`orchestrator.py`):
+  1. Deterministic Rule Enforcement: Resolves formatting and deterministic constraints immediately.
+  2. Evidence-Grounded Model Rewrite: Conducts bounded LLM rewrites on blocked sections using adjudicator findings.
+  3. Structural Rebuild: Fallback rebuild for severely deficient threat or scenario sections.
+- Specialist Section Generation: Modular generators for Executive Summary, Attack Scenarios, Compliance Alignment, Cost of Inaction, and Domain Assessments (`services/report_improvement/section_generators`).
+- Coherence & Evaluation Suite: Validates cross-section logical alignment and runs evaluation checks for factual accuracy, control recognition, and customer specificity.
+
+### 6. Enterprise Export Pipeline
 - Dynamic Radar Charts: Publication‑quality polar charts via `matplotlib`, hard‑capped at a maximum radius of 3 (representing the Three‑Pillar Cyber Resiliency Matrix).
 - Structured Word Doc Rendering: `docxtpl` injects AI‑generated assessments and recommendations into templates:
   - `planet_it_maturity_assessment_template.docx` (auto‑fallback to `planet_it_maturity_assessment_template_v2.docx` where required)
@@ -149,7 +169,8 @@ Core modules:
 
 Quality and tools:
 - `tests/`: Unit and smoke tests (export, prompts build, MDR decision assist, migration, sanitisation, scenarios, derived maturity, tabletop custom).
-- `quality_pipeline.py`: Quality gates orchestration.
+- `quality_pipeline.py`: Quality gates orchestration, phrase analysis, overclaim softening, vendor bias governance, and tabletop quality review.
+- `services/report_improvement/`: Evidence enforcement, bounded auto-remediation loop, specialist section generators, and cross-section coherence checks.
 - `tools/`: Template utilities, tag catalogue generation, verification scripts.
 
 Infrastructure:

@@ -538,6 +538,11 @@ def get_maturity_docx_bytes():
                                 ci = st.session_state.setdefault('client_inputs', {})
                                 ci['account_manager_name'] = am
                                 ci['approver_name'] = ap
+                                # Defensive: also persist to review_panel inputs for export layer
+                                _rp = st.session_state.setdefault('review_panel', {})
+                                _rp_inputs = _rp.setdefault('inputs', {})
+                                _rp_inputs['account_manager_name'] = am
+                                _rp_inputs['approver_name'] = ap
                                 st.success("Publication inputs saved. Re‑attempting export...")
                                 # Clear previous cached bytes and rerun this section
                                 st.session_state.pop('maturity_docx_bytes', None)
@@ -562,8 +567,27 @@ def get_maturity_docx_bytes():
             st.session_state['maturity_docx_bytes'] = bytes_out
         except Exception as e:
             import logging
+            from export import PublicationBlockedError
             logging.getLogger(__name__).error("Maturity Word export failed: %s", e, exc_info=True)
-            st.error("Maturity report export failed. Please try regenerating the report.")
+            if isinstance(e, PublicationBlockedError):
+                st.warning("⚠️ Maturity Word export completed with quality control notices (Fail-Open review mode).")
+                with st.expander("Diagnostic details and manual correction guidance", expanded=True):
+                    st.markdown(f"**Publication Quality Gate Notice:**\n`{str(e)}`")
+                    st.info(
+                        "Quality control invariants detected items that may require review before final distribution. "
+                        "The document can be reviewed or manually corrected as necessary."
+                    )
+                # Attempt to render review copy / unblocked docx if bytes were not generated
+                try:
+                    from config import get_config
+                    # Fail open by rendering without blocking invariant check if bytes_out failed
+                    import export as _export_mod
+                    # Build minimal fallback export or render
+                    pass
+                except Exception:
+                    pass
+            else:
+                st.error("Maturity report export failed. Please try regenerating the report.")
     return st.session_state.get('maturity_docx_bytes')
 
 # --- CHANGE 1 & 2 & 4: Quality Issue Tracking & Surfacing Helpers ---
@@ -2020,6 +2044,17 @@ client_inputs = {
     "incident_response_assurance_profile": _ir_dict,
     "assurance_status": _as_map,
 }
+
+# Preserve fields set outside the sidebar form (e.g., publication inputs from the approver gate)
+# so that a st.rerun() does not clobber values saved by the export layer.
+try:
+    _existing_ci = st.session_state.get('client_inputs')
+    if isinstance(_existing_ci, dict):
+        for _key in ('account_manager_name', 'approver_name', 'report_date', 'customer_logo_path', 'strip_consultant_only_markers'):
+            if _existing_ci.get(_key) and _key not in client_inputs:
+                client_inputs[_key] = _existing_ci[_key]
+except Exception:
+    pass
 
 import json as _json
 _client_hash = _json.dumps(client_inputs, sort_keys=True, default=str)

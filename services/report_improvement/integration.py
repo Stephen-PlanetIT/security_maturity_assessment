@@ -219,18 +219,20 @@ def improve_generated_maturity_report(
         return result
 
     # Step 5: Reconstruct improved MaturityReport (best-effort)
+    # Checkpoint B2: Reconcile authoritative specialist outputs into declared model fields
+    from services.report_improvement.authority_map import reconcile_maturity_report_dict
+    reconciled_report_dict = reconcile_maturity_report_dict(final_report_dict, raw_report)
     improved_model: Any = None
     try:
         if MaturityReport is not None:
             if hasattr(MaturityReport, "model_validate"):
-                improved_model = MaturityReport.model_validate(final_report_dict)  # type: ignore
+                improved_model = MaturityReport.model_validate(reconciled_report_dict)  # type: ignore
             else:
-                improved_model = MaturityReport(**final_report_dict)  # type: ignore
+                improved_model = MaturityReport(**reconciled_report_dict)  # type: ignore
         else:
-            # Fallback: mutate the original report object in-place for export compatibility
             improved_model = raw_report
             try:
-                for k, v in (final_report_dict or {}).items():
+                for k, v in (reconciled_report_dict or {}).items():
                     try:
                         setattr(improved_model, k, v)
                     except Exception:
@@ -252,7 +254,7 @@ def improve_generated_maturity_report(
         result.failure_reason = repr(exc)
         try:
             improved_model = raw_report
-            for k, v in (final_report_dict or {}).items():
+            for k, v in (reconciled_report_dict or final_report_dict or {}).items():
                 try:
                     setattr(improved_model, k, v)
                 except Exception:
@@ -266,7 +268,6 @@ def improve_generated_maturity_report(
                 pass
             result.improved_report = improved_model
         except Exception:
-            # If even fallback fails, leave improved_report as None (fail-closed)
             result.improved_report = None
 
     return result

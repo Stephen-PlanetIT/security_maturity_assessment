@@ -81,10 +81,27 @@ else:
 
     # Export deliverable from page
     if st.session_state.get("maturity_obj"):
+        try:
+            from tools.diagnostics.telemetry_sidecar import get_sidecar
+            sidecar = get_sidecar()
+            sidecar.record_field("entry_point", "pages/01_Maturity_Relay.py")
+            sidecar.record_field("export_input_id", f"{type(st.session_state['maturity_obj']).__name__}@{id(st.session_state['maturity_obj'])}")
+        except Exception:
+            pass
         with st.spinner("Preparing Word document..."):
             try:
                 bytes_docx = create_maturity_docx(client_inputs, st.session_state["maturity_obj"])
+                try:
+                    from tools.diagnostics.telemetry_sidecar import get_sidecar
+                    get_sidecar().record_field("final_render_status", "SUCCESS")
+                except Exception:
+                    pass
             except Exception as e:
+                try:
+                    from tools.diagnostics.telemetry_sidecar import get_sidecar
+                    get_sidecar().record_field("final_render_status", f"FAILED: {e}")
+                except Exception:
+                    pass
                 bytes_docx = b""
                 st.error(f"Word export failed: {e}")
         if bytes_docx:

@@ -43,6 +43,16 @@ def enforce_report(
     Pass 2: evidence-grounded rewrite (max 2 attempts per blocking section)
     Pass 3: section rebuild (reserved for future)
     """
+    try:
+        from tools.diagnostics.telemetry_sidecar import get_sidecar
+        sidecar = get_sidecar()
+        sidecar.record_field("orchestrator_status", "INVOKED")
+        sidecar.record_field("original_report_id", f"{type(original_report).__name__}@{id(original_report)}")
+        sidecar.record_field("improved_report_id", f"{type(improved_report).__name__}@{id(improved_report)}")
+        sidecar.record_field("adjudication_producer_id", f"{type(adjudication).__name__}@{id(adjudication)}")
+    except Exception:
+        pass
+
     # Build enforcement context
     ctx = _val._build_context(adjudication)
 
@@ -83,6 +93,35 @@ def enforce_report(
 
     # Start from improved_report copy
     final_report = dict(improved_report or {})
+
+    # Phase 2: Central Domain Evidence Allocation & Packaging
+    try:
+        from services.report_improvement.evidence_enforcement.domain_registry import DomainAllocationRegistry, ALL_MATURITY_DOMAINS
+        from services.report_improvement.evidence_enforcement.canonical_normalisation import create_canonical_record
+        from services.report_improvement.evidence_enforcement.canonical_models import EvidenceScope
+
+        reg = DomainAllocationRegistry()
+        # Register and route existing controls
+        for idx, ctrl in enumerate(ctx.existing_controls or []):
+            c_name = str(getattr(ctrl, "canonical_name", f"control_{idx}"))
+            rec = create_canonical_record(
+                evidence_id=f"ctrl_{idx}",
+                canonical_topic=c_name,
+                raw_statement=c_name,
+                scope=EvidenceScope.DOMAIN_SPECIFIC_CONTROL,
+                applicable_domains=getattr(ctrl, "applicable_domains", []) or [],
+            )
+            reg.register_evidence(rec)
+            for d in rec.applicable_domains:
+                reg.allocate_to_domain(rec.evidence_id, d, "Adjudicated existing control")
+
+        # Build domain evidence packages
+        domain_packages = {}
+        for d_key, d_name in ALL_MATURITY_DOMAINS:
+            domain_packages[d_key] = reg.build_domain_package(d_key, d_name)
+        final_report["phase2_domain_packages"] = domain_packages
+    except Exception:
+        pass
     # Optional specialist generation pass (feature toggle; default-ON via config helper)
     try:
         from config import is_specialist_enabled as _is_sgen
@@ -178,6 +217,9 @@ def enforce_report(
                         unknown_cnt = len(getattr(si_dom, "known_unknowns", []) or [])
                         unvalidated_cnt = 0
                         weight = Decimal(str(100/len(domain_keys))) if domain_keys else Decimal("0")
+                        # Authoritative domain package eligibility decision lookup
+                        pkg_for_d = domain_packages.get(dk)
+                        d_eligible = getattr(pkg_for_d, "eligible_for_score", False) if pkg_for_d else False
                         d_inputs.append(
                             DomainScoreInput(
                                 domain_name=dk,
@@ -190,6 +232,7 @@ def enforce_report(
                                 approved_score_inputs=[],
                                 supporting_claim_ids=[str(getattr(c, "claim_id", "")) for c in (getattr(si_dom, "supported_claims", []) or [])][:10],
                                 scoring_policy_version=SCORING_POLICY_VERSION,
+                                eligible_for_score=d_eligible,
                             )
                         )
                     except Exception:
@@ -622,6 +665,15 @@ def enforce_report(
             },
             report_name=str((original_report or {}).get("report_name", "report")),
         )
+    except Exception:
+        pass
+    try:
+        from tools.diagnostics.telemetry_sidecar import get_sidecar
+        sidecar = get_sidecar()
+        sidecar.record_field("final_report_id", f"{type(final_report).__name__}@{id(final_report)}")
+        sidecar.record_field("remediation_status", f"COMPLETED_STATUS_{str(overall_status)}")
+        if "phase2_domain_packages" in final_report:
+            sidecar.record_field("canonical_package_id", f"dict@{id(final_report['phase2_domain_packages'])}")
     except Exception:
         pass
     return final_report, rv

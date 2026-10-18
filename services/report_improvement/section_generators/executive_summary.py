@@ -252,13 +252,14 @@ def generate_executive_summary(si: SpecialistSectionInput) -> ExecutiveSummaryOu
         evidence_limitations=ev_limitations,
         metadata=md,
     )
-    # Diagnostics: inject sentinel token and record generator-stage lineage (diagnostic mode only)
+    # Diagnostics: record generator-stage lineage in metadata/sidecar without leaking into customer-facing text
     try:
         if is_diagnostics_enabled():
             _rid = ensure_run_id()
             try:
-                # Inject a runtime-only marker into a safe text field within the specialist output
-                out.assessment_context = f"{out.assessment_context}\nTRACE_EXEC_{_rid}".strip()
+                if isinstance(out.metadata, dict):
+                    out.metadata["trace_sentinel"] = f"TRACE_EXEC_{_rid}"
+                    out.metadata["run_id"] = _rid
             except Exception:
                 pass
             try:
