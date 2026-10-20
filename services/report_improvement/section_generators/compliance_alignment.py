@@ -46,7 +46,7 @@ def _derive_rows(si: SpecialistSectionInput) -> List[FrameworkAlignmentRow]:
     # Build rows by connecting approved frameworks to observed controls/gaps/validation requirements
     fwks = si.approved_frameworks or []
     # Simple mapping heuristics by keywords for ready alignment language; conservative and bounded
-    for fw in fwks[:6]:
+    for idx, fw in enumerate(fwks[:6]):
         name = fw.framework_name.strip()
         if not name:
             continue
@@ -54,51 +54,77 @@ def _derive_rows(si: SpecialistSectionInput) -> List[FrameworkAlignmentRow]:
         gap_text = ""
         ev_ids: List[str] = []
         if si.confirmed_gaps:
-            gap_text = si.confirmed_gaps[0].statement
+            gap_item = si.confirmed_gaps[idx % len(si.confirmed_gaps)]
+            gap_text = getattr(gap_item, "statement", str(gap_item))
         elif si.known_unknowns:
-            gap_text = f"Validation required: {si.known_unknowns[0].statement}"
+            ku_item = si.known_unknowns[idx % len(si.known_unknowns)]
+            gap_text = f"Validation required: {getattr(ku_item, 'statement', str(ku_item))}"
         else:
             gap_text = "Evidence requires validation against the scoped requirements."
-        # Current position and recommended focus wording (readiness-oriented)
+        
+        # Specific relevant expectation and recommended focus per framework
+        nl = name.lower()
+        if "cyber essentials" in nl:
+            area = "Technical Hygiene"
+            expectation = "Documented technical controls across boundary firewalls, secure configuration, user access, and patch management."
+            focus = "Align five core technical controls to Cyber Essentials requirements and retain implementation records."
+        elif "iso" in nl or "27001" in nl:
+            area = "Information Security Governance"
+            expectation = "Information security management system (ISMS) controls with documented operational governance and commercial assurance."
+            focus = "Structure risk assessments, statement of applicability, and evidence repositories for ISMS operational cadence."
+        elif "dfe" in nl:
+            area = "Education Safeguarding & Standards"
+            expectation = "DfE cyber standards compliance for educational institutions with documented safeguarding controls."
+            focus = "Establish compliance against meeting digital and technology standards in schools and colleges."
+        elif "cis" in nl:
+            area = "Baseline Security Controls"
+            expectation = "Prioritised cybersecurity actions across CIS Critical Security Controls Implementation Group 1."
+            focus = "Validate asset inventory, vulnerability management, and account monitoring against CIS baseline."
+        else:
+            area = "Readiness and Assurance"
+            expectation = f"Operational alignment and structured evidence capture against {name} controls."
+            focus = f"Include {name} in assurance planning and retain artefacts demonstrating control operation."
+
         current_pos = "Consultation evidence indicates areas requiring validation and structured evidence capture."
-        focus = "Include this area in certification planning and retain artefacts demonstrating control operation."
         rows.append(
             FrameworkAlignmentRow(
                 framework_name=name,
-                framework_area="Readiness and Assurance",
-                relevant_expectation="Documented control operation with retained evidence and governance cadence.",
+                framework_area=area,
+                relevant_expectation=expectation,
                 current_position=current_pos,
                 assurance_gap_or_consideration=gap_text,
                 recommended_focus=focus,
                 evidence_ids=ev_ids,
             )
         )
-    # Fallback: check canonical environment or customer stated targets (e.g. Cyber Essentials, DfE 2026, ISO 27001)
+    # Fallback: only if no approved frameworks provided, inspect canonical environment
     if not rows:
-        # Differentiate based on customer context / industry
         industry = ""
         cname = getattr(si, "customer_name", "") or ""
         if hasattr(si, "canonical_environment") and si.canonical_environment:
             inds = getattr(si.canonical_environment, "industries", []) or []
             if inds:
                 industry = inds[0].lower()
-        if "school" in cname.lower() or "education" in industry:
+        if "school" in cname.lower() or "education" in industry or "dfe" in industry:
             fw_name = "UK DfE Cyber Standards 2026"
             target_id = "target_dfe_2026"
             expectation = "DfE cyber standards compliance for educational institutions with documented safeguarding controls."
-        elif "tech" in industry or "technology" in cname.lower():
+            area = "Education Safeguarding & Standards"
+        elif "tech" in industry or "technology" in cname.lower() or "saas" in industry:
             fw_name = "ISO/IEC 27001:2022"
             target_id = "target_iso_27001"
             expectation = "Information security management system (ISMS) controls with documented operational governance and commercial assurance."
+            area = "Information Security Governance"
         else:
             fw_name = "NCSC Cyber Essentials"
             target_id = "target_cyber_essentials"
             expectation = "Documented technical controls across boundary firewalls, secure configuration, user access, and patch management."
+            area = "Technical Hygiene"
 
         rows.append(
             FrameworkAlignmentRow(
                 framework_name=fw_name,
-                framework_area="Readiness and Assurance",
+                framework_area=area,
                 relevant_expectation=expectation,
                 current_position=_current_position_text(si),
                 assurance_gap_or_consideration=f"{fw_name} targets require validation against agreed operational scope.",

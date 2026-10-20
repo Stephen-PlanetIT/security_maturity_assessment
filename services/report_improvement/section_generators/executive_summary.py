@@ -82,14 +82,14 @@ def _controls_to_strengths(ctrls: List[ExistingControlRecord]) -> List[str]:
     for c in (ctrls or []):
         for p in (c.products or [])[:1]:
             name = str(p).strip()
-            if name and name.lower() not in seen:
+            if name and name.lower() not in seen and len(name) > 1:
                 seen.add(name.lower())
                 out.append(name)
             if len(out) >= 6:
                 break
         if len(out) >= 6:
             break
-    return out
+    return [s for s in out if s and s.strip()]
 
 
 def _gaps_from_approved(gaps: List[ApprovedGapRecord], max_items: int = 5) -> List[str]:
@@ -97,7 +97,7 @@ def _gaps_from_approved(gaps: List[ApprovedGapRecord], max_items: int = 5) -> Li
     seen = set()
     for g in (gaps or []):
         s = str(getattr(g, "statement", "")).strip()
-        if not s:
+        if not s or len(s) < 3:
             continue
         k = s.lower()
         if k in seen:
@@ -106,7 +106,7 @@ def _gaps_from_approved(gaps: List[ApprovedGapRecord], max_items: int = 5) -> Li
         out.append(s)
         if len(out) >= max_items:
             break
-    return out
+    return [s for s in out if s and s.strip()]
 
 
 def _priorities_from_customer(prs: List[CustomerPriority]) -> List[str]:
@@ -114,7 +114,7 @@ def _priorities_from_customer(prs: List[CustomerPriority]) -> List[str]:
     seen = set()
     for p in (prs or []):
         name = str(getattr(p, "priority", "")).strip()
-        if not name:
+        if not name or len(name) < 2:
             continue
         k = name.lower()
         if k in seen:
@@ -123,7 +123,7 @@ def _priorities_from_customer(prs: List[CustomerPriority]) -> List[str]:
         out.append(name)
         if len(out) >= 5:
             break
-    return out
+    return [s for s in out if s and s.strip()]
 
 
 def _security_posture_narrative(si: SpecialistSectionInput, strengths: List[str], gaps: List[str]) -> str:

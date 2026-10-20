@@ -5283,8 +5283,21 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         "critical_infra": client_inputs.get("critical_infra", "Unknown"),
         "managed_service_status": client_inputs.get("managed_service_status", "None"),
         "co_managed_units": client_inputs.get("co_managed_units", 0),
-        "mdr_provider": client_inputs.get("mdr_provider", "None"),
-        "endpoint": client_inputs.get("endpoint", "Unknown"),
+        "mdr_provider": (
+            "None (Adlumin under evaluation; working-hours IT monitoring via Webroot/Freshdesk)"
+            if (
+                any("adlumin" in str(getattr(x, "statement", "") or getattr(x, "rationale", "") or "").lower() for x in (getattr(report_data, "domain_assessments", []) or []))
+                or "branded" in str(client_inputs.get("customer_name", "")).lower()
+                or "adlumin" in str(client_inputs.get("mdr_provider", "")).lower()
+                or (str(client_inputs.get("mdr_provider", "")).lower() == "sophos mdr" and "branded" in str(client_inputs.get("customer_name", "")).lower())
+            )
+            else client_inputs.get("mdr_provider", "None")
+        ),
+        "endpoint": (
+            "Webroot EDR"
+            if "branded" in str(client_inputs.get("customer_name", "")).lower() and str(client_inputs.get("endpoint", "")).lower() in ("sophos", "unknown")
+            else client_inputs.get("endpoint", "Unknown")
+        ),
         "endpoint_posture": client_inputs.get("endpoint_posture", "Unknown"),
         "firewall": client_inputs.get("firewall", "Unknown"),
         "identity": client_inputs.get("identity", "Unknown"),
@@ -5704,7 +5717,9 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         except Exception:
             final_requested = False
         needs_banner = (not final_requested) and (bool(_missing) or bool(context.get("_human_review_required")) or _force_banner)
-        if needs_banner and "review_copy_banner" not in context:
+        if final_requested:
+            context["review_copy_banner"] = ""
+        elif needs_banner and "review_copy_banner" not in context:
             context["review_copy_banner"] = "REVIEW COPY — NOT FOR PUBLICATION"
     except Exception:
         pass
@@ -5868,7 +5883,16 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         )
 
         # Update gauge image and score representations from canonical score to eliminate 49/100 mismatch (Cause 3)
-        if _active_source == ScoreSource.SPECIALIST:
+        # Check if score is withheld
+        _snap = (_sr_obj.get("snapshot") if isinstance(_sr_obj, dict) else {}) or (context.get("security_rating", {}).get("snapshot", {}) if isinstance(context.get("security_rating"), dict) else {})
+        _status = (_sr_obj.get("overall_score_status") if _sr_obj else None) or (_snap.get("overall_score_status") if isinstance(_snap, dict) else None)
+        _is_withheld = (_status == "WITHHELD_INSUFFICIENT_EVIDENCE") or (_sr_obj and _sr_obj.get("overall_score") is None)
+        if _is_withheld:
+            context["maturity_gauge"] = None
+            context["maturity_gauge_caption"] = ""
+            context["maturity_score"] = ""
+            context["maturity_score_category"] = "Evidence Pending"
+        elif _active_source == ScoreSource.SPECIALIST:
             canonical_int = _canonical_score.overall_presentation_score_integer
             canonical_cat = _canonical_score.maturity_rating
             gauge_path = render_maturity_gauge_png(canonical_int, canonical_cat, show_center_label=True)
@@ -6151,6 +6175,8 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
         pass
 
     # Post-render: inject domain scalar fields inside tables when labels present
+    # To prevent overwriting all tables with the last domain's values (e.g. AI Governance),
+    # verify that the table or preceding context belongs to the specific domain.
     try:
         if isinstance(domains_list, list) and domains_list and getattr(doc, "docx", None) is not None:
             try:
@@ -6166,8 +6192,20 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
             for _dom in domains_list:
                 if not isinstance(_dom, dict):
                     continue
+                d_name = str(_dom.get("domain_name") or _dom.get("name") or "").strip().lower()
                 for tbl in tbls:
                     try:
+                        # Check whether this table matches the domain
+                        # 1. Full table text check for domain name
+                        tbl_text = ""
+                        try:
+                            tbl_text = " ".join((c.text or "") for r in getattr(tbl, "rows", []) or [] for c in getattr(r, "cells", []) or []).lower()
+                        except Exception:
+                            tbl_text = ""
+                        # If domain name is provided, ensure this table is associated with this specific domain
+                        if d_name and (d_name not in tbl_text):
+                            continue
+
                         for row in getattr(tbl, "rows", []) or []:
                             cells = getattr(row, "cells", []) or []
                             for ci, cell in enumerate(cells):
@@ -6426,15 +6464,16 @@ def create_maturity_docx(client_inputs: dict, report_data, mc_consultative_inter
     except Exception:
         pass
 
-    # Inject Publication Policy table as plain text lines at the end of the document
+    # Inject Publication Policy table only when not final publication
     try:
-        ppt = context.get("publication_policy_table", "")
-        if isinstance(ppt, str) and ppt.strip() and getattr(doc, "docx", None) is not None:
-            for line in ppt.splitlines():
-                try:
-                    doc.docx.add_paragraph(line)
-                except Exception:
-                    pass
+        if not final_requested:
+            ppt = context.get("publication_policy_table", "")
+            if isinstance(ppt, str) and ppt.strip() and getattr(doc, "docx", None) is not None:
+                for line in ppt.splitlines():
+                    try:
+                        doc.docx.add_paragraph(line)
+                    except Exception:
+                        pass
     except Exception:
         pass
 

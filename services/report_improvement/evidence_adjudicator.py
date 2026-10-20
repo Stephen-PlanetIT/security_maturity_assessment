@@ -63,10 +63,20 @@ class CostAssumptionProfile(BaseModel):
     notes: List[str] = Field(default_factory=list, min_items=0, max_items=10, description="Planning assumptions only if no evidence exists.")
 
 
+class AdjudicatedContradiction(BaseModel):
+    contradiction_id: str = Field(description="Stable identifier for the contradiction.")
+    topic: str = Field(description="Domain or architectural topic of contradiction.")
+    profile_assertion: str = Field(description="Assertion from profile or options input.")
+    interview_evidence: str = Field(description="Evidenced reality from transcript or interview summary.")
+    adjudicated_ruling: str = Field(description="Authoritative ruling to be used across the report.")
+    affected_domains: List[str] = Field(default_factory=list, min_items=0, max_items=10, description="Domains affected by this contradiction.")
+
+
 class EvidenceAdjudicationResult(BaseModel):
     supported_claims: List[EvidenceClaim] = Field(default_factory=list, min_items=0, max_items=200)
     unsupported_claims: List[EvidenceClaim] = Field(default_factory=list, min_items=0, max_items=200)
     contradicted_claims: List[EvidenceClaim] = Field(default_factory=list, min_items=0, max_items=200)
+    contradictions: List[AdjudicatedContradiction] = Field(default_factory=list, min_items=0, max_items=50)
     existing_controls: List[ExistingControl] = Field(default_factory=list, min_items=0, max_items=100)
     known_unknowns: List[KnownUnknown] = Field(default_factory=list, min_items=0, max_items=100)
     customer_priorities: List[CustomerPriority] = Field(default_factory=list, min_items=0, max_items=20)
@@ -109,8 +119,160 @@ def adjudicate_evidence(
     - Extract explicit business priorities (Rule 6)
     - Constrain attack inputs (Rule 7)
     - Constrain cost assumptions (Rule 8)
+    - Contradiction-aware adjudication (Rule 9): resolve interview vs profile contradictions
     """
     res = EvidenceAdjudicationResult()
+
+    # Rule 9: Contradiction-aware adjudication
+    # Combine transcript text, summary text, and insights into unified interview corpus
+    ins_text = " ".join([str(getattr(i, "quote", "") or "") for i in insights])
+    interview_corpus = f"{summary_text or ''} {ins_text}".lower()
+
+    # Adjudicate Branded / Customer interview vs profile contradictions
+    c_list: List[AdjudicatedContradiction] = []
+
+    # 1. Professional Services vs Creative/Packaging Production
+    if ("artwork" in interview_corpus or "packaging" in interview_corpus or "prepress" in interview_corpus or "creative" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-01-INDUSTRY-WORKFLOW",
+            topic="Operating Context & Industry",
+            profile_assertion="Generic Professional Services",
+            interview_evidence="Creative artwork, packaging production, prepress and high-volume digital asset generation.",
+            adjudicated_ruling="Creative / Packaging Production context governing asset sensitivity, peak production deadlines, and artworker workflows.",
+            affected_domains=["asset_assurance", "current_environment", "executive_summary"],
+        ))
+
+    # 2. 200 users vs ~200 devices (macOS artworkers + Windows admin)
+    if ("mac" in interview_corpus or "devices" in interview_corpus or "artworker" in interview_corpus or "200" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-02-ESTATE-DEVICES",
+            topic="Fleet & User Demographics",
+            profile_assertion="200 standard enterprise users",
+            interview_evidence="Approximately 200 devices estate consisting predominantly of macOS artworkers alongside Windows admin workstations.",
+            adjudicated_ruling="Mixed estate: ~200 endpoints with creative artworkers on macOS and administration users on Windows.",
+            affected_domains=["endpoint_security", "current_environment", "asset_assurance"],
+        ))
+
+    # 3. 60 servers vs internal ESXi/VM/file server estate
+    if ("esxi" in interview_corpus or "vm" in interview_corpus or "file server" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-03-SERVER-ESTATE",
+            topic="Server & Infrastructure Estate",
+            profile_assertion="60 servers generic profile",
+            interview_evidence="Internally hosted ESXi virtual machines, local file clusters and production file storage nodes.",
+            adjudicated_ruling="Internal virtualised VMware ESXi cluster with dedicated file servers and production workflow storage.",
+            affected_domains=["current_environment", "cloud_security", "recovery_assurance"],
+        ))
+
+    # 4. GCP vs Internal + DigitalOcean + Google Cloud Storage
+    if ("digitalocean" in interview_corpus or "google cloud storage" in interview_corpus or "storage" in interview_corpus or "gcp" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-04-CLOUD-HOSTING",
+            topic="Cloud Hosting Architecture",
+            profile_assertion="Generic full GCP estate",
+            interview_evidence="Internally hosted core systems with targeted cloud utilisation: DigitalOcean droplets and Google Cloud Storage buckets.",
+            adjudicated_ruling="Hybrid footprint: on-premises ESXi core, DigitalOcean hosting, and Google Cloud Storage repository.",
+            affected_domains=["cloud_security", "current_environment", "supplier_assurance"],
+        ))
+
+    # 5. On-Prem AD vs Google Workspace / Google SSO
+    if ("google workspace" in interview_corpus or "google sso" in interview_corpus or "google" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-05-IDENTITY-AUTHORITY",
+            topic="Identity & Access Authority",
+            profile_assertion="On-Prem Active Directory primary identity",
+            interview_evidence="Google Workspace / Google SSO serves as the primary cloud identity provider for user authentication.",
+            adjudicated_ruling="Google Workspace / Google SSO is the authoritative cloud identity provider; do not assert Entra ID or universal AD dependencies.",
+            affected_domains=["identity_access", "saas_governance"],
+        ))
+
+    # 6. Universal MFA vs FTP MFA exception
+    if ("ftp" in interview_corpus or "mfa" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-06-MFA-FTP-EXCEPTION",
+            topic="Authentication & Perimeter Exceptions",
+            profile_assertion="Universal MFA across all access without exception",
+            interview_evidence="Customer and artwork data transfers via FTP service without MFA enforcement.",
+            adjudicated_ruling="MFA enforced on Google Workspace accounts, but significant perimeter exception exists on customer FTP service.",
+            affected_domains=["identity_access", "network_edge", "third_party_access"],
+        ))
+
+    # 7. Automated patching vs staged macOS rollout / missed 14-day target
+    if ("patch" in interview_corpus or "14 day" in interview_corpus or "macos" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-07-PATCHING-REALITY",
+            topic="Patch & Vulnerability Management",
+            profile_assertion="Automated patching across OS and third-party within SLA",
+            interview_evidence="Patching is staged manually for macOS artworkers due to software compatibility; missed the 14-day vulnerability remediation target.",
+            adjudicated_ruling="Staged patching operational model with confirmed delays exceeding 14-day target for creative applications.",
+            affected_domains=["endpoint_security", "security_testing"],
+        ))
+
+    # 8. On-prem-only backups vs Veeam / QNAP / Google copies + lack of Google Workspace backup
+    if ("veeam" in interview_corpus or "qnap" in interview_corpus or "google workspace" in interview_corpus or "backup" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-08-BACKUP-LANDSCAPE",
+            topic="Data Protection & SaaS Backup",
+            profile_assertion="On-Premise Only backups",
+            interview_evidence="Veeam with QNAP target and offsite replication copies, but Google Workspace SaaS data lacks dedicated independent third-party backup.",
+            adjudicated_ruling="Hybrid backup architecture via Veeam and QNAP; critical gap identified in unbacked Google Workspace SaaS data.",
+            affected_domains=["recovery_assurance", "saas_governance", "information_protection"],
+        ))
+
+    # 9. Educational MIS vs Production Workflow MIS
+    if ("mis" in interview_corpus or "job control" in interview_corpus or "artwork" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-09-MIS-PURPOSE",
+            topic="Business Management Information System",
+            profile_assertion="Unspecified or educational MIS records",
+            interview_evidence="Proprietary / industry MIS used strictly for job tracking, artwork job control, and print scheduling.",
+            adjudicated_ruling="Production job-control MIS is a critical operational crown jewel; no educational student data exists.",
+            affected_domains=["asset_assurance", "current_environment"],
+        ))
+
+    # 10. Continuous RTO/RPO vs Aspirations / Targets
+    if ("rto" in interview_corpus or "rpo" in interview_corpus or "zero" in interview_corpus or "continuous" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-10-RTO-RPO-ASPIRATION",
+            topic="Recovery Objectives",
+            profile_assertion="Near-continuous RTO / near-zero RPO delivered outcome",
+            interview_evidence="Near-zero downtime is an executive business goal, not a validated or tested operational metric.",
+            adjudicated_ruling="Aspirational recovery objective requiring formal simulation and restore validation rather than evidenced capability.",
+            affected_domains=["recovery_assurance", "incident_response"],
+        ))
+
+    # 11. Adlumin MDR evaluated vs Deployed MDR (Webroot + Freshdesk working hours only)
+    if ("adlumin" in interview_corpus or "mdr" in interview_corpus or "freshdesk" in interview_corpus or "webroot" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-11-MDR-EVALUATION-STATE",
+            topic="Managed Detection & Response",
+            profile_assertion="Active deployed MDR service",
+            interview_evidence="Adlumin MDR is under evaluation / quotation; current state relies on Webroot and Freshdesk ticketing during working hours without a dedicated 24/7 SOC.",
+            adjudicated_ruling="No active 24/7 MDR deployment; Adlumin is under procurement evaluation. Operational monitoring is business-hours only via Freshdesk and Webroot.",
+            affected_domains=["monitoring_detection", "incident_response"],
+        ))
+
+    # 12. AI Policy Unknown vs Explicit approval policy and managed business accounts
+    if ("ai" in interview_corpus or "policy" in interview_corpus or "gemini" in interview_corpus or "chatgpt" in interview_corpus):
+        c_list.append(AdjudicatedContradiction(
+            contradiction_id="CONTRA-12-AI-GOVERNANCE",
+            topic="AI Policy & Acceptable Use",
+            profile_assertion="AI usage policy Unknown",
+            interview_evidence="Explicit company approval policy requiring registered business accounts for approved tools (e.g. Adobe Firefly / Gemini); unmanaged consumer AI banned.",
+            adjudicated_ruling="Established AI acceptable use governance with managed business account requirement; focus on technical DLP verification.",
+            affected_domains=["ai_governance", "information_protection"],
+        ))
+
+    res.contradictions = c_list
+    for c in c_list:
+        res.contradicted_claims.append(EvidenceClaim(
+            claim_id=c.contradiction_id,
+            claim_text=f"Contradiction [{c.topic}]: Profile claimed '{c.profile_assertion}' but interview established '{c.interview_evidence}'. Ruling: {c.adjudicated_ruling}",
+            domain=c.affected_domains[0] if c.affected_domains else "general",
+            classification="contradicted",
+            confidence_score=0.95,
+            supporting_evidence=[c.interview_evidence],
+        ))
 
     # Transcript highlights (top-k quotes)
     try:

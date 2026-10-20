@@ -21,10 +21,16 @@ def select_relevant_evidence(section_name: str, issues, adjudication: EvidenceAd
         "confirmed_crown_jewels": [],
         "confirmed_technologies": [],
         "confirmed_attack_paths": [],
+        "transcript_highlights": [],
         # Phase 2 minimal extensions (placeholders for future enrichment)
         "approved_recommendations": [],
         "approved_entities": [],
     }
+    try:
+        for th in getattr(adjudication, "transcript_highlights", []) or []:
+            out["transcript_highlights"].append(str(th)[:400])
+    except Exception:
+        pass
     try:
         for c in adjudication.supported_claims or []:
             try:

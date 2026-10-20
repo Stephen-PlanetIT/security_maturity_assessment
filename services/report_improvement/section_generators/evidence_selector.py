@@ -187,10 +187,15 @@ def _select_confirmed_gaps(adjudication: EvidenceAdjudicationResult) -> List[App
                 st = str(getattr(cl, "claim_text", "")).strip()
                 if not st:
                     continue
+                if st.startswith("Contradiction ["):
+                    if "Ruling:" in st:
+                        st = st.split("Ruling:", 1)[1].strip()
+                    elif "interview established" in st:
+                        st = st.split("interview established", 1)[1].strip().strip("'").strip('"')
                 gaps.append(
                     ApprovedGapRecord(
                         gap_id=f"sel-gap-{gi}",
-                        domain="general",
+                        domain=str(getattr(cl, "domain", "general") or "general"),
                         statement=st,
                         status="confirmed",
                         permitted_language=[],
@@ -301,6 +306,23 @@ def select_section_evidence(
         }
         kw = set([k.lower() for k in keywords_map.get(str(section_name or ""), [])])
 
+        # Filter gaps by domain / keywords to avoid leaking global gaps to all domains
+        def _gap_in_domain(g: ApprovedGapRecord) -> bool:
+            try:
+                d = str(getattr(g, "domain", "") or "").strip().lower()
+                sec = str(section_name or "").strip().lower()
+                if d and d == sec:
+                    return True
+                stmt = str(getattr(g, "statement", "") or "").strip().lower()
+                return any(k in stmt for k in kw)
+            except Exception:
+                return False
+        filtered_gaps = [g for g in (confirmed_gaps or []) if _gap_in_domain(g)]
+        if filtered_gaps:
+            confirmed_gaps = filtered_gaps
+        elif section_name not in ("executive_summary", "compliance_alignment"):
+            confirmed_gaps = []
+
         # 1) Filter existing controls by applicable_domains if present
         def _ctrl_in_domain(c: ExistingControlRecord) -> bool:
             try:
@@ -322,6 +344,8 @@ def select_section_evidence(
             filtered_controls_kw = [c for c in (existing_controls or []) if _match_ctrl_kw(c)]
             if filtered_controls_kw:
                 existing_controls = filtered_controls_kw
+            elif section_name not in ("executive_summary", "compliance_alignment"):
+                existing_controls = []
 
         # 2) Filter approved products by vendor name using keywords (no domain tags available)
         try:

@@ -252,7 +252,7 @@ def reconcile_maturity_report_dict(
                         recs.extend([
                             "Implement continuous validation for core controls. Product Example: Native hardening",
                             "Formalise operational ownership and testing cadence. Product Example: Policy review",
-                            "Deploy telemetry correlation and monitoring. Product Example: Sophos MDR",
+                            "Deploy telemetry correlation and monitoring. Product Example: Managed Detection and Response",
                         ][: 3 - len(recs)])
                     elif len(recs) > 4:
                         recs = recs[:4]

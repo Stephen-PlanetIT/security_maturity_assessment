@@ -46,6 +46,7 @@ def _maturity_rationale_text(ev: DomainEvidence) -> str:
 
 def _technical_analysis(ev: DomainEvidence) -> str:
     parts: List[str] = []
+    dname = ev.domain_name or "this domain"
     # What exists
     ctrl_names: List[str] = []
     for c in (ev.supported_controls or [])[:5]:
@@ -54,32 +55,41 @@ def _technical_analysis(ev: DomainEvidence) -> str:
             if name:
                 ctrl_names.append(name)
     if ctrl_names:
-        parts.append(f"Existing controls include {', '.join(ctrl_names[:3])}.")
-    # Confirmed vs unvalidated
+        parts.append(f"In {dname}, deployed controls and tooling include {', '.join(ctrl_names[:3])}.")
+    else:
+        parts.append(f"For {dname}, formal technical controls were not demonstrated during consultation.")
+
+    # Confirmed strengths
     if ev.confirmed_strengths:
-        parts.append("Certain practices are confirmed as operating.")
+        parts.append(f"Evidenced operational practices for {dname} demonstrate established baseline activity.")
+
     # Material gap
     if ev.confirmed_gaps:
-        parts.append("Material gaps are evidenced and reduce assurance.")
+        gap_stmts = [str(getattr(g, "statement", "")).strip() for g in (ev.confirmed_gaps or [])[:2] if str(getattr(g, "statement", "")).strip()]
+        if gap_stmts:
+            parts.append(f"Specific gaps identified: {'; '.join(gap_stmts)}.")
+        else:
+            parts.append(f"Evidenced gaps in {dname} weaken resilience and reduce control assurance.")
+
     # Unvalidated
     if ev.known_unknowns:
-        parts.append("Operation of some controls remains unvalidated and requires confirmation.")
-    if not parts:
-        parts.append("Evidence is limited; ownership, coverage and assurance require confirmation.")
+        parts.append(f"Operation of controls in {dname} remains unvalidated and requires evidence confirmation.")
+
     return " ".join(parts)
 
 
 def _business_impact(ev: DomainEvidence) -> str:
-    # Link to specific services/crown jewels/dependencies
+    # Link to specific services/crown jewels/dependencies and domain name
+    dname = ev.domain_name or "this domain"
     cj = [str(getattr(x, "canonical_name", "")).strip() for x in (ev.relevant_crown_jewels or []) if str(getattr(x, "canonical_name", "")).strip()]
     deps = [str(getattr(d, "name", "")).strip() for d in (ev.relevant_business_dependencies or []) if str(getattr(d, "name", "")).strip()]
     parts: List[str] = []
     if cj:
-        parts.append(f"Impact relates to critical assets such as {', '.join(cj[:2])}.")
+        parts.append(f"For {dname}, failure or compromise directly exposes critical assets: {', '.join(cj[:2])}.")
     if deps:
-        parts.append(f"Dependencies include {', '.join(deps[:2])}, which should be prioritised.")
+        parts.append(f"Operational dependencies spanning {', '.join(deps[:2])} rely upon {dname} integrity.")
     if not parts:
-        parts.append("Business impact should be validated against identified services and critical assets.")
+        parts.append(f"Business impact for {dname} should be formally mapped against business-critical services.")
     return " ".join(parts)
 
 
@@ -199,17 +209,18 @@ def _recommended_solutions(ev: DomainEvidence) -> List[str]:
 
 
 def _strategic_rationale(ev: DomainEvidence) -> str:
+    dname = ev.domain_name or "this domain"
     return (
-        "Actions are sequenced to validate existing coverage, address confirmed gaps, and "
-        "extend assurance in line with business dependencies."
+        f"Remediation actions for {dname} are sequenced to address confirmed vulnerabilities, "
+        "validate telemetry coverage, and uplift operational resilience in line with organisational priorities."
     )
 
 
 def _partnership_recommendation(ev: DomainEvidence) -> str:
+    dname = ev.domain_name or "this domain"
     return (
-        "Planet IT can support validation, evidence capture and phased optimisation for this domain, "
-        "while the organisation retains ownership of operation and governance. Discovery may be required "
-        "to confirm telemetry and authority pathways before committing to deliverables."
+        f"Planet IT can assist in validating and uplifting {dname} controls, providing specialised advisory "
+        "and architectural oversight while the organisation maintains core governance and operational accountability."
     )
 
 

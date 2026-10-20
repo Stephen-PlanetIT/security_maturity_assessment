@@ -80,8 +80,15 @@ def _select_initial_access(ctx: EvidenceEnforcementContext) -> Optional[str]:
     try:
         routes = list((ctx.scenario_profile.approved_initial_access_routes or [])[:10])
         if routes:
-            # Deterministic rank: prefer routes that mention identity or file-sharing to align with common consultation relevance
-            routes_sorted = sorted(routes, key=lambda r: (("identity" in r.lower()) or ("file" in r.lower()), len(r)), reverse=True)
+            # Deterministic rank: prefer routes that mention identity, credentials, or file-sharing
+            routes_sorted = sorted(
+                routes,
+                key=lambda r: (
+                    ("identity" in r.lower()) or ("credential" in r.lower()) or ("file" in r.lower()) or ("sharing" in r.lower()),
+                    len(r)
+                ),
+                reverse=True
+            )
             return routes_sorted[0]
     except Exception:
         pass

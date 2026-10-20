@@ -75,15 +75,27 @@ async def rewrite_from_validation_issues(
         # Fallback: text path expecting JSON object
         text = LLMEngine.generate_text_report(client, deployment, system, user_prompt, temperature=0.0)
         try:
-            data = json.loads(text) if isinstance(text, str) else {}
+            # Strip potential markdown backticks around JSON
+            cleaned_text = (text or "").strip()
+            if cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text.strip("`").strip()
+                if cleaned_text.startswith("json"):
+                    cleaned_text = cleaned_text[4:].strip()
+            data = json.loads(cleaned_text) if isinstance(cleaned_text, str) else {}
         except Exception:
             data = {}
 
     # Safe parse into EGRevisedSection with fallbacks
     try:
+        rev_text = str(data.get("revised_content", "") or "").strip()
+        # If model returned pure text response instead of JSON dict with 'revised_content'
+        if not rev_text and isinstance(text, str) and not text.strip().startswith("{") and len(text.strip()) > 50:
+            rev_text = text.strip()
+        if not rev_text:
+            rev_text = rejected_content
         return EGRevisedSection(
             section_name=section_name,
-            revised_content=str(data.get("revised_content", rejected_content) or ""),
+            revised_content=rev_text,
             addressed_rule_ids=list(data.get("addressed_rule_ids", [])),
             unresolved_rule_ids=list(data.get("unresolved_rule_ids", [])),
             evidence_ids_used=list(data.get("evidence_ids_used", [])),

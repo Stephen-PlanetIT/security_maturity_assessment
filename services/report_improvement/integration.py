@@ -71,6 +71,19 @@ class ReportImprovementIntegrationResult(BaseModel):  # type: ignore
     run_id: str
     failure_stage: str | None = None
     failure_reason: str | None = None
+    # Authoritative run state fields
+    source_manifest: dict | None = None
+    normalised_evidence: list | None = None
+    adjudicated_facts: list | None = None
+    contradictions: list | None = None
+    domain_evidence_packages: dict | None = None
+    current_section_candidates: dict | None = None
+    last_valid_section_candidates: dict | None = None
+    validation_retry_state: dict | None = None
+    final_maturity_report: Any | None = None
+    template_context_fingerprint: str | None = None
+    final_docx_bytes: bytes | None = None
+    publication_disposition: str | None = None
 
 
 def improve_generated_maturity_report(
@@ -242,9 +255,13 @@ def improve_generated_maturity_report(
                             pass
             except Exception:
                 pass
-        # Mark specialist content validated to protect against subsequent regeneration
+        # Mark specialist content validated ONLY when publication is allowed and status is not BLOCK/HUMAN_REVIEW/REVIEW_REQUIRED
+        val_status = getattr(validation, "status", None)
+        status_str = str(val_status.value if hasattr(val_status, "value") else val_status or "").upper()
+        is_blocked = ("BLOCK" in status_str) or ("HUMAN_REVIEW" in status_str) or ("REVIEW" in status_str)
+        should_validate = bool(pub_allowed) and (not is_blocked)
         try:
-            setattr(improved_model, "_specialist_content_validated", True)
+            setattr(improved_model, "_specialist_content_validated", should_validate)
         except Exception:
             pass
         result.improved_report = improved_model
@@ -263,11 +280,40 @@ def improve_generated_maturity_report(
                     except Exception:
                         pass
             try:
-                setattr(improved_model, "_specialist_content_validated", True)
+                val_status = getattr(result.validation_result, "status", None)
+                status_str = str(val_status.value if hasattr(val_status, "value") else val_status or "").upper()
+                is_blocked = ("BLOCK" in status_str) or ("HUMAN_REVIEW" in status_str) or ("REVIEW" in status_str)
+                should_validate = bool(getattr(result, "publication_allowed", False)) and (not is_blocked)
+                setattr(improved_model, "_specialist_content_validated", should_validate)
             except Exception:
                 pass
             result.improved_report = improved_model
         except Exception:
             result.improved_report = None
+
+    # Step 6: Populate authoritative run state & disposition
+    try:
+        import hashlib
+        result.final_maturity_report = result.improved_report
+        result.source_manifest = {
+            "client_inputs_hash": hashlib.sha256(str(sorted(ci.items())).encode("utf-8")).hexdigest(),
+            "transcript_hash": hashlib.sha256(tx.encode("utf-8")).hexdigest() if tx else None,
+            "meeting_summary_hash": hashlib.sha256(summ.encode("utf-8")).hexdigest() if summ else None,
+            "profile_authority": ci.get("__source_authority"),
+        }
+        result.adjudicated_facts = [getattr(c, "claim_text", "") for c in getattr(adj, "supported_claims", []) or []]
+        result.contradictions = [c.model_dump() if hasattr(c, "model_dump") else str(c) for c in getattr(adj, "contradictions", []) or []]
+        result.domain_evidence_packages = final_report_dict.get("phase2_domain_packages")
+        result.current_section_candidates = {k: final_report_dict[k] for k in final_report_dict if k in [
+            "executive_summary", "threat_scenarios", "compliance_alignment", "domain_assessments", "security_rating"
+        ]}
+        result.last_valid_section_candidates = result.current_section_candidates
+        result.validation_retry_state = {
+            "status": str(getattr(validation, "status", "UNKNOWN")),
+            "automatic_publication_allowed": bool(getattr(validation, "automatic_publication_allowed", False)),
+        }
+        result.publication_disposition = "FINAL_READY" if result.publication_allowed else "REVIEW_REQUIRED"
+    except Exception:
+        pass
 
     return result

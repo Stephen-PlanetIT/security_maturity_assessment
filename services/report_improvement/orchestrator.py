@@ -136,24 +136,33 @@ def enforce_report(
             from services.report_improvement.section_generators.attack_scenario import generate_attack_scenario as _gen_as  # type: ignore
             from services.report_improvement.section_generators.compliance_alignment import generate_compliance_alignment as _gen_ca  # type: ignore
             from services.report_improvement.section_generators.transformers import to_text_executive_summary, to_text_attack_scenario, to_render_compliance  # type: ignore
+            # Collect insights for evidence selector routing
+            all_insights = []
+            try:
+                for th in getattr(adjudication, "transcript_highlights", []) or []:
+                    from evidence_extraction import TranscriptInsight
+                    all_insights.append(TranscriptInsight(category="Security Concern", speaker="Client", quote=th[:280], relevance_score=3))
+            except Exception:
+                all_insights = []
+
             # Executive Summary (authoritative when specialist gen is enabled; do not suppress due to legacy)
             try:
-                si = select_section_evidence("executive_summary", ctx, adjudication, transcript_insights=[])
+                si = select_section_evidence("executive_summary", ctx, adjudication, transcript_insights=all_insights)
                 es = _gen_es(si)
                 final_report["executive_summary_specialist"] = es
                 final_report["exec_summary"] = to_text_executive_summary(es)
-            except Exception:
-                pass
+            except Exception as _ex_es:
+                final_report["_specialist_errors"] = final_report.get("_specialist_errors", []) + [f"executive_summary: {str(_ex_es)}"]
             # Threat Scenarios (authoritative when specialist gen is enabled; do not suppress due to legacy)
             try:
                 ao = _gen_as(ctx, adjudication)
                 final_report["attack_scenario_specialist"] = ao
                 final_report["threat_scenarios"] = to_text_attack_scenario(ao)
-            except Exception:
-                pass
+            except Exception as _ex_as:
+                final_report["_specialist_errors"] = final_report.get("_specialist_errors", []) + [f"attack_scenario: {str(_ex_as)}"]
             # Compliance Alignment (preserve structured output; do not flatten)
             try:
-                si2 = select_section_evidence("compliance_alignment", ctx, adjudication, transcript_insights=[])
+                si2 = select_section_evidence("compliance_alignment", ctx, adjudication, transcript_insights=all_insights)
                 ca = _gen_ca(si2)
                 final_report["compliance_alignment_specialist"] = ca
                 final_report["compliance_alignment_render"] = to_render_compliance(ca)
@@ -176,8 +185,8 @@ def enforce_report(
                     final_report["compliance_alignment"] = rows_struct
                 except Exception:
                     pass
-            except Exception:
-                pass
+            except Exception as _ex_ca:
+                final_report["_specialist_errors"] = final_report.get("_specialist_errors", []) + [f"compliance_alignment: {str(_ex_ca)}"]
             # Cost of Inaction (authoritative when specialist gen is enabled; do not suppress due to legacy)
             try:
                 from services.report_improvement.section_generators.cost_of_inaction import generate_cost_of_inaction as _gcoi  # type: ignore
@@ -259,7 +268,7 @@ def enforce_report(
                 da_outputs = []
                 for dk in domain_keys:
                     try:
-                        si_dom = select_section_evidence(dk, ctx, adjudication, transcript_insights=[])
+                        si_dom = select_section_evidence(dk, ctx, adjudication, transcript_insights=all_insights)
                         ev = DomainEvidence(
                             domain_name=_pretty(dk),
                             supported_controls=list(getattr(si_dom, "existing_controls", []) or []),
@@ -351,31 +360,53 @@ def enforce_report(
             max_passes = int(get_config('REMEDIATION_MAX_MODEL_PASSES', '2') or '2')
         except Exception:
             max_passes = 2
+        last_valid_text = text
         while sres.has_blocking_errors and tries < max_passes:
             tries += 1
             try:
-                try:
-                    # Evidence-grounded rewrite (strict prompt contract; placeholder implementation in Phase 2 scaffold)
-                    revised = asyncio.run(
-                        rewrite_from_validation_issues(
-                            section_name=name,
-                            rejected_content=text,
-                            issues=sres.issues,
-                            context=ctx,
-                            adjudication=adjudication,
-                        )
+                def _run_coro(coro):
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop and loop.is_running():
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                            return pool.submit(lambda: asyncio.run(coro)).result()
+                    else:
+                        return asyncio.run(coro)
+
+                revised = _run_coro(
+                    rewrite_from_validation_issues(
+                        section_name=name,
+                        rejected_content=text,
+                        issues=sres.issues,
+                        context=ctx,
+                        adjudication=adjudication,
                     )
-                    model_call_count += 1
-                except RuntimeError:
-                    # If an event loop is already running (e.g., Streamlit), skip the async call safely
-                    revised = None
+                )
+                model_call_count += 1
                 if revised and getattr(revised, "revised_content", None):
-                    text = revised.revised_content
+                    repaired_text = revised.revised_content
+                    # Deterministic revalidation
+                    sres_new = _val._validate_section_text(name, repaired_text, ctx)
+                    # Check monotonicity: accept only if fewer blocking issues or valid
+                    prev_blocks = sum(1 for i in (getattr(sres, "issues", []) or []) if getattr(i, "status", None) == ValidationStatus.BLOCK)
+                    new_blocks = sum(1 for i in (getattr(sres_new, "issues", []) or []) if getattr(i, "status", None) == ValidationStatus.BLOCK)
+                    if new_blocks < prev_blocks:
+                        last_valid_text = repaired_text
+                        text = repaired_text
+                        sres = sres_new
+                    elif not sres_new.has_blocking_errors:
+                        last_valid_text = repaired_text
+                        text = repaired_text
+                        sres = sres_new
+                    else:
+                        # Non-monotonic or worse: retain last valid text
+                        text = last_valid_text
             except Exception:
-                # Non-fatal; keep previous text
-                pass
-            # Deterministic revalidation
-            sres = _val._validate_section_text(name, text, ctx)
+                # Non-fatal; keep last valid text
+                text = last_valid_text
             h1 = hashlib.sha256(text.encode("utf-8")).hexdigest()
             if h1 == h0:
                 # Unchanged submission — stop further attempts for this section
@@ -420,8 +451,19 @@ def enforce_report(
                     # Attempt a single rebuild
                     h0 = _sha256(text.encode("utf-8")).hexdigest()
                     try:
-                        revised = asyncio.run(rebuild_attack_scenario(profile=getattr(ctx, "scenario_profile", None), evidence_ctx=ctx))
-                    except RuntimeError:
+                        def _run_coroutine2(coro):
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                loop = None
+                            if loop and loop.is_running():
+                                import concurrent.futures
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                    return pool.submit(lambda: asyncio.run(coro)).result()
+                            else:
+                                return asyncio.run(coro)
+                        revised = _run_coroutine2(rebuild_attack_scenario(profile=getattr(ctx, "scenario_profile", None), evidence_ctx=ctx))
+                    except Exception:
                         revised = None
                     if revised and getattr(revised, "revised_content", None):
                         text = revised.revised_content

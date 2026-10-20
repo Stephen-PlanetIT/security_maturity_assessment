@@ -240,21 +240,34 @@ def build_canonical_overall_score(
             )
 
     if not domain_scores:
-        # Default placeholder when domain_inputs is empty
-        pres = Decimal(str(overall_score_override or "50.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        pres = min(Decimal("100.0"), max(Decimal("0.0"), pres))
-        native = ((pres / Decimal("100.0")) * Decimal("3.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        native = min(Decimal("3.0"), max(Decimal("1.0"), native))
+        # Explicit withholding or placeholder when domain_inputs is empty
+        if overall_score_override is None:
+            pres = Decimal("0.0")
+            native = Decimal("1.0")
+            overall_int = 0
+            rating = maturity_rating_override or "Assessment Incomplete (Evidence Pending)"
+            pillar = pillar_override or "Pillar 1: Reactive Cybersecurity"
+            caveat = scoring_caveat or "Numerical score withheld due to insufficient domain evidence coverage."
+        else:
+            pres = Decimal(str(overall_score_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            pres = min(Decimal("100.0"), max(Decimal("0.0"), pres))
+            native = ((pres / Decimal("100.0")) * Decimal("3.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            native = min(Decimal("3.0"), max(Decimal("1.0"), native))
+            overall_int = int(pres.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            rating = maturity_rating_override or "Phase 2: Fundamental Controls"
+            pillar = pillar_override or "Pillar 2: Proactive Cybersecurity"
+            caveat = scoring_caveat
+
         return CanonicalOverallScore(
             native_maturity_score_1_to_3=native,
             presentation_score_0_to_100=pres,
-            overall_presentation_score_integer=int(pres.quantize(Decimal("1"), rounding=ROUND_HALF_UP)),
-            maturity_rating=maturity_rating_override or "Phase 2: Fundamental Controls",
-            resiliency_pillar=pillar_override or "Pillar 2: Proactive Cybersecurity",
+            overall_presentation_score_integer=overall_int,
+            maturity_rating=rating,
+            resiliency_pillar=pillar,
             direction_of_travel=direction_of_travel,
             score_source=score_source,
             evidence_confidence=evidence_confidence,
-            scoring_caveat=scoring_caveat,
+            scoring_caveat=caveat,
             domain_scores=[],
             weights_reconciled=True,
             contributions_reconciled=True,
