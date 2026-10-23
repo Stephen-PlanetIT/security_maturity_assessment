@@ -1,0 +1,28 @@
+[
+  {
+    "inject_id": "S1_I1a",
+    "slide_reference": "RC-S1.pptx/slide2.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": ["Scenario 1 initialized with BYOD context."],
+    "new_confirmed_facts": ["BYOD device used; suspicious activity observed."],
+    "remaining_unknowns": ["What evidence confirms unauthorized access?", "Who owns containment?"],
+    "business_impact_introduction_point": "Initial suspicion drives containment considerations and potential business risk review.",
+    "stakeholder_pressure_introduction_point": "Operations/IT pressure to respond quickly.",
+    "decisions_required": ["Classify incident as security incident?", "Initiate containment action?"],
+    "artefact_reference": "email: internal notification",
+    "artefact_type": "email"
+  },
+  {
+    "inject_id": "S2_I1a",
+    "slide_reference": "RC-S1.pptx/slide19.xml",
+    "scenario_id": "Scenario 2",
+    "known_facts_before": ["Scenario 2 context: credential abuse; impersonation context."],
+    "new_confirmed_facts": ["Executive sign-in anomaly detected from unusual location."],
+    "remaining_unknowns": ["Is sign-in legitimate?", "What is scope of potential impact?"],
+    "business_impact_introduction_point": "Incident presents executive account risk and potential data access concerns.",
+    "stakeholder_pressure_introduction_point": "Executive risk management, security leadership involvement.",
+    "decisions_required": ["Validate legitimacy of sign-in", "Containment options for executive accounts."],
+    "artefact_reference": "slide19 log",
+    "artefact_type": "log"
+  }
+]

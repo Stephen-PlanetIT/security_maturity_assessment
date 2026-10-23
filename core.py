@@ -299,7 +299,37 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                     return {"analysis": "", "impact": "", "remediation": ""}
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
             max_retries = 3
+            response_model_name = getattr(response_model, "__name__", str(response_model))
+            api_version = get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview")
+            try:
+                timeout_configured = float(get_config("AZURE_CLIENT_TIMEOUT_SEC", 300.0))
+            except Exception:
+                timeout_configured = 300.0
+            diagnostic_context = {
+                "deployment": deployment,
+                "api_version": api_version,
+                "prompt_chars": len(system_persona or "") + len(user_prompt or ""),
+                "structured_model": response_model_name,
+                "timeout_seconds": timeout_configured,
+            }
+            _logger.info(
+                "Azure structured generation start: deployment=%s api_version=%s prompt_chars=%d "
+                "structured_model=%s timeout_seconds=%s",
+                diagnostic_context["deployment"],
+                diagnostic_context["api_version"],
+                diagnostic_context["prompt_chars"],
+                diagnostic_context["structured_model"],
+                diagnostic_context["timeout_seconds"],
+            )
             for attempt in range(max_retries):
+                request_started = time.perf_counter()
+                phase = "request"
+                _logger.info(
+                    "Azure structured generation request: attempt=%d/%d deployment=%s",
+                    attempt + 1,
+                    max_retries,
+                    deployment,
+                )
                 try:
                     # Use the beta parse path for structured outputs backed by Pydantic models
                     response = client.beta.chat.completions.parse(
@@ -311,13 +341,47 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                         response_format=response_model,
                         **extra_params
                     )
+                    _logger.info(
+                        "Azure structured generation response received: attempt=%d elapsed_seconds=%.2f",
+                        attempt + 1,
+                        time.perf_counter() - request_started,
+                    )
+                    phase = "response parsing"
                     # The beta.parse path returns a parsed BaseModel directly when the
                     # response_model is a Pydantic model class.
                     # If available, prefer the parsed attribute; otherwise fall back to content.
                     if hasattr(response.choices[0].message, "parsed"):
-                        return response.choices[0].message.parsed
-                    return getattr(response.choices[0].message, "content", None)
+                        parsed = response.choices[0].message.parsed
+                        phase = "validation"
+                        if parsed is None:
+                            raise ValueError("structured response parsed to None")
+                        _logger.info(
+                            "Azure structured generation validation complete: attempt=%d elapsed_seconds=%.2f",
+                            attempt + 1,
+                            time.perf_counter() - request_started,
+                        )
+                        return parsed
+                    content = getattr(response.choices[0].message, "content", None)
+                    _logger.info(
+                        "Azure structured generation completed without parsed model: attempt=%d "
+                        "content_present=%s elapsed_seconds=%.2f",
+                        attempt + 1,
+                        bool(content),
+                        time.perf_counter() - request_started,
+                    )
+                    return content
                 except Exception as e:
+                    _logger.error(
+                        "Azure structured generation failure: attempt=%d/%d phase=%s "
+                        "exception_type=%s exception=%s elapsed_seconds=%.2f",
+                        attempt + 1,
+                        max_retries,
+                        phase,
+                        type(e).__name__,
+                        str(e),
+                        time.perf_counter() - request_started,
+                        exc_info=True,
+                    )
                     # Surface Azure 404 DeploymentNotFound with actionable guidance
                     err_str = str(e)
                     if "DeploymentNotFound" in err_str or "404" in err_str:

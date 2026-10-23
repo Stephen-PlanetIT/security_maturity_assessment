@@ -248,6 +248,11 @@ def _enforce_visibility_on_injects(plan: dict, inputs: dict) -> dict:
         return plan
 
 from core import LLMEngine
+from tabletop_generation import (
+    TabletopGenerationError,
+    generate_tabletop_plan,
+    validate_four_stage_plan,
+)
 from prompts import (
     TabletopMasterPlan,
     build_tabletop_plan_prompt,
@@ -1010,14 +1015,16 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                     if str(get_config("TABLETOP_ARTEFACT_GEN_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
                         plan = _synth(plan, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
                 except Exception as _ae:
-                    st.caption(f"Participant artefact synthesis skipped: {_ae}")
+                    st.error(f"Generation failed: participant artefact synthesis is mandatory and failed: {_ae}")
+                    st.stop()
                 # Facilitator-only guidance synthesis (mandatory; speaker notes only)
                 try:
                     from facilitator_guidance import generate_inject_facilitation, attach_facilitation_to_plan
                     fac_map = generate_inject_facilitation(plan, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
                     plan = attach_facilitation_to_plan(plan, fac_map)
                 except Exception as _fe:
-                    st.caption(f"Facilitation notes synthesis skipped: {_fe}")
+                    st.error(f"Generation failed: facilitator guidance synthesis is mandatory and failed: {_fe}")
+                    st.stop()
                 # Synthesise DecisionQuestion list from facilitator_probe_questions (fallback)
                 try:
                     _objs = plan.get("objectives", []) if isinstance(plan, dict) else []
@@ -1051,6 +1058,10 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                                 inj["decision_questions"] = dq_list
                 except Exception:
                     pass
+                valid, defects = validate_four_stage_plan(plan)
+                if not valid:
+                    st.error("Generation failed validation: " + "; ".join(defects[:8]))
+                    st.stop()
                 st.session_state["tabletop_plan"] = plan
                 st.success("Tabletop scenario compiled deterministically from approved ExerciseBlueprint.")
                 st.stop()
@@ -1073,6 +1084,29 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                         _seed_brief = _text[:400]
                 except Exception:
                     pass
+        try:
+            plan_dict = generate_tabletop_plan(
+                client=client,
+                deployment=deployment,
+                client_inputs=client_inputs,
+                selected_themes=selected_themes,
+                custom_brief=_seed_brief,
+                audience=st.session_state.get("tabletop_audience", "Blended"),
+                exercise_profile=st.session_state.get("exercise_profile", "blended"),
+                presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
+                blueprint=st.session_state.get("exercise_blueprint"),
+            )
+        except TabletopGenerationError as _generation_error:
+            st.error(f"Generation failed at {_generation_error.stage}: {_generation_error}")
+            st.stop()
+        except Exception as _generation_error:
+            st.error(f"Generation failed unexpectedly: {_generation_error}")
+            st.stop()
+
+        st.session_state["tabletop_plan"] = plan_dict
+        st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
+        st.stop()
+
         prompt = build_tabletop_plan_prompt(
             client_inputs,
             selected_themes,
@@ -1086,20 +1120,96 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
         )
         if plan:
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
+            valid, defects = validate_four_stage_plan(plan_dict)
+            if not valid:
+                repair_fields = []
+                _failed_stage_indexes = {
+                    int(_match.group(1))
+                    for _defect in defects
+                    for _match in [__import__("re").search(r"stage (\d+)", _defect, __import__("re").IGNORECASE)]
+                    if _match
+                }
+                for _stage_index, _stage in enumerate(plan_dict.get("scenarios", [{}])[0].get("injects", []), 1):
+                    if _stage_index not in _failed_stage_indexes:
+                        continue
+                    _state = _stage.get("inject_state", {}) if isinstance(_stage, dict) else {}
+                    _stage_defects = [
+                        _defect for _defect in defects
+                        if f"stage {_stage_index}" in _defect.lower()
+                    ]
+                    _include_questions = any(
+                        "question" in _defect.lower() for _defect in _stage_defects
+                    )
+                    _include_decisions = any(
+                        "decision" in _defect.lower() for _defect in _stage_defects
+                    )
+                    _repair_fields.append(
+                        f"Stage {_stage_index} ({_state.get('phase', 'unknown')}): "
+                        + (
+                            f"rejected_questions={[_q.get('prompt', '') for _q in _stage.get('participant_questions', []) if isinstance(_q, dict)]}; "
+                            if _include_questions else ""
+                        )
+                        + (
+                            f"rejected_decisions={_state.get('decisions_required', [])}; "
+                            if _include_decisions else ""
+                        )
+                        + f"relevant_stage_facts={{'known_facts_before': {_state.get('known_facts_before', [])}, "
+                          f"'new_confirmed_facts': {_state.get('new_confirmed_facts', [])}, "
+                          f"'business_impact': {_state.get('business_impact', '')}, "
+                          f"'stakeholder_pressure': {_state.get('stakeholder_pressure', '')}}}"
+                    )
+                repair_prompt = (
+                    prompt
+                    + "\n\nTARGETED REPAIR PASS (THE ONLY ALLOWED REPAIR):\n"
+                      "Repair only the participant question and decisions_required fields named by the "
+                      "failed validator rules below. Preserve valid artefacts, facilitator guidance, "
+                      "scenario facts, stage phases, causal links, and boundary values. Do not regenerate "
+                      "unrelated fields, add scenarios, or add stages. The structured-output API requires "
+                      "the complete corrected TabletopMasterPlan object.\n"
+                    + "Failed validator rules:\n"
+                    + "\n".join(f"- {defect}" for defect in defects)
+                    + "\nRejected fields and relevant scenario facts:\n"
+                    + "\n".join(_repair_fields)
+                    + "\nREPAIR USING THESE EXACT CONTENT RULES, NOT GENERAL ADVICE:\n"
+                      "Replace each rejected participant question with a stage-specific question requiring "
+                      "a choice, authorisation, prioritisation, or explicit risk acceptance under a timebox. "
+                      "Use at least two concrete anchors from that stage's own facts or artefact, including "
+                      "the named service or platform, affected identity or role, operational consequence, "
+                      "supplier dependency, authority, or time constraint. Never leave an evidence-only, "
+                      "telemetry-only, notification-only, escalation-only, or generic question.\n"
+                      "Replace each rejected decisions_required value with complete decisions. Every item must "
+                      "name the choice, responsible authority, affected service/identity/process, decision "
+                      "window or trigger, and accepted consequence or trade-off. Do not use verify, monitor, "
+                      "investigate, assess, determine, notify, or engage as the principal action.\n"
+                      "For Confirmed compromise, provide four separate decisions: session/identity "
+                      "containment; containment authority; affected-service continuity; and escalation scope. "
+                      "Use customer-specific names from the supplied stage facts, never example customer names. "
+                      "Set the final stage next_inject_trigger to null."
+                )
+                repaired = LLMEngine.generate_structured_report(
+                    client, deployment, SYSTEM_PERSONA_TABLETOP, repair_prompt, TabletopMasterPlan
+                )
+                plan_dict = repaired.model_dump() if hasattr(repaired, "model_dump") else repaired
+                valid, defects = validate_four_stage_plan(plan_dict)
+                if not valid:
+                    st.error("Generation failed validation after one repair pass: " + "; ".join(defects[:8]))
+                    st.stop()
             # Knowledge-bound participant artefact synthesis (deterministic; optional)
             try:
                 from participant_artefacts import synthesise_participant_artefacts as _synth
                 if str(get_config("TABLETOP_ARTEFACT_GEN_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
                     plan_dict = _synth(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
             except Exception as _ae:
-                st.caption(f"Participant artefact synthesis skipped: {_ae}")
+                st.error(f"Generation failed: participant artefact synthesis is mandatory and failed: {_ae}")
+                st.stop()
             # Facilitator-only guidance synthesis (mandatory; speaker notes only)
             try:
                 from facilitator_guidance import generate_inject_facilitation, attach_facilitation_to_plan
                 fac_map = generate_inject_facilitation(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
                 plan_dict = attach_facilitation_to_plan(plan_dict, fac_map)
             except Exception as _fe:
-                st.caption(f"Facilitation notes synthesis skipped: {_fe}")
+                st.error(f"Generation failed: facilitator guidance synthesis is mandatory and failed: {_fe}")
+                st.stop()
             # Backfill fiction policy defaults (advisory)
             try:
                 scns = plan_dict.get("scenarios", []) if isinstance(plan_dict, dict) else []
@@ -1171,6 +1281,10 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
             plan_dict = _enforce_visibility_on_injects(plan_dict, st.session_state.get("client_inputs", {}))
             # Quality normalisation (vendor/probes/lexicon/objective mapping)
             plan_dict = _quality_normalise_tabletop_plan(plan_dict, st.session_state.get("client_inputs", {}))
+            valid, defects = validate_four_stage_plan(plan_dict)
+            if not valid:
+                st.error("Generation failed validation after content synthesis: " + "; ".join(defects[:8]))
+                st.stop()
             st.session_state["tabletop_plan"] = plan_dict
             st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:

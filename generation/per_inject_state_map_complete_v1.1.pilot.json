@@ -1,0 +1,268 @@
+[
+  {
+    "inject_id": "S1_I1a",
+    "slide_reference": "RC-S1.pptx/slide2.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": [
+      "Scenario 1 initialized with BYOD context."
+    ],
+    "new_confirmed_facts": [
+      "BYOD device used; suspicious activity observed."
+    ],
+    "remaining_unknowns": [
+      "What evidence confirms unauthorized access?",
+      "Who owns containment?"
+    ],
+    "business_impact_introduction_point": "Initial suspicion drives containment considerations and potential business risk review.",
+    "stakeholder_pressure_introduction_point": "Operations/IT pressure to respond quickly.",
+    "decisions_required": [
+      "Classify incident as security incident?",
+      "Initiate containment action?"
+    ],
+    "next_inject_trigger": "S1_I1b",
+    "previous_inject_id": "START_S1",
+    "artefact_reference": "email: internal notification",
+    "artefact_type": "email",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for Scenario 1a",
+      "facilitator_visible_context": "RCA context visible to facilitators for Scenario 1a",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S1A"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": null,
+    "author_notes": null,
+    "artefact_class": "email",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "What evidence confirms unauthorized access?",
+      "Who owns containment?",
+      "Classify incident as security incident?",
+      "Initiate containment action?"
+    ]
+  },
+  {
+    "inject_id": "S2_I1a",
+    "slide_reference": "RC-S1.pptx/slide19.xml",
+    "scenario_id": "Scenario 2",
+    "known_facts_before": [
+      "Scenario 2 context: credential abuse; impersonation context."
+    ],
+    "new_confirmed_facts": [
+      "Executive sign-in anomaly detected from unusual location."
+    ],
+    "remaining_unknowns": [
+      "Is sign-in legitimate?",
+      "What is scope of potential impact?"
+    ],
+    "business_impact_introduction_point": "Incident presents executive account risk and potential data access concerns.",
+    "stakeholder_pressure_introduction_point": "Executive risk management, security leadership involvement.",
+    "decisions_required": [
+      "Validate legitimacy of sign-in",
+      "Containment options for executive accounts."
+    ],
+    "next_inject_trigger": "S2_I1b",
+    "previous_inject_id": "START_S2",
+    "artefact_reference": "slide19 log",
+    "artefact_type": "log",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for Scenario 2a",
+      "facilitator_visible_context": "RCA context visible to facilitators for Scenario 2a",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S2A"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": null,
+    "author_notes": null,
+    "artefact_class": "log",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "Is sign-in legitimate?",
+      "What is scope of potential impact?",
+      "Validate legitimacy of sign-in",
+      "Containment options for executive accounts."
+    ]
+  },
+  {
+    "inject_id": "S1_I1b",
+    "slide_reference": "RC-S1.pptx/slide3.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": [
+      "BYOD context established."
+    ],
+    "new_confirmed_facts": [
+      "Inject 1b introduces room questions and governance prompts."
+    ],
+    "remaining_unknowns": [
+      "What governance thresholds apply?",
+      "What evidence is still needed?"
+    ],
+    "business_impact_introduction_point": "Governance framing begins; impact unfolds through decision points.",
+    "stakeholder_pressure_introduction_point": "Executive alignment and governance bodies begin to weigh actions.",
+    "decisions_required": [
+      "Define escalation level for governance review."
+    ],
+    "next_inject_trigger": "S1_I2a",
+    "previous_inject_id": "S1_I1a",
+    "artefact_reference": "slide3 prompt",
+    "artefact_type": "prompt",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for 1b",
+      "facilitator_visible_context": "RCA context visible to facilitators for 1b",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S1B"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": "BYOD",
+    "author_notes": null,
+    "artefact_class": "prompt",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "What governance thresholds apply?",
+      "What evidence is still needed?",
+      "Define escalation level for governance review."
+    ]
+  },
+  {
+    "inject_id": "S1_I2a",
+    "slide_reference": "RC-S1.pptx/slide4.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": [
+      "Inject 1a & 1b established context."
+    ],
+    "new_confirmed_facts": [
+      "Escalation to leadership initiated; formal notice prepared."
+    ],
+    "remaining_unknowns": [
+      "Who should be alerted at leadership level?",
+      "What is the containment scope?"
+    ],
+    "business_impact_introduction_point": "Escalation introduces governance-level decisionmaking impact.",
+    "stakeholder_pressure_introduction_point": "Executive leadership and Incident Management engagement.",
+    "decisions_required": [
+      "Approve escalation path to leadership?",
+      "Authorize containment scope?"
+    ],
+    "next_inject_trigger": "S1_I2b",
+    "previous_inject_id": "S1_I1b",
+    "artefact_reference": "slide4 document",
+    "artefact_type": "document",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for 1a/2a linkage",
+      "facilitator_visible_context": "RCA context visible to facilitators for 1a-2a linkage",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S1A2A"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": null,
+    "author_notes": null,
+    "artefact_class": "document",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "Who should be alerted at leadership level?",
+      "What is the containment scope?",
+      "Approve escalation path to leadership?",
+      "Authorize containment scope?"
+    ]
+  },
+  {
+    "inject_id": "S1_I2b",
+    "slide_reference": "RC-S1.pptx/slide5.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": [
+      "Escalation underway."
+    ],
+    "new_confirmed_facts": [
+      "Governance & data exposure questions introduced."
+    ],
+    "remaining_unknowns": [
+      "Scope of data exposure?",
+      "Which data sets are affected?"
+    ],
+    "business_impact_introduction_point": "Data risk becomes a focal point in decision-making.",
+    "stakeholder_pressure_introduction_point": "Board and exec stakeholders pressed for clarity.",
+    "decisions_required": [
+      "Determine containment scope and data handling approach."
+    ],
+    "next_inject_trigger": "S1_I3a",
+    "previous_inject_id": "S1_I2a",
+    "artefact_reference": "slide5 document",
+    "artefact_type": "document",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for 1a-1b linkage",
+      "facilitator_visible_context": "RCA context visible to facilitators for 1a-1b linkage",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S1B"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": null,
+    "author_notes": null,
+    "artefact_class": "document",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "Scope of data exposure?",
+      "Which data sets are affected?",
+      "Determine containment scope and data handling approach."
+    ]
+  },
+  {
+    "inject_id": "S1_I3a",
+    "slide_reference": "RC-S1.pptx/slide6.xml",
+    "scenario_id": "Scenario 1",
+    "known_facts_before": [
+      "Governance prompts active."
+    ],
+    "new_confirmed_facts": [
+      "Tariff/config changes observed; investigation ongoing."
+    ],
+    "remaining_unknowns": [
+      "Root cause?",
+      "What remediation actions are needed?"
+    ],
+    "business_impact_introduction_point": "Impact classification informs remediation priorities.",
+    "stakeholder_pressure_introduction_point": "Management oversight and incident response coordination.",
+    "decisions_required": [
+      "Decide immediate remediation steps?",
+      "Prioritize actions for containment and recovery."
+    ],
+    "next_inject_trigger": "S1_I3b",
+    "previous_inject_id": "S1_I2b",
+    "artefact_reference": "slide6 document",
+    "artefact_type": "document",
+    "root_cause_reveal": {
+      "hidden_context": "internal RCA placeholder for 1a-1b-2a-2b",
+      "facilitator_visible_context": "RCA context visible to facilitators for 1a-2b",
+      "wrap_up_reveal_point": "WRAP_UP_DEFERRED_S1A2B"
+    },
+    "artefact_author": "",
+    "artefact_knowledge_level": "",
+    "artefact_audience": "",
+    "injection_context_tag": null,
+    "author_notes": null,
+    "artefact_class": "document",
+    "artefact_source": "",
+    "artefact_date": "",
+    "artefact_purpose": "",
+    "questions": [
+      "Root cause?",
+      "What remediation actions are needed?",
+      "Decide immediate remediation steps?",
+      "Prioritize actions for containment and recovery."
+    ]
+  }
+]

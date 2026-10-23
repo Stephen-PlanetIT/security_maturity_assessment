@@ -37,3 +37,9 @@ security_executive_fragments*
 security_rating_fragment*
 smoke*
 Smoke*
+
+debug*
+test*
+diagnostics/
+pilot*
+DIAGNOSTIC*
