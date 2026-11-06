@@ -42,31 +42,46 @@ class LLMEngine:
             return None
 
     @staticmethod
-    def _build_extra_params(streaming: bool = False):
+    def _supports_sampling_controls(deployment: str) -> bool:
+        """
+        Capability guard for explicit sampling parameters.
+        Returns False for GPT‑5.x, GPT‑6.x and o1/o3/o4 families; True otherwise.
+        """
+        try:
+            name = str(deployment or "").lower()
+        except Exception:
+            return True
+        prefixes = ("gpt-5", "gpt5", "gpt-6", "gpt6", "o1", "o3", "o4")
+        return not name.startswith(prefixes)
+
+    @staticmethod
+    def _build_extra_params(deployment: str, streaming: bool = False):
         """Build the extra_params dict for Azure OpenAI.
 
         When streaming, max_completion_tokens is omitted as the streaming
-        protocol handles token limits differently.
+        protocol handles token limits differently. For models without
+        sampling controls, omit explicit sampling parameters.
         """
-        try:
-            temp_raw = get_config("AZURE_TEMPERATURE", 0.6)
-            temperature = float(temp_raw)
+        extra_params = {}
+        # Include temperature only when the deployment supports explicit sampling controls
+        if LLMEngine._supports_sampling_controls(deployment):
+            try:
+                temp_raw = get_config("AZURE_TEMPERATURE", 0.6)
+                temperature = float(temp_raw)
+            except Exception:
+                temperature = 0.6
             if temperature < 0.0 or temperature > 1.0:
                 temperature = 0.6
-        except Exception:
-            temperature = 0.6
+            extra_params["temperature"] = temperature
 
-        extra_params = {
-            "temperature": temperature
-        }
         if not streaming:
             try:
                 # Raise default and remove fixed 8192 clamp; let config drive the limit.
                 # Still guard against nonsensical values (<=0). Azure will enforce its own hard caps.
-                mct_raw = get_config("AZURE_MAX_COMPLETION_TOKENS", 16384)
+                mct_raw = get_config("AZURE_MAX_COMPLETION_TOKENS", 32768)
                 mct = int(mct_raw)
                 if mct <= 0:
-                    mct = 16384
+                    mct = 32768
                 # Optional soft ceiling for safety if provided (e.g. 32768)
                 try:
                     allowed_max_raw = get_config("AZURE_ALLOWED_MAX_COMPLETION_TOKENS", 32768)
@@ -76,7 +91,7 @@ class LLMEngine:
                 except Exception:
                     pass
             except Exception:
-                mct = 16384
+                mct = 32768
             extra_params["max_completion_tokens"] = mct
         return extra_params
 
@@ -104,13 +119,20 @@ class LLMEngine:
             usr_toks = LLMEngine._count_tokens(model, user_prompt)
             total = sys_toks + usr_toks
             mode = "STREAM" if streaming else "STRUCTURED"
-            mct = None if streaming else LLMEngine._build_extra_params().get("max_completion_tokens")
+            mct = None if streaming else LLMEngine._build_extra_params(model, streaming=streaming).get("max_completion_tokens")
             msg = f"LLM DEBUG [{mode}] — system={sys_toks} toks, user={usr_toks} toks, total={total} toks, max_completion_tokens={mct}"
             _logger.info(msg)
+            # Keep logs for diagnostics; suppress UI debug by default.
+            # If explicit UI debug is required, enable via LLM_DEBUG_UI=true.
             try:
-                st.caption(msg)
+                dbg_ui = str(get_config("LLM_DEBUG_UI", "false")).strip().lower() in ("1", "true", "yes", "on")
             except Exception:
-                pass
+                dbg_ui = False
+            if dbg_ui:
+                try:
+                    st.caption(msg)
+                except Exception:
+                    pass
         except Exception:
             _logger.debug("LLM DEBUG: metrics calculation failed", exc_info=True)
 
@@ -138,7 +160,16 @@ class LLMEngine:
         if not client:
             return None
         try:
-            extra_params = LLMEngine._build_extra_params()
+            extra_params = LLMEngine._build_extra_params(deployment)
+            # GPT‑5/6 family: optionally send reasoning_effort for structured outputs
+            try:
+                dep_lc = str(deployment or "").lower()
+                if dep_lc.startswith(("gpt-5", "gpt5", "gpt-6", "gpt6")):
+                    reff = str(get_config("AZURE_REASONING_EFFORT", "none") or "none").strip().lower()
+                    if reff:
+                        extra_params["reasoning_effort"] = reff
+            except Exception:
+                pass
 
             # Composite-mode hard defaults (keep concise, consultative output)
             _composite_max_tokens = 900
@@ -332,6 +363,26 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                 )
                 try:
                     # Use the beta parse path for structured outputs backed by Pydantic models
+                    # Preflight diagnostics (no sensitive content; exact kwargs that will be sent)
+                    try:
+                        sampling_controls_present = ("temperature" in extra_params)
+                        # Resolve timeout configured for client; get_client clamps to [0, 600]
+                        try:
+                            _timeout_cfg = float(get_config("AZURE_CLIENT_TIMEOUT_SEC", 300.0))
+                        except Exception:
+                            _timeout_cfg = 300.0
+                        if _timeout_cfg <= 0 or _timeout_cfg > 600:
+                            _timeout_cfg = 300.0
+                        _logger.info(
+                            "AZURE_STRUCTURED_PREFLIGHT deployment=%s max_completion_tokens=%s reasoning_effort=%s timeout_seconds=%.1f sampling_controls_present=%s",
+                            deployment,
+                            extra_params.get("max_completion_tokens"),
+                            extra_params.get("reasoning_effort"),
+                            _timeout_cfg,
+                            sampling_controls_present,
+                        )
+                    except Exception:
+                        pass
                     response = client.beta.chat.completions.parse(
                         model=deployment,
                         messages=[
@@ -371,15 +422,29 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                     )
                     return content
                 except Exception as e:
+                    elapsed = time.perf_counter() - request_started
+                    etype = type(e).__name__
+                    # Special-case non-transient token limit failures (do not retry)
+                    if etype == "LengthFinishReasonError":
+                        try:
+                            mct = LLMEngine._build_extra_params(deployment).get("max_completion_tokens")
+                        except Exception:
+                            mct = None
+                        err_str = str(e)
+                        _logger.error(
+                            "Azure structured generation length error: exception_type=%s deployment=%s max_completion_tokens=%s elapsed_seconds=%.2f details=%s",
+                            etype, deployment, mct, elapsed, err_str, exc_info=True
+                        )
+                        st.error("The model exhausted its reasoning/completion allowance before returning a structured result. Try reducing prompt size or disabling reasoning effort.")
+                        return None
                     _logger.error(
-                        "Azure structured generation failure: attempt=%d/%d phase=%s "
-                        "exception_type=%s exception=%s elapsed_seconds=%.2f",
+                        "Azure structured generation failure: attempt=%d/%d phase=%s exception_type=%s exception=%s elapsed_seconds=%.2f",
                         attempt + 1,
                         max_retries,
                         phase,
-                        type(e).__name__,
+                        etype,
                         str(e),
-                        time.perf_counter() - request_started,
+                        elapsed,
                         exc_info=True,
                     )
                     # Surface Azure 404 DeploymentNotFound with actionable guidance
@@ -443,8 +508,9 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         if not client:
             return None
         try:
-            extra_params = LLMEngine._build_extra_params()
-            extra_params["temperature"] = temperature
+            extra_params = LLMEngine._build_extra_params(deployment)
+            if LLMEngine._supports_sampling_controls(deployment):
+                extra_params["temperature"] = temperature
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
             max_retries = 3
             for attempt in range(max_retries):
@@ -477,8 +543,9 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                extra_params = LLMEngine._build_extra_params(streaming=True)
-                extra_params["temperature"] = temperature
+                extra_params = LLMEngine._build_extra_params(deployment, streaming=True)
+                if LLMEngine._supports_sampling_controls(deployment):
+                    extra_params["temperature"] = temperature
                 extra_params["stream"] = True
                 LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=True)
                 response = client.chat.completions.create(
@@ -515,7 +582,7 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
 
         # 1) Historic beta.parse path
         try:
-            extra_params = LLMEngine._build_extra_params()
+            extra_params = LLMEngine._build_extra_params(deployment)
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
             response = client.beta.chat.completions.parse(
                 model=deployment,
@@ -533,7 +600,7 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
 
         # 2) JSON-object path with tolerant recovery
         try:
-            extra_params = LLMEngine._build_extra_params()
+            extra_params = LLMEngine._build_extra_params(deployment)
             response = client.chat.completions.create(
                 model=deployment,
                 messages=[
@@ -575,7 +642,7 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         if not client:
             return None
         try:
-            extra_params = LLMEngine._build_extra_params()
+            extra_params = LLMEngine._build_extra_params(deployment)
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
             max_retries = 3
             for attempt in range(max_retries):
@@ -635,7 +702,7 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         if not client:
             return None
         try:
-            extra_params = LLMEngine._build_extra_params()
+            extra_params = LLMEngine._build_extra_params(deployment)
 
             # Composite-mode hard defaults (keep concise, consultative output)
             _composite_max_tokens = 900
@@ -1237,7 +1304,7 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
         # Helpers
         def _gen_text(instr: str) -> str:
             try:
-                extra = LLMEngine._build_extra_params()
+                extra = LLMEngine._build_extra_params(deployment)
                 resp = client.chat.completions.create(
                     model=deployment,
                     messages=[

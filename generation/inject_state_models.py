@@ -19,12 +19,12 @@ class InjectState(BaseModel):
     slide_reference: str
     scenario_id: str
     phase: Optional[str] = None
-    known_facts_before: conlist[str, min_items=1] = Field(..., min_items=1)
-    new_confirmed_facts: conlist[str, min_items=1] = Field(..., min_items=1)
-    remaining_unknowns: conlist[str, min_items=1] = Field(..., min_items=1)
+    known_facts_before: List[str] = Field(..., min_items=1)
+    new_confirmed_facts: List[str] = Field(..., min_items=1)
+    remaining_unknowns: List[str] = Field(..., min_items=1)
     business_impact: Optional[str] = None
     stakeholder_pressure: Optional[str] = None
-    decisions_required: conlist[str, min_items=1] = Field(..., min_items=1)
+    decisions_required: List[str] = Field(..., min_items=1)
     previous_inject_id: Optional[str] = None
     next_inject_trigger: Optional[str] = None
     artefact_reference: Optional[str] = None

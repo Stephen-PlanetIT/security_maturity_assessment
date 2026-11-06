@@ -799,7 +799,7 @@ def tabletop_quality_review(plan: dict, client_inputs: dict | None = None) -> tu
                 dqs = it.get("decision_questions", []) or []
                 for k, dq in enumerate(dqs, 1):
                     prm = _norm(dq.get("prompt", ""))
-                    if len(prm) < 12 or "?" not in dq.get("prompt", "")):
+                    if len(prm) < 12 or "?" not in dq.get("prompt", ""):
                         issues.append(f"QR-107: Scenario {si} Inject {ji} question {k} looks generic/short (advisory)")
         passed = len([e for e in issues if e.startswith("QR-0")]) == 0
         return passed, issues, plan

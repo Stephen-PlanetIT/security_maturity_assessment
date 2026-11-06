@@ -1155,6 +1155,15 @@ class ParticipantQuestion(BaseModel):
     )
     category: Literal["Evidence", "Governance", "Authority", "Communications", "What‑if"] = Field(description="Question category.")
 
+class ParticipantDecisionQuestion(BaseModel):
+    prompt: str = Field(min_length=24, description="Participant-facing prompt as rendered.")
+    authority: str = Field(min_length=2, description="Role expected to authorise or make the decision.")
+    anchor_fact_ids: List[str] = Field(min_items=2, max_items=6, description="At least two ScenarioFact.id values anchoring the question.")
+    decision_options: List[str] = Field(min_items=2, max_items=6, description="Explicit options to choose between (contain/pause/continue/failover etc.).")
+    deadline_minutes: int = Field(ge=1, description="Numeric bounded decision window in minutes.")
+    deadline_trigger: Optional[str] = Field(default=None, description="Optional trigger condition (e.g., 'upon confirmation', 'before next processing cutoff').")
+    competing_consequences: List[str] = Field(min_items=2, max_items=6, description="Competing consequences to balance; must express acceptance language.")
+
 class ParticipantArtefactSurface(BaseModel):
     author: str = Field(description="Artefact author and role.")
     audience: str = Field(description="Artefact audience.")
@@ -1163,25 +1172,32 @@ class ParticipantArtefactSurface(BaseModel):
     purpose: str = Field(description="Purpose of this participant artefact.")
     content: str = Field(min_length=1, description="Substantive participant-facing content; not metadata-only.")
 
+class DecisionSpec(BaseModel):
+    category: Literal["session_identity_containment","containment_authority","affected_service_continuity","escalation_scope","other"] = Field(description="Decision category; Stage 2 must have exactly one of the first four.")
+    decision: str = Field(min_length=12, description="Concrete action to be taken (not an investigative task).")
+    authority: str = Field(min_length=2, description="Role with authority to make/approve the decision.")
+    affected_operation: str = Field(min_length=2, description="Named identity/service/process impacted by the decision.")
+    deadline: str = Field(min_length=2, description="Bounded decision window or trigger.")
+    deadline_minutes: Optional[int] = Field(default=None, ge=1, description="Numeric bounded decision window in minutes. Preferred over string deadline when available.")
+    deadline_trigger: Optional[str] = Field(default=None, description="Optional trigger condition (e.g., 'upon confirmation', 'before next processing cutoff').")
+    accepted_consequence: str = Field(min_length=12, description="Explicit acceptance phrased as accepting/accept/balancing/at the cost of/residual risk.")
+
 class InjectStateCompatible(BaseModel):
     inject_id: str = Field(description="Stable stage identifier.")
     phase: str = Field(description="One of: Weak signal, Confirmed compromise, Operational or business impact, External or executive pressure.")
     known_facts_before: List[str] = Field(min_items=1, max_items=12)
     new_confirmed_facts: List[str] = Field(min_items=1, max_items=12)
+    known_fact_ids_before: List[str] = Field(min_items=0, max_items=12, description="Stable ScenarioFact.id values from prior stages anchoring causality. For Stage 1 this may be an empty list.")
+    new_fact_ids: List[str] = Field(min_items=1, max_items=12, description="Stable ScenarioFact.id values introduced by this stage, one per substantive fact.")
     remaining_unknowns: List[str] = Field(min_items=1, max_items=12)
     business_impact: str = Field(min_length=1)
     stakeholder_pressure: str = Field(min_length=1)
     decisions_required: List[str] = Field(
         min_items=1,
         max_items=8,
-        description=(
-            "Concrete decisions, not investigative tasks. Each item must identify the choice, "
-            "authorised decision-maker, affected service/identity/operation, consequence or "
-            "trade-off, and decision window where relevant. For Confirmed compromise, include "
-            "session or identity containment, containment authority, affected-service continuity, "
-            "and escalation scope."
-        ),
+        description="Legacy presentation of decisions. Retained for compatibility; may be derived from decisions_typed.",
     )
+    decisions_typed: List[DecisionSpec] = Field(min_items=1, max_items=8, description="Required typed decisions for current-generation plans.")
     previous_inject_id: Optional[str] = None
     next_inject_trigger: Optional[str] = None
     facilitator_context: str = Field(min_length=1)
@@ -1283,6 +1299,7 @@ class TabletopInject(BaseModel):
     inject_state: InjectStateCompatible = Field(description="Required internal causal stage state; never render this object to participants.")
     participant_artefact: ParticipantArtefactSurface = Field(description="Required participant-facing artefact surface.")
     participant_questions: List[ParticipantQuestion] = Field(min_items=3, max_items=5, description="Three to five participant questions arising from the same artefact.")
+    participant_questions_typed: List[ParticipantDecisionQuestion] = Field(min_items=3, max_items=5, description="Required typed participant questions including anchors, options, deadline and consequences.")
     facilitator_guidance: StageFacilitatorGuidance = Field(description="Required facilitator-only stage guidance.")
 
 class TabletopFacilitatorWrapUp(BaseModel):
@@ -1551,12 +1568,15 @@ CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentat
      2. The single scenario must contain exactly 4 ordered stages, each with required inject_state, participant_artefact, participant_questions (3–5), and facilitator_guidance. The stages are exactly: Weak signal; Confirmed compromise; Operational or business impact; External or executive pressure. Do not model 1a and 1b as separate stages. The first inject_state.previous_inject_id must be null; the final inject_state.next_inject_trigger must be null. Every later stage must explicitly carry forward a fact introduced by the immediately preceding stage. Follow the four stages with one controlled facilitator_reveal/wrap_up root-cause reveal.
      2a. Every participant question must include at least two concrete anchors from the same stage artefact or stage facts: named fictional service or platform; affected role or identity; confirmed incident fact; operational consequence; responsible decision authority; supplier dependency; explicit time constraint; or containment-versus-continuity trade-off. Each question must require a choice, authorisation, prioritisation, or explicit acceptance/rejection of risk under a stated timebox. A question about evidence, telemetry, notification, or escalation is invalid when it only requests investigation or information; it is valid only when it also requires an immediate operational decision under uncertainty. Do not use generic prompts such as "What would you do?", "What happens next?", or "What evidence should you check?".
      2b. decisions_required must contain concrete choices rather than investigative tasks. Each decision must state the choice, responsible authority, affected service/identity/process, consequence or trade-off, and decision window or trigger where relevant. In Confirmed compromise, provide four separate decisions covering: (1) session/identity containment, (2) who has containment authority, (3) continuity of the affected service or process, and (4) escalation scope. Do not count verify, monitor, investigate, assess, determine, notify, or engage as a decision unless the sentence also commits an authority to a concrete choice.
-     2c. REQUIRED DECISION SENTENCE FORM: every decisions_required item must be a complete sentence containing a named authority, an action choice, a named service/identity/operation, a time window or trigger, and an accepted consequence or trade-off. Use the actual names and facts from this customer brief; never copy an example customer's names. For example: "The Incident Manager must authorise session revocation for the named affected identity in the named critical service within 10 minutes, accepting temporary disruption to the named business process." Do not use fragments or tasks such as "Assess impact", "Notify stakeholders", "Monitor the portal", "Investigate", "Engage", "Draft a plan", or "Determine accountability".
+      2c. REQUIRED DECISION SENTENCE FORM: every decisions_required item must follow a stable labelled format and be a single self‑contained line:
+          "DECISION: <concrete action>. AUTHORITY: <role>. AFFECTED OPERATION: <named identity/service/process>. DEADLINE: <window or trigger>. TRADE-OFF: accepting <explicit operational/security/customer/financial/regulatory consequence>."
+          Use the actual names and facts from this customer brief; never copy an example customer's names. Do not use fragments or tasks such as "Assess impact", "Notify stakeholders", "Monitor the portal", "Investigate", "Engage", "Draft a plan", or "Determine accountability".
      2d. REQUIRED PARTICIPANT QUESTION FORM: every participant_questions.prompt must contain at least two concrete anchors from the same artefact and an explicit decision verb. Each prompt must ask participants to choose, authorise, prioritise, continue, pause, contain, accept, reject, or escalate a stated option under a timebox, and must identify the authority or accountable role where relevant. Valid pattern using placeholders only: "Within [timebox], should [authority] [choose/action] for [affected identity] in [named service], accepting [consequence], or preserve [continuity option]?" Invalid prompts ask only what evidence to check, which systems to inspect, who to inform, or what procedure applies.
      2e. PARTICIPANT LEAKAGE BAN: participant_artefact.content and participant_questions must contain only observable evidence and participant-safe uncertainty. Never use "root cause", "threat actor", "malicious", "compromised account", "unauthorised access", "exfiltrated", "known threat actor", "facilitator", or conclusions not established at that stage. A confirmed-compromise artefact may state the confirmed session or identity fact, but must not state its hidden cause.
      2f. FACILITATOR GUIDANCE COMPLETENESS: for every stage, populate all ten facilitator_guidance fields with substantive stage-specific content, including non-empty expected_discussion_themes and information_supplied_only_if_requested; do not use placeholder words.
-     2g. STAGE CHECKLIST BEFORE RETURNING JSON: verify exactly four stages, valid boundary links, each later stage carries the preceding new_confirmed_fact in known_facts_before, final next_inject_trigger is null, and no participant surface contains hidden-root-cause language.
-    3. Language: British English strictly (e.g., analyse, behaviour, programme).
+      2g. STAGE CHECKLIST BEFORE RETURNING JSON: verify exactly four stages, valid boundary links, each later stage carries the preceding new_confirmed_fact in known_facts_before, final next_inject_trigger is null, and no participant surface contains hidden-root-cause language.
+      2h. FACT QUALITY (STRICT): for each inject_state.new_confirmed_facts item, include enough of: a named person or role; a named device or identity; a named service/platform; the observed event; a timestamp or sequence; and the operational meaning. For inject_state.known_facts_before, carry forward at least one exact prior confirmed fact and sufficient established context to support the current decision. Do not pad with generic prose or repeat empty placeholders.
+     3. Language: British English strictly (e.g., analyse, behaviour, programme).
 
     AUDIENCE PROFILE (STRICT):
     - Audience: {audience}
@@ -1627,6 +1647,8 @@ CONFIG (STRICT — non-inferred): exercise_profile={exercise_profile}; presentat
 
     FINAL OUTPUT SELF-CHECK (MANDATORY):
     - Do not return until the object would pass validate_four_stage_plan.
+    - Ensure each inject's public inject_id exactly matches inject_state.inject_id and all inject_id values are unique across the scenario.
+    - Enforce one identical hidden_root_cause_context across all four stages; the wrap_up.reveal_narrative must reveal that same cause.
     - For every stage, inspect every participant question individually: reject any generic or evidence-only question; require at least two anchors from that stage's own facts or artefact and a concrete decision under uncertainty.
     - Every decisions_required entry must identify the authority, choice, affected service/identity/process, decision window or trigger, and accepted consequence or trade-off. Stage 2 must contain four separate decisions for session/identity containment, containment authority, affected-service continuity, and escalation scope.
     - Do not expose hidden root-cause details in any participant artefact or participant question, even if the source material uses those terms.

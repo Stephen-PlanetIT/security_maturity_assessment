@@ -1,6 +1,9 @@
 import streamlit as st
 import time
 import json
+import uuid
+import threading
+import logging
 
 # JSON serialisation helper for non-JSON-native types (sets, tuples, unknowns)
 def _json_default(o):
@@ -252,6 +255,7 @@ from tabletop_generation import (
     TabletopGenerationError,
     generate_tabletop_plan,
     validate_four_stage_plan,
+    persist_validated_tabletop_plan,
 )
 from prompts import (
     TabletopMasterPlan,
@@ -294,6 +298,40 @@ def _coerce_list(value, options):
     return []
 
 st.set_page_config(page_title="Tabletop Designer (BETA)", layout="wide", initial_sidebar_state="collapsed")
+
+# Diagnostics: stable per-session UUID and page-run logger
+_logger = logging.getLogger(__name__)
+if "_diagnostic_session_id" not in st.session_state:
+    st.session_state["_diagnostic_session_id"] = str(uuid.uuid4())
+_active_run_id = st.session_state.get("_tabletop_generation_run_id")
+try:
+    # Environment versions
+    try:
+        import streamlit as _st_mod
+        _st_ver = getattr(_st_mod, "__version__", "unknown")
+    except Exception:
+        _st_ver = "unknown"
+    try:
+        import tornado as _tor
+        _tor_ver = getattr(_tor, "version", None) or getattr(_tor, "version_info", None) or "unknown"
+    except Exception:
+        _tor_ver = "unknown"
+    import sys as _sys
+    _logger.info(
+        "STREAMLIT_ENV streamlit=%s tornado=%s python=%s",
+        _st_ver, _tor_ver, _sys.version.split()[0]
+    )
+    # Page run log
+    _logger.info(
+        "TABLETOP_PAGE_RUN session_id=%s run_id=%s status=%s thread_id=%s timestamp=%.3f",
+        st.session_state.get("_diagnostic_session_id"),
+        _active_run_id,
+        st.session_state.get("tabletop_generation_status"),
+        threading.get_ident(),
+        time.time(),
+    )
+except Exception:
+    pass
 
 # Auth-aware guard: if login is enabled and user not signed-in, route to app.py sign-in
 from config import get_config
@@ -877,33 +915,73 @@ audience_options = ["Blended", "Board", "Technical"]
 audience = st.selectbox("Audience (display only)", audience_options, index=_safe_index(audience_options, st.session_state.get("tabletop_audience", "Blended")))
 st.session_state["tabletop_audience"] = audience
 
-if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
-    with st.spinner("Compiling scenarios and facilitator guides from estate profile..."):
-        client = LLMEngine.get_client()
-        deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
-        # ExerciseBlueprint (optional, ahead of inject plan)
-        try:
-            if str(get_config("TABLETOP_BLUEPRINT_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
-                blueprint = LLMEngine.generate_exercise_blueprint(
-                    client,
-                    deployment,
-                    SYSTEM_PERSONA_TABLETOP,
-                    client_inputs,
-                    selected_themes,
-                    audience=st.session_state.get("tabletop_audience", "Blended"),
-                )
-                if blueprint:
-                    st.session_state["exercise_blueprint"] = blueprint
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger(__name__).warning("ExerciseBlueprint generation failed; proceeding with plan generation. Error: %s", e)
+# Initialise generation status keys (durable across reruns)
+st.session_state.setdefault("tabletop_generation_status", "idle")
+st.session_state.setdefault("tabletop_generation_error", None)
 
-        # If an approved ExerciseBlueprint exists, deterministically build the plan from it (no LLM)
-        st.session_state.setdefault("exercise_blueprint_approved", False)
-        _use_bp = bool(st.session_state.get("exercise_blueprint_approved"))
-        _bp = st.session_state.get("exercise_blueprint")
-        if _use_bp and isinstance(_bp, dict):
-            try:
+# Render status outside the button branch so reruns do not lose terminal result
+if st.session_state.get("tabletop_generation_status") == "running":
+    started_at = st.session_state.get("tabletop_generation_started_at")
+    if isinstance(started_at, (int, float)):
+        elapsed = int(max(0, time.time() - started_at))
+        st.info(f"Compiling scenarios and facilitator guides from estate profile... Generation started {elapsed} seconds ago.")
+    else:
+        st.info("Compiling scenarios and facilitator guides from estate profile...")
+elif st.session_state.get("tabletop_generation_status") == "succeeded":
+    st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
+elif st.session_state.get("tabletop_generation_status") == "failed":
+    _err = st.session_state.get("tabletop_generation_error") or "Generation failed."
+    st.error(_err)
+
+if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
+    # Begin generation — set running state durably
+    st.session_state["tabletop_generation_status"] = "running"
+    st.session_state["tabletop_generation_error"] = None
+    _gen_started_ts = time.perf_counter()
+    # Wall-clock for UI watchdog
+    st.session_state["tabletop_generation_started_at"] = time.time()
+    # Assign a new run id and monotonic start for diagnostics
+    st.session_state["_tabletop_generation_run_id"] = str(uuid.uuid4())
+    st.session_state["_tabletop_generation_started_monotonic"] = time.monotonic()
+    try:
+        _logger.info(
+            "TABLETOP_RUN_ENTER run_id=%s session_id=%s thread_id=%s timestamp=%.3f",
+            st.session_state.get("_tabletop_generation_run_id"),
+            st.session_state.get("_diagnostic_session_id"),
+            threading.get_ident(),
+            time.time(),
+        )
+    except Exception:
+        pass
+    client = LLMEngine.get_client()
+    deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+    # ExerciseBlueprint (optional, ahead of inject plan) — routed by pure function
+    try:
+        from tabletop_generation import should_use_bespoke_blueprint as _route_bp
+        if _route_bp():
+            blueprint = LLMEngine.generate_exercise_blueprint(
+                client,
+                deployment,
+                SYSTEM_PERSONA_TABLETOP,
+                client_inputs,
+                selected_themes,
+                audience=st.session_state.get("tabletop_audience", "Blended"),
+            )
+            if blueprint:
+                st.session_state["exercise_blueprint"] = blueprint
+        else:
+            # When routing is disabled, do not call generate_exercise_blueprint; proceed directly to plan generation
+            pass
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("ExerciseBlueprint generation path skipped or failed; proceeding with plan generation. Error: %s", e)
+
+    # If an approved ExerciseBlueprint exists, deterministically build the plan from it (no LLM)
+    st.session_state.setdefault("exercise_blueprint_approved", False)
+    _use_bp = bool(st.session_state.get("exercise_blueprint_approved"))
+    _bp = st.session_state.get("exercise_blueprint")
+    if _use_bp and isinstance(_bp, dict):
+        try:
                 # Minimal deterministic plan from blueprint
                 plan = {
                     "exercise_title": _bp.get("exercise_title", "Tabletop Exercise"),
@@ -1062,11 +1140,31 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                 if not valid:
                     st.error("Generation failed validation: " + "; ".join(defects[:8]))
                     st.stop()
-                st.session_state["tabletop_plan"] = plan
+                try:
+                    persisted = persist_validated_tabletop_plan(st.session_state, plan)
+                except TabletopGenerationError as _pe:
+                    st.error(f"Generation failed at persistence: {_pe}")
+                    st.stop()
+                ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
+                if not ok2 or persisted is None:
+                    st.session_state["tabletop_generation_status"] = "failed"
+                    st.session_state["tabletop_generation_error"] = "Post-persistence validation failed: " + "; ".join(defects2[:8])
+                    import logging as _logging
+                    _logging.getLogger(__name__).info(
+                        "TABLETOP_GENERATION_TERMINAL status=failed phase=blueprint_persist elapsed_seconds=%.2f",
+                        time.perf_counter() - _gen_started_ts
+                    )
+                    st.stop()
+                st.session_state["tabletop_generation_status"] = "succeeded"
+                import logging as _logging
+                _logging.getLogger(__name__).info(
+                    "TABLETOP_GENERATION_TERMINAL status=succeeded phase=blueprint elapsed_seconds=%.2f",
+                    time.perf_counter() - _gen_started_ts
+                )
                 st.success("Tabletop scenario compiled deterministically from approved ExerciseBlueprint.")
                 st.stop()
-            except Exception as _xe:
-                st.warning(f"Blueprint transform failed; falling back to LLM plan. Error: {_xe}")
+        except Exception as _xe:
+            st.warning(f"Blueprint transform failed; falling back to LLM plan. Error: {_xe}")
 
         # Seed custom brief from Threat Simulator if user did not provide one
         _seed_brief = st.session_state.get("custom_tabletop_brief")
@@ -1085,6 +1183,10 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                 except Exception:
                     pass
         try:
+            try:
+                _logger.info("TABLETOP_GENERATE_CALL_ENTER run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
+            except Exception:
+                pass
             plan_dict = generate_tabletop_plan(
                 client=client,
                 deployment=deployment,
@@ -1096,14 +1198,112 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                 presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
                 blueprint=st.session_state.get("exercise_blueprint"),
             )
+            try:
+                _logger.info("TABLETOP_GENERATE_CALL_RETURN run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
+            except Exception:
+                pass
         except TabletopGenerationError as _generation_error:
-            st.error(f"Generation failed at {_generation_error.stage}: {_generation_error}")
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = f"Generation failed at {_generation_error.stage}: {_generation_error}"
+            try:
+                _logger.error(
+                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=generate",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    "TabletopGenerationError",
+                )
+                _logger.error(
+                    "TABLETOP_GENERATION_TERMINAL status=failed phase=generate exception_type=TabletopGenerationError elapsed_seconds=%.2f",
+                    time.perf_counter() - _gen_started_ts
+                )
+                _logger.info(
+                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    st.session_state.get("tabletop_generation_status"),
+                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
+                )
+            except Exception:
+                pass
             st.stop()
         except Exception as _generation_error:
-            st.error(f"Generation failed unexpectedly: {_generation_error}")
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = f"Generation failed unexpectedly: {_generation_error}"
+            try:
+                _logger.error(
+                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=generate",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    type(_generation_error).__name__,
+                )
+                _logger.error(
+                    "TABLETOP_GENERATION_TERMINAL status=failed phase=generate exception_type=%s elapsed_seconds=%.2f",
+                    type(_generation_error).__name__,
+                    time.perf_counter() - _gen_started_ts
+                )
+                _logger.info(
+                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    st.session_state.get("tabletop_generation_status"),
+                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
+                )
+            except Exception:
+                pass
             st.stop()
 
-        st.session_state["tabletop_plan"] = plan_dict
+        try:
+            persist_validated_tabletop_plan(st.session_state, plan_dict)
+        except TabletopGenerationError as _pe:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = f"Generation failed at persistence: {_pe}"
+            try:
+                _logger.error(
+                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=persist",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    "TabletopGenerationError",
+                )
+                _logger.error(
+                    "TABLETOP_GENERATION_TERMINAL status=failed phase=persist exception_type=TabletopGenerationError elapsed_seconds=%.2f",
+                    time.perf_counter() - _gen_started_ts
+                )
+                _logger.info(
+                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    st.session_state.get("tabletop_generation_status"),
+                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
+                )
+            except Exception:
+                pass
+            st.stop()
+        ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
+        if not ok2:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Post-persistence validation failed: " + "; ".join(defects2[:8])
+            try:
+                _logger.info(
+                    "TABLETOP_GENERATION_TERMINAL status=failed phase=persist_validate elapsed_seconds=%.2f",
+                    time.perf_counter() - _gen_started_ts
+                )
+                _logger.info(
+                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                    st.session_state.get("_tabletop_generation_run_id"),
+                    st.session_state.get("tabletop_generation_status"),
+                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
+                )
+            except Exception:
+                pass
+            st.stop()
+        st.session_state["tabletop_generation_status"] = "succeeded"
+        try:
+            _logger.info(
+                "TABLETOP_GENERATION_TERMINAL status=succeeded phase=llm_plan elapsed_seconds=%.2f",
+                time.perf_counter() - _gen_started_ts
+            )
+            _logger.info(
+                "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                st.session_state.get("_tabletop_generation_run_id"),
+                st.session_state.get("tabletop_generation_status"),
+                time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
+            )
+        except Exception:
+            pass
         st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         st.stop()
 
@@ -1285,8 +1485,17 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
             if not valid:
                 st.error("Generation failed validation after content synthesis: " + "; ".join(defects[:8]))
                 st.stop()
-            st.session_state["tabletop_plan"] = plan_dict
-            st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
+            try:
+                persist_validated_tabletop_plan(st.session_state, plan_dict)
+            except TabletopGenerationError as _pe:
+                st.error(f"Generation failed at persistence: {_pe}")
+            else:
+                ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
+                if not ok2:
+                    st.error("Post-persistence validation failed: " + "; ".join(defects2[:8]))
+                else:
+                    progress_placeholder.empty()
+                    st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:
             st.error("Generation failed. Check Azure configuration.")
 
@@ -1369,9 +1578,47 @@ if show_customise and st.session_state.get("tabletop_plan"):
                     imported = _ensure_required_plan_fields(imported)
                 except Exception:
                     pass
-                validated = TabletopMasterPlan.model_validate(imported)
-                st.session_state["tabletop_plan"] = validated.model_dump()
-                st.success("Tabletop plan imported and applied to the editor.")
+                # Attempt bounded legacy import adaptation before schema parse if typed surfaces are missing
+                def _has_typed_surfaces(d: dict) -> bool:
+                    try:
+                        scns = d.get("scenarios", [])
+                        if not isinstance(scns, list) or not scns:
+                            return False
+                        injs = scns[0].get("injects", []) or []
+                        if not isinstance(injs, list) or not injs:
+                            return False
+                        st0 = injs[0].get("inject_state", {}) if isinstance(injs[0], dict) else {}
+                        return bool(st0.get("decisions_typed")) and bool(injs[0].get("participant_questions_typed"))
+                    except Exception:
+                        return False
+                adapted = imported
+                if isinstance(adapted, dict) and not _has_typed_surfaces(adapted):
+                    try:
+                        from tabletop_generation import adapt_legacy_import
+                        adapted = adapt_legacy_import(adapted)
+                    except Exception:
+                        # Proceed to schema parse; model_validate may still succeed for fully typed legacy
+                        pass
+                try:
+                    validated = TabletopMasterPlan.model_validate(adapted)
+                except Exception as _e:
+                    # Final fallback: attempt adapter once more if not already applied
+                    try:
+                        from tabletop_generation import adapt_legacy_import
+                        validated = TabletopMasterPlan.model_validate(adapt_legacy_import(imported))
+                    except Exception as _e2:
+                        raise
+                plan_obj = validated.model_dump()
+                ok3, defects3 = validate_four_stage_plan(plan_obj)
+                if not ok3:
+                    st.error("Imported plan failed validation: " + "; ".join(defects3[:8]))
+                else:
+                    try:
+                        persist_validated_tabletop_plan(st.session_state, plan_obj)
+                    except TabletopGenerationError as _pe:
+                        st.error(f"Import failed at persistence: {_pe}")
+                    else:
+                        st.success("Tabletop plan imported and applied to the editor.")
             except Exception as e:
                 st.error(f"Invalid plan JSON: {e}")
 
