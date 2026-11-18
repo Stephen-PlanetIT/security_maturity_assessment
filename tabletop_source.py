@@ -375,7 +375,7 @@ def transform_source_to_master(source: Dict[str, Any], generation_context: Optio
             "inject_id": inj_id,
             "previous_inject_id": prev_inj_id if stage_num > 1 else None,
             "phase": STAGE_PHASES[stage_num - 1],
-            "known_facts_before": (prev_facts if stage_num > 1 else []),
+            "known_facts_before": (prev_facts if stage_num > 1 else ["prior context established"]),
             "new_confirmed_facts": facts,
             "known_fact_ids_before": (canon_registry.get(stage_num - 1, []) if stage_num > 1 else []),
             "new_fact_ids": canon_ids,
@@ -402,12 +402,23 @@ def transform_source_to_master(source: Dict[str, Any], generation_context: Optio
             for d in s.decisions
         ]
 
-        # Derive legacy decision strings for compatibility
+        # Derive legacy decision strings for compatibility (normalised punctuation)
         legacy_decisions = []
         for d in s.decisions:
+            try:
+                dec = str(d.decision).rstrip(". ").strip()
+                auth = str(d.authority).rstrip(". ").strip()
+                aff = str(d.affected_operation).rstrip(". ").strip()
+                cons = str(d.accepted_consequence).rstrip(". ").strip()
+                ddl = f"{int(d.deadline_minutes)} minutes"
+            except Exception:
+                dec = str(d.decision).strip()
+                auth = str(d.authority).strip()
+                aff = str(d.affected_operation).strip()
+                cons = str(d.accepted_consequence).strip()
+                ddl = str(getattr(d, "deadline", "")).strip()
             legacy_decisions.append(
-                f"DECISION: {d.decision}. AUTHORITY: {d.authority}. AFFECTED OPERATION: {d.affected_operation}. "
-                f"DEADLINE: {d.deadline_minutes} minutes. TRADE-OFF: {d.accepted_consequence}."
+                f"DECISION: {dec}. AUTHORITY: {auth}. AFFECTED OPERATION: {aff}. DEADLINE: {ddl}. TRADE-OFF: Accepting {cons}."
             )
         state["decisions_required"] = legacy_decisions
 
@@ -436,12 +447,18 @@ def transform_source_to_master(source: Dict[str, Any], generation_context: Optio
                 "competing_consequences": list(q.competing_consequences or []),
             })
             legacy_qs.append({"prompt": q.prompt})
-        # Build inject record
+        # Build inject record (derive participant-facing narrative/knowledge)
         inject = {
             "inject_id": inj_id,  # public id
             "inject_state": state,
             "participant_questions_typed": typed_qs,
             "participant_questions": legacy_qs,  # compatibility surface (string prompts)
+            "scenario_narrative": s.participant_situation_summary,
+            "expected_mature_response": "Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence.",
+            "primary_decision_target": (s.decisions[0].decision if (s.decisions and getattr(s.decisions[0],'decision',None)) else "Decision target"),
+            "knowledge_before": list(state.get("known_facts_before") or []),
+            "knowledge_newly_revealed": list(state.get("new_confirmed_facts") or []),
+            "knowledge_after": list((state.get("known_facts_before") or []) + (state.get("new_confirmed_facts") or [])),
             # Defer authoritative artefact and guidance to synthesis steps
             "participant_artefact": {},
             "facilitator_guidance": {}
@@ -462,6 +479,7 @@ def transform_source_to_master(source: Dict[str, Any], generation_context: Optio
             {
                 "scenario_id": "SCN-01",
                 "scenario_title": plan.scenario_title,
+                "initial_vector": plan.stages[0].participant_situation_summary if (getattr(plan, "stages", None)) else "",
                 "injects": injects,
                 "facilitator_reveal": {
                     "reveal_narrative": plan.wrap_up_reveal

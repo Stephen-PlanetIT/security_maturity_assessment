@@ -316,6 +316,10 @@ def build_aar_context(master_plan: Dict[str, Any], session_notes: List[Dict[str,
         "generated_at": format_date_uk(_get(aar_obj, "generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
         "approval_date_display": format_date_uk(_get(aar_obj, "approval_date_display")),
         "report_approver_display": sanitize_text(_get(aar_obj, "report_approver_display")),
+        # Display-only facilitator review block (optional)
+        "facilitator_review_display": sanitize_text(_get(aar_obj, "facilitator_review_display")),
+        # Delta notes (optional narrative for profile sync)
+        "delta_notes_for_profile": sanitize_text(_get(aar_obj, "delta_notes_for_profile")),
     }
     # Narrative
     ctx["executive_summary"] = render_executive_summary(aar_obj)

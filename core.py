@@ -3,6 +3,7 @@ import streamlit as st
 import openai
 from openai import AzureOpenAI
 import time
+import httpx
 import random
 import logging
 from config import get_config, ConfigKey
@@ -21,20 +22,25 @@ class LLMEngine:
                 raise ValueError("Azure OpenAI endpoint placeholder. Please set AZURE_OPENAI_ENDPOINT to your real resource URL.")
             if not api_key or "REDACTED" in str(api_key):
                 raise ValueError("Azure OpenAI API key placeholder.")
-            # Configurable timeout for resilience; default 300s; bounded to 0-600s
-            timeout_sec = 300.0
+            # Bounded timeouts for resilience: connect <=30s; request <=300s
             try:
-                timeout_raw = get_config("AZURE_CLIENT_TIMEOUT_SEC", 300.0)
-                timeout_sec = float(timeout_raw)
-                if timeout_sec <= 0 or timeout_sec > 600:
-                    timeout_sec = 300.0
+                connect_timeout = float(get_config("AZURE_CONNECT_TIMEOUT_SEC", 30.0))
             except Exception:
-                timeout_sec = 300.0
+                connect_timeout = 30.0
+            if connect_timeout <= 0 or connect_timeout > 30:
+                connect_timeout = 30.0
+            try:
+                request_timeout = float(get_config("AZURE_REQUEST_TIMEOUT_SEC", 300.0))
+            except Exception:
+                request_timeout = 300.0
+            if request_timeout <= 0 or request_timeout > 300:
+                request_timeout = 300.0
+            timeout_obj = httpx.Timeout(connect=connect_timeout, read=request_timeout, write=connect_timeout, pool=connect_timeout)
             return AzureOpenAI(
                 api_key=api_key,
                 api_version=get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview"),
                 azure_endpoint=endpoint,
-                timeout=timeout_sec
+                timeout=timeout_obj
             )
         except Exception as e:
             _logger.error("Client initialisation failed: %s", e, exc_info=True)
@@ -329,7 +335,14 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
                     LLMEngine._dbg_phase(f"Composite:domain[{name}]_light failed")
                     return {"analysis": "", "impact": "", "remediation": ""}
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
-            max_retries = 3
+            max_retries = 1
+            try:
+                mr_raw = get_config("AZURE_MAX_RETRIES", 1)
+                max_retries = int(mr_raw)
+            except Exception:
+                max_retries = 1
+            if max_retries > 1:
+                max_retries = 1
             response_model_name = getattr(response_model, "__name__", str(response_model))
             api_version = get_config(ConfigKey.AZURE_API_VERSION, "2024-02-15-preview")
             try:
@@ -512,7 +525,14 @@ Respond ONLY as JSON: {{"analysis":"...","business_impact":"...","remediation_bu
             if LLMEngine._supports_sampling_controls(deployment):
                 extra_params["temperature"] = temperature
             LLMEngine._debug_prompt_metrics(deployment, system_persona, user_prompt, streaming=False)
-            max_retries = 3
+            max_retries = 1
+            try:
+                mr_raw = get_config("AZURE_MAX_RETRIES", 1)
+                max_retries = int(mr_raw)
+            except Exception:
+                max_retries = 1
+            if max_retries > 1:
+                max_retries = 1
             for attempt in range(max_retries):
                 try:
                     response = client.chat.completions.create(

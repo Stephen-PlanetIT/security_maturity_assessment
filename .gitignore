@@ -15,6 +15,9 @@ tools/
 tests/
 exports/
 scripts/
+reports/
+out/
+
 
 # Secrets & environment
 .env
@@ -43,3 +46,6 @@ test*
 diagnostics/
 pilot*
 DIAGNOSTIC*
+.streamlit/secrets copy.toml
+pytest.ini
+.python-version

@@ -169,7 +169,8 @@ with st.expander("🔧 Diagnostics", expanded=False):
             # 1) Show template schema
             try:
                 from aar_renderer import _detect_template_schema_version as _schema
-                schema = _schema("planet_it_tabletop_report_template.docx") or "missing"
+                import os
+                schema = _schema(os.path.join(os.path.dirname(__file__), "..", "planet_it_tabletop_report_template.docx")) or "missing"
                 st.info(f"Template schema: {schema}")
             except Exception:
                 st.warning("Could not detect template schema marker.")
@@ -352,36 +353,58 @@ if st.session_state.get("aar_result"):
             _aar_export_fn = None
     aar_docx = None
     try:
-        import datetime
+        from datetime import datetime, timezone, date
         if _aar_export_fn:
-            # Populate appendix/governance scalars if missing
-            try:
-                aar.consultant_name = st.session_state.get("client_inputs", {}).get("consultant_name", "")
-            except Exception:
-                pass
-            try:
-                aar.account_manager_name = st.session_state.get("client_inputs", {}).get("account_manager_name", "")
-            except Exception:
-                pass
-            try:
-                aar.generated_at = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-            except Exception:
-                pass
-            aar_docx = _aar_export_fn(
-                st.session_state.get("tabletop_plan", {}),
-                st.session_state.get("tabletop_notes", []),
-                aar,
-                st.session_state.get("immediate_injects", []),
-            )
+            # Reuse accepted output if present (no regeneration on rerender/download)
+            if st.session_state.get("aar_docx_bytes"):
+                aar_docx = st.session_state["aar_docx_bytes"]
+            else:
+                # Populate appendix/governance scalars if missing
+                try:
+                    aar.consultant_name = st.session_state.get("client_inputs", {}).get("consultant_name", "")
+                except Exception:
+                    pass
+                try:
+                    aar.account_manager_name = st.session_state.get("client_inputs", {}).get("account_manager_name", "")
+                except Exception:
+                    pass
+                try:
+                    aar.generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+                except Exception:
+                    pass
+                aar_docx = _aar_export_fn(
+                    st.session_state.get("tabletop_plan", {}),
+                    st.session_state.get("tabletop_notes", []),
+                    aar,
+                    st.session_state.get("immediate_injects", []),
+                )
+                if aar_docx:
+                    st.session_state["aar_docx_bytes"] = aar_docx
     except Exception:
         aar_docx = None
     if aar_docx:
+        # Acceptance logging without regeneration: existence, reopen, QA-001/QA-006
+        try:
+            print("AAR_OUTPUT_EXISTS=true", flush=True)
+            from docx import Document as _Doc
+            import io
+            _Doc(io.BytesIO(aar_docx))
+            print("AAR_OUTPUT_REOPEN_SUCCESS=true", flush=True)
+        except Exception:
+            print("AAR_OUTPUT_REOPEN_SUCCESS=false", flush=True)
+        try:
+            from aar_renderer import qa_scan_docx_bytes as _qa
+            ok_doc, qa_issues = _qa(aar_docx)
+            print(f"QA_001_PASS={str(all('QA-001' not in (qa_issues or []) for _ in [0]))}", flush=True)
+            print(f"QA_006_PASS={str(all('QA-006' not in (qa_issues or []) for _ in [0]))}", flush=True)
+        except Exception:
+            pass
         safe_client = ""
         try:
             safe_client = str(st.session_state.get("client_inputs", {}).get("customer_name", "Client")).strip() or "Client"
         except Exception:
             safe_client = "Client"
-        fname = f"AAR_{safe_client}_{datetime.date.today().isoformat()}.docx"
+        fname = f"AAR_{safe_client}_{date.today().isoformat()}.docx"
         st.download_button(
             "Download After-Action Review (DOCX)",
             data=aar_docx,

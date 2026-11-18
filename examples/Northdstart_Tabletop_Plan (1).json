@@ -1,0 +1,1145 @@
+{
+  "scenarios": [
+    {
+      "scenario_id": "SCN-01",
+      "scenario_title": "Hijacked Entra Session Against the Northstar API",
+      "initial_vector": "A finance operations colleague reports repeated authentication prompts followed by an unexpected successful sign-in notification. The colleague says they approved one prompt while trying to access a shared logistics document, but now cannot explain a new browser session shown in their account activity.",
+      "injects": [
+        {
+          "inject_id": "INJ-1",
+          "inject_state": {
+            "inject_id": "INJ-1",
+            "previous_inject_id": null,
+            "phase": "Weak signal",
+            "known_facts_before": [
+              "prior context established"
+            ],
+            "new_confirmed_facts": [
+              "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+              "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+              "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began."
+            ],
+            "known_fact_ids_before": [],
+            "new_fact_ids": [
+              "S1-F1",
+              "S1-F2",
+              "S1-F3"
+            ],
+            "remaining_unknowns": [
+              "Whether the successful session is still active and has accessed Northsat API resources.",
+              "Whether the external document email was malicious and reached other staff.",
+              "Whether any other identities received similar prompts or have anomalous sessions.",
+              "Whether current MFA settings and conditional-access controls would have blocked a token-replay attempt."
+            ],
+            "facilitator_context": "Facilitate towards evidence‑backed choices, reinforce governance thresholds, and record explicit trade‑offs.",
+            "hidden_root_cause_context": "A finance operations user entered credentials into an adversary-in-the-middle phishing site and approved a deceptive sign-in flow, allowing the attacker to capture an Entra session token. The attacker used the token to access the Northsat API administration portal, created a covert application credential, and began extracting shipment and customer data. MFA, patching and backup status are unverified, so they must not be assumed as protective controls.",
+            "business_impact": "Emerging operational and customer impact requires timely, authorised decisions during Weak signal.",
+            "stakeholder_pressure": "Stakeholders expect clear authority, containment progress and continuity plans under a firm timebox.",
+            "decisions_required": [
+              "DECISION: Classify the event and assign an incident lead for identity investigation. AUTHORITY: Incident Manager. AFFECTED OPERATION: Finance operations user identity and associated Microsoft Entra session. DEADLINE: 15 minutes. TRADE-OFF: Accepting Treating the report as a security incident may temporarily interrupt the user's access while evidence is preserved."
+            ],
+            "decisions_typed": [
+              {
+                "category": "initial_triage",
+                "decision": "Classify the event and assign an incident lead for identity investigation.",
+                "authority": "Incident Manager",
+                "affected_operation": "Finance operations user identity and associated Microsoft Entra session",
+                "deadline_minutes": 15,
+                "accepted_consequence": "Treating the report as a security incident may temporarily interrupt the user's access while evidence is preserved."
+              }
+            ]
+          },
+          "participant_questions_typed": [
+            {
+              "prompt": "What evidence in the Entra sign-in history and user report distinguishes a normal remote login from a potentially compromised session, and where will that evidence be preserved?",
+              "authority": "Security Operations Lead",
+              "anchor_fact_ids": [
+                "S1-F1",
+                "S1-F2",
+                "S1-F3"
+              ],
+              "decision_options": [
+                "Open an identity security investigation and preserve Entra sign-in evidence",
+                "Treat the event as routine user authentication friction",
+                "Ask the user to monitor for further prompts before escalating"
+              ],
+              "deadline_minutes": 15,
+              "competing_consequences": [
+                "Early escalation may disrupt normal work",
+                "Delayed escalation could allow an active session to persist",
+                "Insufficient evidence preservation could hinder later investigation"
+              ]
+            },
+            {
+              "prompt": "What immediate action should be taken for the affected user account while preserving the ability to investigate the unfamiliar session?",
+              "authority": "Identity Service Owner",
+              "anchor_fact_ids": [
+                "S1-F1",
+                "S1-F2"
+              ],
+              "decision_options": [
+                "Revoke active sessions and require re-authentication",
+                "Disable the account pending investigation",
+                "Maintain access while monitoring sign-in activity"
+              ],
+              "deadline_minutes": 20,
+              "competing_consequences": [
+                "Session revocation may interrupt finance operations",
+                "Account disablement creates a wider operational delay",
+                "Monitoring alone may leave an attacker session active"
+              ]
+            },
+            {
+              "prompt": "How will the team establish whether the external document message is isolated or part of a broader campaign, using available email and Entra evidence?",
+              "authority": "IT Operations Manager",
+              "anchor_fact_ids": [
+                "S1-F1",
+                "S1-F3"
+              ],
+              "decision_options": [
+                "Search relevant email records and correlate recipients with anomalous sign-ins",
+                "Notify only the reporting user and await further reports",
+                "Issue a precautionary warning while evidence collection proceeds"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "A broad warning may cause unnecessary concern",
+                "Narrow investigation may miss additional exposed identities",
+                "Delaying communications may permit further credential capture"
+              ]
+            }
+          ],
+          "participant_questions": [
+            {
+              "prompt": "What evidence in the Entra sign-in history and user report distinguishes a normal remote login from a potentially compromised session, and where will that evidence be preserved?"
+            },
+            {
+              "prompt": "What immediate action should be taken for the affected user account while preserving the ability to investigate the unfamiliar session?"
+            },
+            {
+              "prompt": "How will the team establish whether the external document message is isolated or part of a broader campaign, using available email and Entra evidence?"
+            }
+          ],
+          "scenario_narrative": "A finance operations colleague reports repeated authentication prompts followed by an unexpected successful sign-in notification. The colleague says they approved one prompt while trying to access a shared logistics document, but now cannot explain a new browser session shown in their account activity.",
+          "expected_mature_response": "Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence.",
+          "primary_decision_target": "Classify the event and assign an incident lead for identity investigation.",
+          "knowledge_before": [
+            "prior context established"
+          ],
+          "knowledge_newly_revealed": [
+            "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+            "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+            "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began."
+          ],
+          "knowledge_after": [
+            "prior context established",
+            "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+            "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+            "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began."
+          ],
+          "participant_artefact": {
+            "author": "Service Desk Analyst",
+            "audience": "Incident Manager",
+            "author_knowledge_boundary": "Observed evidence only; no facilitator conclusions",
+            "relative_timestamp": "08:42",
+            "purpose": "Ticket: Unexpected sign-in prompt and route changes (Weak signal)",
+            "content": "Ticket ID: IM-0842\nOpened: 08:42\nReported by: Dispatch Supervisor\nAffected user: Dispatch Supervisor\nAffected service: Northstar Dispatch API / Microsoft 365\nPriority: High (morning dispatch peak)\nSummary: Unexpected reauthentication and route changes observed\nDescription:\n  - Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.\n  - The successful sign-in created a browser session using a device and browser combination not previously associated with the account.\n  - The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began.\nActions already taken: Manual restoration of affected route assignments\nEscalation status: Referred to Incident Manager for triage"
+          },
+          "facilitator_guidance": {
+            "inject_purpose": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+            "facts_participants_may_rely_on": "prior context established; Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.; The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+            "information_not_yet_available": "- Whether the successful session is still active and has accessed Northsat API resources.\n- Whether the external document email was malicious and reached other staff.\n- Whether any other identities received similar prompts or have anomalous sessions.\n- Whether current MFA settings and conditional-access controls would have blocked a token-replay attempt.",
+            "optional_probes": "- Which Entra records confirm the unfamiliar IP and what decision follows?\n- Which dispatch records prove priority route-change scope during the window?\n- Where will the incident classification and evidence-preservation be recorded?",
+            "expected_discussion_themes": "- Validate Microsoft Entra ID sign-in anomaly using identity logs\n- Assess Northstar Dispatch API route-assignment changes and impact\n- Decide incident threshold and evidence preservation actions",
+            "escalation_cue": " - Restate the decision threshold and prompt engagement of named roles.",
+            "information_supplied_only_if_requested": "- Entra sign-in and session timestamps for the supervisor within the observed window\n- Dispatch API audit entries for the three priority consignments",
+            "common_failure_modes": "- Classifying as service anomaly without preserving identity and API evidence\n- Assuming MFA rules out session misuse",
+            "reveal_timing": "Controlled facilitation reveal during wrap‑up.",
+            "after_action_observation": "Capture decision rationale, evidence gaps, and authority pathways for AAR."
+          },
+          "artefacts": []
+        },
+        {
+          "inject_id": "INJ-2",
+          "inject_state": {
+            "inject_id": "INJ-2",
+            "previous_inject_id": "INJ-1",
+            "phase": "Confirmed compromise",
+            "known_facts_before": [
+              "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+              "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+              "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began."
+            ],
+            "new_confirmed_facts": [
+              "Entra audit records show the unfamiliar session accessed the Northsat API administration portal using the finance operations account.",
+              "Northsat API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+              "Northsat API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+              "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window."
+            ],
+            "known_fact_ids_before": [
+              "S1-F1",
+              "S1-F2",
+              "S1-F3"
+            ],
+            "new_fact_ids": [
+              "S2-F1",
+              "S2-F2",
+              "S2-F3",
+              "S2-F4"
+            ],
+            "remaining_unknowns": [
+              "Whether the new application credential has accessed, altered or exported customer and shipment data.",
+              "Whether additional application credentials or privileged Entra sessions were created.",
+              "Whether the credential can be revoked without disrupting active logistics integrations.",
+              "Whether other user accounts have been subject to the same token-capture technique."
+            ],
+            "facilitator_context": "Facilitate towards evidence‑backed choices, reinforce governance thresholds, and record explicit trade‑offs.",
+            "hidden_root_cause_context": "A finance operations user entered credentials into an adversary-in-the-middle phishing site and approved a deceptive sign-in flow, allowing the attacker to capture an Entra session token. The attacker used the token to access the Northsat API administration portal, created a covert application credential, and began extracting shipment and customer data. MFA, patching and backup status are unverified, so they must not be assumed as protective controls.",
+            "business_impact": "Emerging operational and customer impact requires timely, authorised decisions during Confirmed compromise.",
+            "stakeholder_pressure": "Stakeholders expect clear authority, containment progress and continuity plans under a firm timebox.",
+            "decisions_required": [
+              "DECISION: Revoke all sessions, reset credentials and disable the affected finance operations account until identity assurance is restored. AUTHORITY: Identity Service Owner. AFFECTED OPERATION: Finance operations Entra identity. DEADLINE: 15 minutes. TRADE-OFF: Accepting The affected user will lose access to finance and logistics systems until a controlled re-enrolment is completed.",
+              "DECISION: Authorise the Incident Manager to direct emergency revocation of suspicious Northsat API credentials and accounts under the incident process. AUTHORITY: Executive Incident Owner. AFFECTED OPERATION: Northsat API identity and credential estate. DEADLINE: 15 minutes. TRADE-OFF: Accepting Emergency containment may interrupt legitimate integrations and requires rapid service-owner validation.",
+              "DECISION: Place Northsat API administration into controlled change mode while retaining pre-approved operational API flows where technically feasible. AUTHORITY: Northsat API Service Owner. AFFECTED OPERATION: Northsat API administration and logistics integrations. DEADLINE: 20 minutes. TRADE-OFF: Accepting Administrative changes and some partner onboarding activity will be delayed while operational continuity is protected.",
+              "DECISION: Declare a Major Incident and invoke the incident response retainer to investigate potential identity compromise and API data exposure. AUTHORITY: Incident Manager. AFFECTED OPERATION: Organisation-wide security incident response. DEADLINE: 30 minutes. TRADE-OFF: Accepting Executive resources and specialist support will be mobilised before data exposure is fully quantified."
+            ],
+            "decisions_typed": [
+              {
+                "category": "session_identity_containment",
+                "decision": "Revoke all sessions, reset credentials and disable the affected finance operations account until identity assurance is restored.",
+                "authority": "Identity Service Owner",
+                "affected_operation": "Finance operations Entra identity",
+                "deadline_minutes": 15,
+                "accepted_consequence": "The affected user will lose access to finance and logistics systems until a controlled re-enrolment is completed."
+              },
+              {
+                "category": "containment_authority",
+                "decision": "Authorise the Incident Manager to direct emergency revocation of suspicious Northsat API credentials and accounts under the incident process.",
+                "authority": "Executive Incident Owner",
+                "affected_operation": "Northsat API identity and credential estate",
+                "deadline_minutes": 15,
+                "accepted_consequence": "Emergency containment may interrupt legitimate integrations and requires rapid service-owner validation."
+              },
+              {
+                "category": "affected_service_continuity",
+                "decision": "Place Northsat API administration into controlled change mode while retaining pre-approved operational API flows where technically feasible.",
+                "authority": "Northsat API Service Owner",
+                "affected_operation": "Northsat API administration and logistics integrations",
+                "deadline_minutes": 20,
+                "accepted_consequence": "Administrative changes and some partner onboarding activity will be delayed while operational continuity is protected."
+              },
+              {
+                "category": "escalation_scope",
+                "decision": "Declare a Major Incident and invoke the incident response retainer to investigate potential identity compromise and API data exposure.",
+                "authority": "Incident Manager",
+                "affected_operation": "Organisation-wide security incident response",
+                "deadline_minutes": 30,
+                "accepted_consequence": "Executive resources and specialist support will be mobilised before data exposure is fully quantified."
+              }
+            ]
+          },
+          "participant_questions_typed": [
+            {
+              "prompt": "Which Entra and Northsat records prove that the activity moved from a suspicious user session to sustained application-credential access, and what evidence package should be preserved?",
+              "authority": "Security Operations Lead",
+              "anchor_fact_ids": [
+                "S1-F1",
+                "S2-F1",
+                "S2-F2",
+                "S2-F3"
+              ],
+              "decision_options": [
+                "Preserve Entra sign-in and audit records alongside Northsat credential and API access records",
+                "Preserve only the affected user's endpoint evidence",
+                "Rely on a service-owner summary pending further analysis"
+              ],
+              "deadline_minutes": 15,
+              "competing_consequences": [
+                "Comprehensive preservation consumes specialist time",
+                "Limited preservation may lose the attack chain",
+                "Delayed preservation may allow records to roll over"
+              ]
+            },
+            {
+              "prompt": "How will authority be exercised to revoke the suspicious application credential while protecting critical logistics integrations, and which continuity risk is accepted?",
+              "authority": "Executive Incident Owner",
+              "anchor_fact_ids": [
+                "S2-F2",
+                "S2-F3"
+              ],
+              "decision_options": [
+                "Revoke the credential immediately and manage integration interruption",
+                "Restrict the credential while validating its business dependency",
+                "Retain the credential temporarily for observation under enhanced monitoring"
+              ],
+              "deadline_minutes": 15,
+              "competing_consequences": [
+                "Immediate revocation may disrupt logistics workflows",
+                "Restriction may not stop data access fully",
+                "Observation may extend attacker access"
+              ]
+            },
+            {
+              "prompt": "What Major Incident and incident-response-retainer threshold is met by the confirmed Northsat administration access, and what decision record will evidence the escalation?",
+              "authority": "Incident Manager",
+              "anchor_fact_ids": [
+                "S1-F2",
+                "S2-F1",
+                "S2-F2",
+                "S2-F3"
+              ],
+              "decision_options": [
+                "Declare a Major Incident and invoke the retainer now",
+                "Maintain an internal security investigation pending impact confirmation",
+                "Escalate only to the Northsat service owner initially"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "Early escalation creates leadership and cost impact",
+                "Delayed escalation may reduce containment options",
+                "Narrow escalation may understate enterprise risk"
+              ]
+            },
+            {
+              "prompt": "What does the absence of a confirmed Microsoft Defender endpoint finding establish, and what does it leave unresolved about the identity-led compromise?",
+              "authority": "Endpoint Security Lead",
+              "anchor_fact_ids": [
+                "S1-F3",
+                "S2-F3",
+                "S2-F4"
+              ],
+              "decision_options": [
+                "Treat endpoint status as non-conclusive and continue identity and API investigation",
+                "Close the incident as no endpoint compromise was confirmed",
+                "Focus solely on endpoint re-imaging before credential containment"
+              ],
+              "deadline_minutes": 20,
+              "competing_consequences": [
+                "Identity-led investigation requires additional specialist effort",
+                "Premature closure could leave persistent API access",
+                "Endpoint-only action may not remove cloud persistence"
+              ]
+            }
+          ],
+          "participant_questions": [
+            {
+              "prompt": "Which Entra and Northsat records prove that the activity moved from a suspicious user session to sustained application-credential access, and what evidence package should be preserved?"
+            },
+            {
+              "prompt": "How will authority be exercised to revoke the suspicious application credential while protecting critical logistics integrations, and which continuity risk is accepted?"
+            },
+            {
+              "prompt": "What Major Incident and incident-response-retainer threshold is met by the confirmed Northsat administration access, and what decision record will evidence the escalation?"
+            },
+            {
+              "prompt": "What does the absence of a confirmed Microsoft Defender endpoint finding establish, and what does it leave unresolved about the identity-led compromise?"
+            }
+          ],
+          "scenario_narrative": "The Entra investigation now shows that the unfamiliar browser session accessed the Northstar API administration portal and created a new application credential. The affected user’s normal activity has stopped after their sessions were revoked, but API activity continues under the newly created credential.",
+          "expected_mature_response": "Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence.",
+          "primary_decision_target": "Revoke all sessions, reset credentials and disable the affected finance operations account until identity assurance is restored.",
+          "knowledge_before": [
+            "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+            "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+            "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began."
+          ],
+          "knowledge_newly_revealed": [
+            "Entra audit records show the unfamiliar session accessed the Northstar API administration portal using the finance operations account.",
+            "Northstar API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+            "Northstar API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+            "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window."
+          ],
+          "knowledge_after": [
+            "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+            "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+            "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began.",
+            "Entra audit records show the unfamiliar session accessed the Northstar API administration portal using the finance operations account.",
+            "Northstar API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+            "Northstar API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+            "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window."
+          ],
+          "participant_artefact": {
+            "author": "Security Analyst (Identity)",
+            "audience": "Incident Manager",
+            "author_knowledge_boundary": "Observed evidence only; no facilitator conclusions",
+            "relative_timestamp": "09:35",
+            "purpose": "Identity/Security Update: Session anomaly and app credential (Confirmed compromise)",
+            "content": "Incident reference: INC-0935\nTimestamp: 09:35\nPrepared by: Security Analyst (Identity)\nAffected identity: Dispatch Supervisor\nObserved activity:\n  - Entra audit records show the unfamiliar session accessed the Northstar API administration portal using the finance operations account.\n  - Northstar API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.\n  - Northstar API access records show continued requests using the new application credential after the user's interactive sessions were revoked.\nEndpoint correlation: No matching interactive activity on corporate laptop during suspicious session\nAzure activity: New application credential and subsequent queries\nContainment status: Pending authority for session revocation and credential removal\nDecision required: Approve identity containment and credential removal"
+          },
+          "facilitator_guidance": {
+            "inject_purpose": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+            "facts_participants_may_rely_on": "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.; The successful sign-in created a browser session using a device and browser combination not previously associated with the account.; The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began.; Entra audit records show the unfamiliar session accessed the Northsat API administration portal using the finance operations account.; Northsat API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+            "information_not_yet_available": "- Whether the new application credential has accessed, altered or exported customer and shipment data.\n- Whether additional application credentials or privileged Entra sessions were created.\n- Whether the credential can be revoked without disrupting active logistics integrations.\n- Whether other user accounts have been subject to the same token-capture technique.",
+            "optional_probes": "- Who authorises session revocation and how will approval be evidenced?\n- What Azure evidence will be preserved before credential removal?\n- What Dispatch API functions remain safe during containment and why?\n- Which threshold triggers Major Incident and retainer invocation?",
+            "expected_discussion_themes": "- Session containment and credential removal authority\n- Preserve Azure activity evidence for the application credential\n- Dispatch API continuity controls under containment\n- Major Incident escalation scope and retainer",
+            "escalation_cue": " - Restate the decision threshold and prompt engagement of named roles.",
+            "information_supplied_only_if_requested": "- Azure activity record showing application credential creation and subsequent Northstar Dispatch API queries\n- Endpoint timeline segments around the suspicious session window",
+            "common_failure_modes": "- Removing application credential before preserving Azure evidence\n- Revoking access without coordinating Dispatch Operations continuity",
+            "reveal_timing": "Controlled facilitation reveal during wrap‑up.",
+            "after_action_observation": "Capture decision rationale, evidence gaps, and authority pathways for AAR."
+          },
+          "artefacts": []
+        },
+        {
+          "inject_id": "INJ-3",
+          "inject_state": {
+            "inject_id": "INJ-3",
+            "previous_inject_id": "INJ-2",
+            "phase": "Operational or business impact",
+            "known_facts_before": [
+              "Entra audit records show the unfamiliar session accessed the Northsat API administration portal using the finance operations account.",
+              "Northsat API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+              "Northsat API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+              "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window."
+            ],
+            "new_confirmed_facts": [
+              "Northsat API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+              "The data requests occurred after the credential creation identified in the prior investigation.",
+              "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+              "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually."
+            ],
+            "known_fact_ids_before": [
+              "S2-F1",
+              "S2-F2",
+              "S2-F3",
+              "S2-F4"
+            ],
+            "new_fact_ids": [
+              "S3-F1",
+              "S3-F2",
+              "S3-F3",
+              "S3-F4"
+            ],
+            "remaining_unknowns": [
+              "Whether the abnormal requests resulted in successful data extraction outside Northsat.",
+              "The exact population of data subjects, customers and contracts affected.",
+              "Whether any second credential, account or session remains active.",
+              "Whether the interrupted partner integration can be restored safely with replacement credentials."
+            ],
+            "facilitator_context": "Facilitate towards evidence‑backed choices, reinforce governance thresholds, and record explicit trade‑offs.",
+            "hidden_root_cause_context": "A finance operations user entered credentials into an adversary-in-the-middle phishing site and approved a deceptive sign-in flow, allowing the attacker to capture an Entra session token. The attacker used the token to access the Northsat API administration portal, created a covert application credential, and began extracting shipment and customer data. MFA, patching and backup status are unverified, so they must not be assumed as protective controls.",
+            "business_impact": "Emerging operational and customer impact requires timely, authorised decisions during Operational or business impact.",
+            "stakeholder_pressure": "Stakeholders expect clear authority, containment progress and continuity plans under a firm timebox.",
+            "decisions_required": [
+              "DECISION: Open a formal personal-data breach assessment and record the point at which the ICO 72-hour notification clock may have started. AUTHORITY: Data Protection Officer. AFFECTED OPERATION: Customer and shipment data processed through Northsat API. DEADLINE: 30 minutes. TRADE-OFF: Accepting The organisation may need to mobilise legal and communications resources before confirming external data extraction.",
+              "DECISION: Activate a manual delivery-update process for the affected partner while replacement integration credentials are validated. AUTHORITY: Logistics Operations Director. AFFECTED OPERATION: Delivery-milestone update process. DEADLINE: 30 minutes. TRADE-OFF: Accepting Manual processing will increase workload and may introduce limited data-quality and timeliness risk."
+            ],
+            "decisions_typed": [
+              {
+                "category": "data_breach_assessment",
+                "decision": "Open a formal personal-data breach assessment and record the point at which the ICO 72-hour notification clock may have started.",
+                "authority": "Data Protection Officer",
+                "affected_operation": "Customer and shipment data processed through Northsat API",
+                "deadline_minutes": 30,
+                "accepted_consequence": "The organisation may need to mobilise legal and communications resources before confirming external data extraction."
+              },
+              {
+                "category": "business_continuity",
+                "decision": "Activate a manual delivery-update process for the affected partner while replacement integration credentials are validated.",
+                "authority": "Logistics Operations Director",
+                "affected_operation": "Delivery-milestone update process",
+                "deadline_minutes": 30,
+                "accepted_consequence": "Manual processing will increase workload and may introduce limited data-quality and timeliness risk."
+              }
+            ]
+          },
+          "participant_questions_typed": [
+            {
+              "prompt": "Which Northsat API records establish the nature, volume and timing of potentially exposed personal data, and what remains necessary before determining breach scope?",
+              "authority": "Data Protection Officer",
+              "anchor_fact_ids": [
+                "S2-F2",
+                "S2-F3",
+                "S3-F1",
+                "S3-F2"
+              ],
+              "decision_options": [
+                "Open formal breach assessment and preserve detailed access evidence",
+                "Treat the activity as an operational anomaly pending proof of export",
+                "Seek external forensic support before recording a breach assessment"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "Early assessment may require rapid governance mobilisation",
+                "Delay may place notification timing at risk",
+                "Forensic dependency may slow legal decision-making"
+              ]
+            },
+            {
+              "prompt": "How will delivery-milestone updates continue while preventing reintroduction of the revoked credential, and what service level will be communicated to the partner?",
+              "authority": "Logistics Operations Director",
+              "anchor_fact_ids": [
+                "S3-F3",
+                "S3-F4"
+              ],
+              "decision_options": [
+                "Use a controlled manual process until replacement credentials are validated",
+                "Restore the prior credential temporarily to clear the backlog",
+                "Pause updates and notify the partner of a service interruption"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "Manual processing consumes operational capacity",
+                "Temporary restoration could renew unauthorised access",
+                "Pausing updates may damage partner and customer confidence"
+              ]
+            },
+            {
+              "prompt": "What evidence-driven threshold starts the ICO 72-hour assessment clock, who records it, and which legal or contractual notification obligations require parallel review?",
+              "authority": "Data Protection Officer",
+              "anchor_fact_ids": [
+                "S3-F1",
+                "S3-F2",
+                "S3-F3"
+              ],
+              "decision_options": [
+                "Record the clock from confirmed unauthorised access to personal data",
+                "Record the clock only after proof of external exfiltration",
+                "Defer clock determination until external counsel review"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "An early clock may accelerate notification preparation",
+                "A delayed clock may create compliance risk",
+                "Unclear ownership may leave the decision undocumented"
+              ]
+            },
+            {
+              "prompt": "What-if a second Northsat credential or Entra session is identified during restoration: how will containment, continuity and stakeholder communications change?",
+              "authority": "Incident Manager",
+              "anchor_fact_ids": [
+                "S2-F2",
+                "S3-F3",
+                "S3-F4"
+              ],
+              "decision_options": [
+                "Expand containment and maintain manual operations",
+                "Isolate Northsat API administration while sustaining only validated flows",
+                "Prioritise rapid restoration and investigate the second indicator in parallel"
+              ],
+              "deadline_minutes": 20,
+              "competing_consequences": [
+                "Expanded containment increases operational disruption",
+                "Partial isolation may delay recovery",
+                "Parallel investigation may leave active access unresolved"
+              ]
+            }
+          ],
+          "participant_questions": [
+            {
+              "prompt": "Which Northsat API records establish the nature, volume and timing of potentially exposed personal data, and what remains necessary before determining breach scope?"
+            },
+            {
+              "prompt": "How will delivery-milestone updates continue while preventing reintroduction of the revoked credential, and what service level will be communicated to the partner?"
+            },
+            {
+              "prompt": "What evidence-driven threshold starts the ICO 72-hour assessment clock, who records it, and which legal or contractual notification obligations require parallel review?"
+            },
+            {
+              "prompt": "What-if a second Northsat credential or Entra session is identified during restoration: how will containment, continuity and stakeholder communications change?"
+            }
+          ],
+          "scenario_narrative": "Following controlled investigation of the suspicious application credential, Northstar API access records show a large volume of customer and shipment-data requests. At the same time, revocation of the credential has interrupted a partner integration used to update delivery milestones, causing a growing queue of unprocessed updates.",
+          "expected_mature_response": "Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence.",
+          "primary_decision_target": "Open a formal personal-data breach assessment and record the point at which the ICO 72-hour notification clock may have started.",
+          "knowledge_before": [
+            "Entra audit records show the unfamiliar session accessed the Northstar API administration portal using the finance operations account.",
+            "Northstar API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+            "Northstar API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+            "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window."
+          ],
+          "knowledge_newly_revealed": [
+            "Northstar API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+            "The data requests occurred after the credential creation identified in the prior investigation.",
+            "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+            "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually."
+          ],
+          "knowledge_after": [
+            "Entra audit records show the unfamiliar session accessed the Northstar API administration portal using the finance operations account.",
+            "Northstar API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+            "Northstar API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+            "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window.",
+            "Northstar API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+            "The data requests occurred after the credential creation identified in the prior investigation.",
+            "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+            "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually."
+          ],
+          "participant_artefact": {
+            "author": "Head of Dispatch",
+            "audience": "Executive Incident Owner",
+            "author_knowledge_boundary": "Observed evidence only; no facilitator conclusions",
+            "relative_timestamp": "11:10",
+            "purpose": "Operational Impact Update: Priority routes and continuity (Operational or business impact)",
+            "content": "Incident reference: OPS-1110\nOperational period: Morning shift to present (11:10)\nAffected operation: Priority dispatch planning and driver instruction\nObserved impact:\n  - Northstar API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.\n  - The data requests occurred after the credential creation identified in the prior investigation.\n  - Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.\n  - Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually.\nContinuity measure: Dual-approval for priority route changes in effect\nCustomer consequence: Delivery-window risk under assessment\nCurrent operating position: Controlled recovery underway\nDecision required: Continue controlled recovery and initiate data-impact assessment"
+          },
+          "facilitator_guidance": {
+            "inject_purpose": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+            "facts_participants_may_rely_on": "Entra audit records show the unfamiliar session accessed the Northsat API administration portal using the finance operations account.; Northsat API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.; Northsat API access records show continued requests using the new application credential after the user's interactive sessions were revoked.; Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window.; Northsat API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.; The data requests occurred after the credential creation identified in the prior investigation.",
+            "information_not_yet_available": "- Whether the abnormal requests resulted in successful data extraction outside Northsat.\n- The exact population of data subjects, customers and contracts affected.\n- Whether any second credential, account or session remains active.\n- Whether the interrupted partner integration can be restored safely with replacement credentials.",
+            "optional_probes": "- Which reconciliation records quantify operational impact and driver safety?\n- What evidence establishes whether customer data was exported or only queried?\n- Which contractual controls govern informing customers under delivery risk?",
+            "expected_discussion_themes": "- Operational recovery ownership and driver-instruction safety\n- Data-impact assessment and ICO 72-hour clock readiness\n- Customer communication threshold based on delivery risk",
+            "escalation_cue": " - Restate the decision threshold and prompt engagement of named roles.",
+            "information_supplied_only_if_requested": "- Reconciliation counts per route and affected drivers\n- Evidence of customer contact/delivery-location query timing",
+            "common_failure_modes": "- Returning to normal API operation before risk is controlled\n- Treating customer-data queries as immaterial without assessment",
+            "reveal_timing": "Controlled facilitation reveal during wrap‑up.",
+            "after_action_observation": "Capture decision rationale, evidence gaps, and authority pathways for AAR."
+          },
+          "artefacts": []
+        },
+        {
+          "inject_id": "INJ-4",
+          "inject_state": {
+            "inject_id": "INJ-4",
+            "previous_inject_id": "INJ-3",
+            "phase": "External or executive pressure",
+            "known_facts_before": [
+              "Northsat API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+              "The data requests occurred after the credential creation identified in the prior investigation.",
+              "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+              "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually."
+            ],
+            "new_confirmed_facts": [
+              "The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.",
+              "A journalist has requested comment on an allegation involving Northsat customer shipment information.",
+              "The breach assessment has identified that customer contact details and shipment-status data were accessible through the suspicious credential, although external publication has not been verified.",
+              "The manual delivery-update process is operating but the backlog continues to grow beyond normal operational tolerance."
+            ],
+            "known_fact_ids_before": [
+              "S3-F1",
+              "S3-F2",
+              "S3-F3",
+              "S3-F4"
+            ],
+            "new_fact_ids": [
+              "S4-F1",
+              "S4-F2",
+              "S4-F3",
+              "S4-F4"
+            ],
+            "remaining_unknowns": [
+              "Whether the journalist's allegation is based on authentic data or an unrelated claim.",
+              "Whether notification to the ICO, affected customers or other regulators is required after the risk assessment.",
+              "Whether contractual notification deadlines apply to the affected logistics partner.",
+              "How long manual processing can continue before wider customer-service commitments are breached."
+            ],
+            "facilitator_context": "Facilitate towards evidence‑backed choices, reinforce governance thresholds, and record explicit trade‑offs.",
+            "hidden_root_cause_context": "A finance operations user entered credentials into an adversary-in-the-middle phishing site and approved a deceptive sign-in flow, allowing the attacker to capture an Entra session token. The attacker used the token to access the Northsat API administration portal, created a covert application credential, and began extracting shipment and customer data. MFA, patching and backup status are unverified, so they must not be assumed as protective controls.",
+            "business_impact": "Emerging operational and customer impact requires timely, authorised decisions during External or executive pressure.",
+            "stakeholder_pressure": "Stakeholders expect clear authority, containment progress and continuity plans under a firm timebox.",
+            "decisions_required": [
+              "DECISION: Approve a holding statement for the logistics partner and media, limited to confirmed service disruption and active investigation. AUTHORITY: Communications Lead with Legal Counsel approval. AFFECTED OPERATION: External stakeholder communications. DEADLINE: 30 minutes. TRADE-OFF: Accepting A limited statement may draw further attention but reduces the risk of inconsistent or speculative messaging.",
+              "DECISION: Determine whether to submit an ICO notification within the applicable 72-hour window and prepare customer-notification materials if risk requires it. AUTHORITY: Data Protection Officer. AFFECTED OPERATION: Personal-data breach notification process. DEADLINE: 60 minutes. TRADE-OFF: Accepting Early notification may require later updates, while delay risks regulatory non-compliance.",
+              "DECISION: Set executive recovery priorities between safe Northsat integration restoration, manual operations capacity and stakeholder commitments. AUTHORITY: Executive Incident Owner. AFFECTED OPERATION: Northsat API recovery and logistics service continuity. DEADLINE: 30 minutes. TRADE-OFF: Accepting Prioritising safe restoration may prolong operational backlog; prioritising speed may increase residual security risk."
+            ],
+            "decisions_typed": [
+              {
+                "category": "external_communications",
+                "decision": "Approve a holding statement for the logistics partner and media, limited to confirmed service disruption and active investigation.",
+                "authority": "Communications Lead with Legal Counsel approval",
+                "affected_operation": "External stakeholder communications",
+                "deadline_minutes": 30,
+                "accepted_consequence": "A limited statement may draw further attention but reduces the risk of inconsistent or speculative messaging."
+              },
+              {
+                "category": "regulatory_notification",
+                "decision": "Determine whether to submit an ICO notification within the applicable 72-hour window and prepare customer-notification materials if risk requires it.",
+                "authority": "Data Protection Officer",
+                "affected_operation": "Personal-data breach notification process",
+                "deadline_minutes": 60,
+                "accepted_consequence": "Early notification may require later updates, while delay risks regulatory non-compliance."
+              },
+              {
+                "category": "executive_recovery_governance",
+                "decision": "Set executive recovery priorities between safe Northsat integration restoration, manual operations capacity and stakeholder commitments.",
+                "authority": "Executive Incident Owner",
+                "affected_operation": "Northsat API recovery and logistics service continuity",
+                "deadline_minutes": 30,
+                "accepted_consequence": "Prioritising safe restoration may prolong operational backlog; prioritising speed may increase residual security risk."
+              }
+            ],
+            "next_inject_trigger": null
+          },
+          "participant_questions_typed": [
+            {
+              "prompt": "What confirmed facts support a holding statement to the partner and journalist, what must remain unconfirmed, and where will the approval trail be recorded?",
+              "authority": "Communications Lead with Legal Counsel approval",
+              "anchor_fact_ids": [
+                "S3-F3",
+                "S4-F1",
+                "S4-F2",
+                "S4-F3"
+              ],
+              "decision_options": [
+                "Issue a tightly scoped holding statement based on confirmed facts",
+                "Respond only to the partner and decline all media comment",
+                "Make no external statement until investigation closure"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "A holding statement may increase scrutiny",
+                "No media response may invite speculation",
+                "Over-disclosure may prejudice investigation or legal obligations"
+              ]
+            },
+            {
+              "prompt": "How will the Data Protection Officer decide and document the ICO notification position using the evidence of accessible personal data and the current breach-risk assessment?",
+              "authority": "Data Protection Officer",
+              "anchor_fact_ids": [
+                "S3-F1",
+                "S4-F3",
+                "S4-F4"
+              ],
+              "decision_options": [
+                "Prepare and submit an ICO notification within the applicable window",
+                "Prepare a notification draft while completing an urgent risk assessment",
+                "Defer notification pending proof that data was published externally"
+              ],
+              "deadline_minutes": 60,
+              "competing_consequences": [
+                "Submission may require subsequent correction or supplementation",
+                "Preparation without submission may preserve options but consume time",
+                "Deferral may create regulatory timing risk"
+              ]
+            },
+            {
+              "prompt": "Which recovery option best balances safe restoration of partner delivery updates, the growing manual backlog and the residual possibility of further identity compromise?",
+              "authority": "Executive Incident Owner",
+              "anchor_fact_ids": [
+                "S3-F3",
+                "S3-F4",
+                "S4-F1",
+                "S4-F4"
+              ],
+              "decision_options": [
+                "Restore only with newly validated credentials and enhanced review",
+                "Expand manual operations until full investigation closure",
+                "Re-enable the interrupted integration using the previous configuration"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "Validated restoration may take longer",
+                "Extended manual work may exceed operational capacity",
+                "Previous configuration may reintroduce compromise risk"
+              ]
+            },
+            {
+              "prompt": "What-if the partner confirms a contractual notification deadline earlier than the ICO assessment milestone: how will legal, communications and incident leadership prioritise and evidence the response?",
+              "authority": "Legal Counsel",
+              "anchor_fact_ids": [
+                "S4-F1",
+                "S4-F3",
+                "S4-F4"
+              ],
+              "decision_options": [
+                "Issue a contractually compliant partner notice alongside regulatory assessment",
+                "Prioritise regulatory assessment before any contractual notice",
+                "Seek a short extension from the partner while preparing a joint response"
+              ],
+              "deadline_minutes": 30,
+              "competing_consequences": [
+                "Parallel notices may create message-control challenges",
+                "Sequencing may miss contractual deadlines",
+                "An extension request may damage partner confidence"
+              ]
+            }
+          ],
+          "participant_questions": [
+            {
+              "prompt": "What confirmed facts support a holding statement to the partner and journalist, what must remain unconfirmed, and where will the approval trail be recorded?"
+            },
+            {
+              "prompt": "How will the Data Protection Officer decide and document the ICO notification position using the evidence of accessible personal data and the current breach-risk assessment?"
+            },
+            {
+              "prompt": "Which recovery option best balances safe restoration of partner delivery updates, the growing manual backlog and the residual possibility of further identity compromise?"
+            },
+            {
+              "prompt": "What-if the partner confirms a contractual notification deadline earlier than the ICO assessment milestone: how will legal, communications and incident leadership prioritise and evidence the response?"
+            }
+          ],
+          "scenario_narrative": "A logistics partner has asked why delivery updates are delayed, while a journalist has emailed the communications inbox claiming that customer shipment information may have been offered for sale. The executive team requires a decision on external messaging, regulator engagement and the ongoing operational recovery posture.",
+          "expected_mature_response": "Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence.",
+          "primary_decision_target": "Approve a holding statement for the logistics partner and media, limited to confirmed service disruption and active investigation.",
+          "knowledge_before": [
+            "Northstar API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+            "The data requests occurred after the credential creation identified in the prior investigation.",
+            "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+            "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually."
+          ],
+          "knowledge_newly_revealed": [
+            "The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.",
+            "A journalist has requested comment on an allegation involving Northstar customer shipment information.",
+            "The breach assessment has identified that customer contact details and shipment-status data were accessible through the suspicious credential, although external publication has not been verified.",
+            "The manual delivery-update process is operating but the backlog continues to grow beyond normal operational tolerance."
+          ],
+          "knowledge_after": [
+            "Northstar API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+            "The data requests occurred after the credential creation identified in the prior investigation.",
+            "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+            "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually.",
+            "The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.",
+            "A journalist has requested comment on an allegation involving Northstar customer shipment information.",
+            "The breach assessment has identified that customer contact details and shipment-status data were accessible through the suspicious credential, although external publication has not been verified.",
+            "The manual delivery-update process is operating but the backlog continues to grow beyond normal operational tolerance."
+          ],
+          "participant_artefact": {
+            "author": "Communications Lead",
+            "audience": "Executive Incident Owner",
+            "author_knowledge_boundary": "Observed evidence only; no facilitator conclusions",
+            "relative_timestamp": "14:20",
+            "purpose": "Holding Response: Northstar dispatch operations (External or executive pressure)",
+            "content": "From: Communications Lead\nTo: Executive Incident Owner\nSent: 14:20\nSubject: Holding Response: Northstar dispatch operations (External or executive pressure)\n\nMessage:\n- The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.\n- A journalist has requested comment on an allegation involving Northstar customer shipment information.\n- The breach assessment has identified that customer contact details and shipment-status data were accessible through the suspicious credential, although external publication has not been verified.\n- The manual delivery-update process is operating but the backlog continues to grow beyond normal operational tolerance.\n\nPlease confirm the approval path and response deadline for external communications."
+          },
+          "facilitator_guidance": {
+            "inject_purpose": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+            "facts_participants_may_rely_on": "Northsat API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.; The data requests occurred after the credential creation identified in the prior investigation.; Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.; Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually.; The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.; A journalist has requested comment on an allegation involving Northsat customer shipment information.",
+            "information_not_yet_available": "- Whether the journalist's allegation is based on authentic data or an unrelated claim.\n- Whether notification to the ICO, affected customers or other regulators is required after the risk assessment.\n- Whether contractual notification deadlines apply to the affected logistics partner.\n- How long manual processing can continue before wider customer-service commitments are breached.",
+            "optional_probes": "- Which facts can be shared in a customer holding response now?\n- What evidence drives the DPO’s ICO threshold and how is the 72‑hour clock recorded?\n- Which approval record authorises the journalist response, and by whom?\n- What continuity choice protects deliveries if restoration exceeds the next shift?",
+            "expected_discussion_themes": "- Customer holding response boundaries and approvals\n- ICO notification decision point and evidence\n- Media enquiry handling and executive approval trail\n- Continuity decision if restoration exceeds shift window",
+            "escalation_cue": " - Restate the decision threshold and prompt engagement of named roles.",
+            "information_supplied_only_if_requested": "- Customer request text and response deadline\n- Journalist enquiry text and received timestamp",
+            "common_failure_modes": "- Issuing public statements without approved boundaries\n- Missing the ICO assessment timeline",
+            "reveal_timing": "Controlled facilitation reveal during wrap‑up.",
+            "after_action_observation": "Capture decision rationale, evidence gaps, and authority pathways for AAR."
+          },
+          "artefacts": []
+        }
+      ],
+      "facilitator_reveal": {
+        "reveal_narrative": "Facilitator reveal: the initial sign-in and session-token activity originated from an AiTM phishing campaign targeting a finance operations user. The captured Entra session enabled access to the Northsat API administration portal; a subsequently created application credential sustained access after the original session was challenged. The exercise demonstrates that identity telemetry, authority to revoke sessions and disable accounts, API credential governance, and a rehearsed notification process are essential even where endpoint and perimeter controls show no conclusive compromise.",
+        "reveal_title": "",
+        "facilitator_script": "",
+        "key_lessons": [],
+        "wrap_up_questions": [],
+        "wrap_up_checklist": [],
+        "final_success_criteria": []
+      }
+    }
+  ],
+  "_facilitator_notes": {
+    "0:0": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Validate Microsoft Entra ID sign-in anomaly using identity logs\n- Assess Northstar Dispatch API route-assignment changes and impact\n- Decide incident threshold and evidence preservation actions",
+      "probes": "- Which Entra records confirm the unfamiliar IP and what decision follows?\n- Which dispatch records prove priority route-change scope during the window?\n- Where will the incident classification and evidence-preservation be recorded?",
+      "info_if_requested": "- Entra sign-in and session timestamps for the supervisor within the observed window\n- Dispatch API audit entries for the three priority consignments",
+      "unavailable": "- Whether the successful session is still active and has accessed Northsat API resources.\n- Whether the external document email was malicious and reached other staff.\n- Whether any other identities received similar prompts or have anomalous sessions.\n- Whether current MFA settings and conditional-access controls would have blocked a token-replay attempt.",
+      "failures": "- Classifying as service anomaly without preserving identity and API evidence\n- Assuming MFA rules out session misuse",
+      "transition_cue": "Advance after the group classifies the event, assigns ownership and preserves initial evidence."
+    },
+    "0:1": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Session containment and credential removal authority\n- Preserve Azure activity evidence for the application credential\n- Dispatch API continuity controls under containment\n- Major Incident escalation scope and retainer",
+      "probes": "- Who authorises session revocation and how will approval be evidenced?\n- What Azure evidence will be preserved before credential removal?\n- What Dispatch API functions remain safe during containment and why?\n- Which threshold triggers Major Incident and retainer invocation?",
+      "info_if_requested": "- Azure activity record showing application credential creation and subsequent Northstar Dispatch API queries\n- Endpoint timeline segments around the suspicious session window",
+      "unavailable": "- Whether the new application credential has accessed, altered or exported customer and shipment data.\n- Whether additional application credentials or privileged Entra sessions were created.\n- Whether the credential can be revoked without disrupting active logistics integrations.\n- Whether other user accounts have been subject to the same token-capture technique.",
+      "failures": "- Removing application credential before preserving Azure evidence\n- Revoking access without coordinating Dispatch Operations continuity",
+      "transition_cue": "Advance after containment authority, API continuity and escalation scope are decided."
+    },
+    "0:2": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Operational recovery ownership and driver-instruction safety\n- Data-impact assessment and ICO 72-hour clock readiness\n- Customer communication threshold based on delivery risk",
+      "probes": "- Which reconciliation records quantify operational impact and driver safety?\n- What evidence establishes whether customer data was exported or only queried?\n- Which contractual controls govern informing customers under delivery risk?",
+      "info_if_requested": "- Reconciliation counts per route and affected drivers\n- Evidence of customer contact/delivery-location query timing",
+      "unavailable": "- Whether the abnormal requests resulted in successful data extraction outside Northsat.\n- The exact population of data subjects, customers and contracts affected.\n- Whether any second credential, account or session remains active.\n- Whether the interrupted partner integration can be restored safely with replacement credentials.",
+      "failures": "- Returning to normal API operation before risk is controlled\n- Treating customer-data queries as immaterial without assessment",
+      "transition_cue": "Advance after operational recovery ownership and data-impact assessment are established."
+    },
+    "0:3": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Customer holding response boundaries and approvals\n- ICO notification decision point and evidence\n- Media enquiry handling and executive approval trail\n- Continuity decision if restoration exceeds shift window",
+      "probes": "- Which facts can be shared in a customer holding response now?\n- What evidence drives the DPO’s ICO threshold and how is the 72‑hour clock recorded?\n- Which approval record authorises the journalist response, and by whom?\n- What continuity choice protects deliveries if restoration exceeds the next shift?",
+      "info_if_requested": "- Customer request text and response deadline\n- Journalist enquiry text and received timestamp",
+      "unavailable": "- Whether the journalist's allegation is based on authentic data or an unrelated claim.\n- Whether notification to the ICO, affected customers or other regulators is required after the risk assessment.\n- Whether contractual notification deadlines apply to the affected logistics partner.\n- How long manual processing can continue before wider customer-service commitments are breached.",
+      "failures": "- Issuing public statements without approved boundaries\n- Missing the ICO assessment timeline",
+      "transition_cue": "Finish after customer, regulatory and public communication positions are approved."
+    }
+  },
+  "generation_metadata": {
+    "schema_version": "tt-source-lean-1",
+    "validation_rule_version": "typed-source-lean",
+    "model": "gpt-5.6-terra",
+    "generation_timestamp": "2026-11-16T13:56:18Z"
+  },
+  "_facilitator_notes_by_inject_id": {
+    "INJ-1": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Validate Microsoft Entra ID sign-in anomaly using identity logs\n- Assess Northstar Dispatch API route-assignment changes and impact\n- Decide incident threshold and evidence preservation actions",
+      "probes": "- Which Entra records confirm the unfamiliar IP and what decision follows?\n- Which dispatch records prove priority route-change scope during the window?\n- Where will the incident classification and evidence-preservation be recorded?",
+      "info_if_requested": "- Entra sign-in and session timestamps for the supervisor within the observed window\n- Dispatch API audit entries for the three priority consignments",
+      "unavailable": "- Whether the successful session is still active and has accessed Northsat API resources.\n- Whether the external document email was malicious and reached other staff.\n- Whether any other identities received similar prompts or have anomalous sessions.\n- Whether current MFA settings and conditional-access controls would have blocked a token-replay attempt.",
+      "failures": "- Classifying as service anomaly without preserving identity and API evidence\n- Assuming MFA rules out session misuse",
+      "transition_cue": "Advance after the group classifies the event, assigns ownership and preserves initial evidence."
+    },
+    "INJ-2": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Session containment and credential removal authority\n- Preserve Azure activity evidence for the application credential\n- Dispatch API continuity controls under containment\n- Major Incident escalation scope and retainer",
+      "probes": "- Who authorises session revocation and how will approval be evidenced?\n- What Azure evidence will be preserved before credential removal?\n- What Dispatch API functions remain safe during containment and why?\n- Which threshold triggers Major Incident and retainer invocation?",
+      "info_if_requested": "- Azure activity record showing application credential creation and subsequent Northstar Dispatch API queries\n- Endpoint timeline segments around the suspicious session window",
+      "unavailable": "- Whether the new application credential has accessed, altered or exported customer and shipment data.\n- Whether additional application credentials or privileged Entra sessions were created.\n- Whether the credential can be revoked without disrupting active logistics integrations.\n- Whether other user accounts have been subject to the same token-capture technique.",
+      "failures": "- Removing application credential before preserving Azure evidence\n- Revoking access without coordinating Dispatch Operations continuity",
+      "transition_cue": "Advance after containment authority, API continuity and escalation scope are decided."
+    },
+    "INJ-3": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Operational recovery ownership and driver-instruction safety\n- Data-impact assessment and ICO 72-hour clock readiness\n- Customer communication threshold based on delivery risk",
+      "probes": "- Which reconciliation records quantify operational impact and driver safety?\n- What evidence establishes whether customer data was exported or only queried?\n- Which contractual controls govern informing customers under delivery risk?",
+      "info_if_requested": "- Reconciliation counts per route and affected drivers\n- Evidence of customer contact/delivery-location query timing",
+      "unavailable": "- Whether the abnormal requests resulted in successful data extraction outside Northsat.\n- The exact population of data subjects, customers and contracts affected.\n- Whether any second credential, account or session remains active.\n- Whether the interrupted partner integration can be restored safely with replacement credentials.",
+      "failures": "- Returning to normal API operation before risk is controlled\n- Treating customer-data queries as immaterial without assessment",
+      "transition_cue": "Advance after operational recovery ownership and data-impact assessment are established."
+    },
+    "INJ-4": {
+      "guide_prompt": "Guide the room to articulate the authority and steps for: Reach the timeboxed, authority-backed decision(s) and execute safely based on current evidence..",
+      "probes_rationale": "",
+      "escalation_cues": "",
+      "wrap_if_deviation": "If the room deviates, introduce a short consequence and re-centre on governance thresholds.",
+      "themes": "- Customer holding response boundaries and approvals\n- ICO notification decision point and evidence\n- Media enquiry handling and executive approval trail\n- Continuity decision if restoration exceeds shift window",
+      "probes": "- Which facts can be shared in a customer holding response now?\n- What evidence drives the DPO’s ICO threshold and how is the 72‑hour clock recorded?\n- Which approval record authorises the journalist response, and by whom?\n- What continuity choice protects deliveries if restoration exceeds the next shift?",
+      "info_if_requested": "- Customer request text and response deadline\n- Journalist enquiry text and received timestamp",
+      "unavailable": "- Whether the journalist's allegation is based on authentic data or an unrelated claim.\n- Whether notification to the ICO, affected customers or other regulators is required after the risk assessment.\n- Whether contractual notification deadlines apply to the affected logistics partner.\n- How long manual processing can continue before wider customer-service commitments are breached.",
+      "failures": "- Issuing public statements without approved boundaries\n- Missing the ICO assessment timeline",
+      "transition_cue": "Finish after customer, regulatory and public communication positions are approved."
+    }
+  },
+  "exercise_title": "Northdstart Tabletop: Hijacked Entra Session Against the Northsat API",
+  "audience_roles": [
+    "Incident Manager",
+    "Identity Service Owner",
+    "Executive Incident Owner",
+    "Northsat API Service Owner",
+    "Data Protection Officer",
+    "Logistics Operations Director"
+  ],
+  "housekeeping_rules": [
+    "All artefacts are simulated; no access to production systems.",
+    "Decisions are timeboxed and require a named authority.",
+    "Record choices and accepted trade‑offs explicitly."
+  ],
+  "_canonical_fact_registry": {
+    "S1-F1": "Microsoft Entra sign-in history for the finance operations account records a successful interactive sign-in from an unfamiliar residential IP address shortly after multiple authentication prompts.",
+    "S1-F2": "The successful sign-in created a browser session using a device and browser combination not previously associated with the account.",
+    "S1-F3": "The user confirms that they attempted to open a logistics document received through an external email shortly before the prompts began.",
+    "S2-F1": "Entra audit records show the unfamiliar session accessed the Northsat API administration portal using the finance operations account.",
+    "S2-F2": "Northsat API administration records show creation of a new application credential by that account, with a name not recognised by the service owner.",
+    "S2-F3": "Northsat API access records show continued requests using the new application credential after the user's interactive sessions were revoked.",
+    "S2-F4": "Microsoft Defender endpoint telemetry for the user's managed device does not show a confirmed malicious process associated with the reported time window.",
+    "S3-F1": "Northsat API records show the suspicious application credential requested customer contact details and shipment-status data at a volume materially above normal administrative use.",
+    "S3-F2": "The data requests occurred after the credential creation identified in the prior investigation.",
+    "S3-F3": "Revocation of the suspicious credential has stopped the abnormal requests but interrupted a delivery-milestone integration for one logistics partner.",
+    "S3-F4": "Operations reports a backlog of delivery updates that could affect customer notifications if not restored or handled manually.",
+    "S4-F1": "The affected logistics partner has formally requested an explanation and recovery estimate for delayed delivery-milestone updates.",
+    "S4-F2": "A journalist has requested comment on an allegation involving Northsat customer shipment information.",
+    "S4-F3": "The breach assessment has identified that customer contact details and shipment-status data were accessible through the suspicious credential, although external publication has not been verified.",
+    "S4-F4": "The manual delivery-update process is operating but the backlog continues to grow beyond normal operational tolerance."
+  },
+  "_unresolved_known_facts": {},
+  "_unresolved_question_anchors": {
+    "1": [
+      {
+        "prompt": "What evidence in the Entra sign-in history and user report distinguishes a normal remote login from a potentially compromised session, and where will that evidence be preserved?",
+        "original_anchor_ids": [
+          "S1-F1",
+          "S1-F2",
+          "S1-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What immediate action should be taken for the affected user account while preserving the ability to investigate the unfamiliar session?",
+        "original_anchor_ids": [
+          "S1-F1",
+          "S1-F2"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "How will the team establish whether the external document message is isolated or part of a broader campaign, using available email and Entra evidence?",
+        "original_anchor_ids": [
+          "S1-F1",
+          "S1-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      }
+    ],
+    "2": [
+      {
+        "prompt": "Which Entra and Northsat records prove that the activity moved from a suspicious user session to sustained application-credential access, and what evidence package should be preserved?",
+        "original_anchor_ids": [
+          "S1-F1",
+          "S2-F1",
+          "S2-F2",
+          "S2-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "How will authority be exercised to revoke the suspicious application credential while protecting critical logistics integrations, and which continuity risk is accepted?",
+        "original_anchor_ids": [
+          "S2-F2",
+          "S2-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What Major Incident and incident-response-retainer threshold is met by the confirmed Northsat administration access, and what decision record will evidence the escalation?",
+        "original_anchor_ids": [
+          "S1-F2",
+          "S2-F1",
+          "S2-F2",
+          "S2-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What does the absence of a confirmed Microsoft Defender endpoint finding establish, and what does it leave unresolved about the identity-led compromise?",
+        "original_anchor_ids": [
+          "S1-F3",
+          "S2-F3",
+          "S2-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      }
+    ],
+    "3": [
+      {
+        "prompt": "Which Northsat API records establish the nature, volume and timing of potentially exposed personal data, and what remains necessary before determining breach scope?",
+        "original_anchor_ids": [
+          "S2-F2",
+          "S2-F3",
+          "S3-F1",
+          "S3-F2"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "How will delivery-milestone updates continue while preventing reintroduction of the revoked credential, and what service level will be communicated to the partner?",
+        "original_anchor_ids": [
+          "S3-F3",
+          "S3-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What evidence-driven threshold starts the ICO 72-hour assessment clock, who records it, and which legal or contractual notification obligations require parallel review?",
+        "original_anchor_ids": [
+          "S3-F1",
+          "S3-F2",
+          "S3-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What-if a second Northsat credential or Entra session is identified during restoration: how will containment, continuity and stakeholder communications change?",
+        "original_anchor_ids": [
+          "S2-F2",
+          "S3-F3",
+          "S3-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      }
+    ],
+    "4": [
+      {
+        "prompt": "What confirmed facts support a holding statement to the partner and journalist, what must remain unconfirmed, and where will the approval trail be recorded?",
+        "original_anchor_ids": [
+          "S3-F3",
+          "S4-F1",
+          "S4-F2",
+          "S4-F3"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "How will the Data Protection Officer decide and document the ICO notification position using the evidence of accessible personal data and the current breach-risk assessment?",
+        "original_anchor_ids": [
+          "S3-F1",
+          "S4-F3",
+          "S4-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "Which recovery option best balances safe restoration of partner delivery updates, the growing manual backlog and the residual possibility of further identity compromise?",
+        "original_anchor_ids": [
+          "S3-F3",
+          "S3-F4",
+          "S4-F1",
+          "S4-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      },
+      {
+        "prompt": "What-if the partner confirms a contractual notification deadline earlier than the ICO assessment milestone: how will legal, communications and incident leadership prioritise and evidence the response?",
+        "original_anchor_ids": [
+          "S4-F1",
+          "S4-F3",
+          "S4-F4"
+        ],
+        "reason": "insufficient canonical anchors"
+      }
+    ]
+  },
+  "duration_minutes": 90,
+  "objectives": [
+    "Escalate from technical findings to executive decision within timebox",
+    "Coordinate security, IT operations, legal and communications during containment",
+    "Define recovery entry and exit criteria with business owners",
+    "Surface cross‑functional hand‑offs and information dependencies",
+    "Record decisions, risks and prioritised actions with clear owners"
+  ],
+  "scope": {
+    "included": [
+      "SOC/SIEM telemetry",
+      "Endpoint EDR",
+      "Change control process",
+      "Identity provider sign‑in logs",
+      "Endpoint security platform telemetry",
+      "Firewall logs and blocks",
+      "SaaS/backup platform catalogues"
+    ],
+    "excluded": [
+      "Production system changes",
+      "Live customer or regulator contact",
+      "Irreversible or destructive commands"
+    ],
+    "assumptions": [
+      "All artefacts are simulated",
+      "Decisions are timeboxed",
+      "Use capability‑level language for unknowns"
+    ]
+  },
+  "_div": [
+    {
+      "cap": [],
+      "press": [],
+      "roles": [],
+      "dec": []
+    }
+  ],
+  "_exercise_profile": "blended",
+  "_presentation_detail_profile": "standard",
+  "_migration_notices": [
+    "Applied default presentation_detail_profile=standard"
+  ]
+}

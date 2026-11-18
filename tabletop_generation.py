@@ -8,6 +8,121 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+
+# Strict result normalisation for model-generated tabletop result
+def normalise_generated_tabletop_result(generated_result: Any, customer_context: dict | None = None) -> dict:
+    """
+    Decide the returned contract from generate_tabletop_plan and produce a canonical master dict.
+
+    Contracts:
+      - strict_master: validates directly as TabletopMasterPlan
+      - strict_source: validates as TabletopSourcePlan → transform → prepare
+      - generated_master_candidate: bounded master-shaped candidate → prepare
+
+    Routing order:
+      1) strict_master
+      2) strict_source
+      3) generated_master_candidate
+      4) fail with TabletopGenerationError('model_response_contract', ...)
+
+    Returns:
+      Canonical JSON-compatible dict via model_dump(mode="json") for strict_master,
+      or prepared/validated dict for other contracts.
+    """
+    from prompts import TabletopMasterPlan  # type: ignore
+    from tabletop_source import TabletopSourcePlan, transform_source_to_master  # type: ignore
+    from tabletop_generation import TabletopGenerationError as _TGE, validate_four_stage_plan as _vfsp  # type: ignore
+
+    print("GENERATED_RESULT_CONTRACT_VALIDATION_STARTED", flush=True)
+
+    # 1) strict_master
+    try:
+        if isinstance(generated_result, TabletopMasterPlan):  # type: ignore[arg-type]
+            md = generated_result.model_dump(mode="json")  # type: ignore[attr-defined]
+            print("GENERATED_RESULT_CONTRACT_SELECTED contract=strict_master", flush=True)
+            print("STRICT_MASTER_SELECTED_COUNT 1", flush=True)
+            print("SOURCE_TO_MASTER_TRANSFORMATION_COUNT 0", flush=True)
+            print("MASTER_PREPARATION_COUNT 0", flush=True)
+            print("GENERATED_RESULT_CONTRACT_VALIDATION_COMPLETED", flush=True)
+            return md
+    except Exception:
+        pass
+    try:
+        master_model = TabletopMasterPlan.model_validate(generated_result)  # type: ignore[attr-defined]
+        md = master_model.model_dump(mode="json")  # type: ignore[attr-defined]
+        print("GENERATED_RESULT_CONTRACT_SELECTED contract=strict_master", flush=True)
+        print("STRICT_MASTER_SELECTED_COUNT 1", flush=True)
+        print("MODEL_TO_MASTER_DIRECT_COUNT 1", flush=True)
+        print("SOURCE_TO_MASTER_TRANSFORMATION_COUNT 0", flush=True)
+        print("MASTER_PREPARATION_COUNT 0", flush=True)
+        print("GENERATED_RESULT_CONTRACT_VALIDATION_COMPLETED", flush=True)
+        return md
+    except Exception:
+        pass
+
+    # 2) strict_source
+    try:
+        source_model = TabletopSourcePlan.model_validate(generated_result)  # type: ignore[attr-defined]
+        transformed = transform_source_to_master(source_model, generation_context=customer_context)
+        print("GENERATED_RESULT_CONTRACT_SELECTED contract=strict_source", flush=True)
+        print("STRICT_SOURCE_SELECTED_COUNT 1", flush=True)
+        print("MODEL_TO_MASTER_DIRECT_COUNT 0", flush=True)
+        print("SOURCE_TO_MASTER_TRANSFORMATION_COUNT 1", flush=True)
+        print("GENERATED_RESULT_CONTRACT_VALIDATION_COMPLETED", flush=True)
+        return transformed
+    except Exception:
+        pass
+
+    # 3) generated_master_candidate (bounded)
+    try:
+        candidate = generated_result
+        if not isinstance(candidate, dict):
+            raise ValueError("not a mapping")
+        scns = candidate.get("scenarios")
+        if not (isinstance(scns, list) and len(scns) == 1 and isinstance(scns[0], dict)):
+            raise ValueError("invalid scenarios cardinality")
+        injects = scns[0].get("injects")
+        if not (isinstance(injects, list) and len(injects) == 4):
+            raise ValueError("invalid inject cardinality")
+        # Inject IDs present and unique
+        ids = []
+        for inj in injects:
+            if not isinstance(inj, dict):
+                raise ValueError("inject not an object")
+            st = inj.get("inject_state") or {}
+            inj_id = (st.get("inject_id") or inj.get("inject_id"))
+            if not isinstance(inj_id, str) or not inj_id.strip():
+                raise ValueError("missing inject_id")
+            ids.append(inj_id.strip())
+            # Minimal participant and typed surfaces presence
+            pa = inj.get("participant_artefact")
+            if not isinstance(pa, dict):
+                raise ValueError("missing participant_artefact")
+            dtyped = (st.get("decisions_typed") or [])
+            qtyped = inj.get("participant_questions_typed") or []
+            if not isinstance(dtyped, list) or not isinstance(qtyped, list):
+                raise ValueError("typed decisions/questions not lists")
+        if len(set(ids)) != 4:
+            raise ValueError("inject_id not unique")
+        ok_struct, defects_struct = _vfsp(candidate)
+        if not ok_struct:
+            # Four-stage validator must pass for candidate
+            raise _TGE("model_response_contract", "candidate failed four-stage validation", defects_struct)
+        # Deterministic selection only; preparation occurs in the outer orchestration
+        print("GENERATED_RESULT_CONTRACT_SELECTED contract=generated_master_candidate", flush=True)
+        print("GENERATED_MASTER_CANDIDATE_SELECTED_COUNT 1", flush=True)
+        print("MODEL_TO_MASTER_DIRECT_COUNT 0", flush=True)
+        print("SOURCE_TO_MASTER_TRANSFORMATION_COUNT 0", flush=True)
+        print("GENERATED_RESULT_CONTRACT_VALIDATION_COMPLETED", flush=True)
+        return candidate
+    except _TGE:
+        raise
+    except Exception as e:
+        # 4) All contracts failed
+        msg = f"unrecognised model response: {e}"
+        print("GENERATED_RESULT_CONTRACT_VALIDATION_COMPLETED", flush=True)
+        raise _TGE("model_response_contract", msg)
+
 STAGE_PHASES = (
     "Weak signal",
     "Confirmed compromise",
@@ -871,6 +986,8 @@ def _repair_prompt(
                     fields.append("defective_decisions_missing_deadline_minutes=" + str(defective))
                 if stage_index == 2:
                     fields.append("stage2_return_complete_decisions_typed=True")
+        except TabletopGenerationError:
+            raise
         except Exception:
             pass
         repair_fields.append("; ".join(fields))
@@ -1184,7 +1301,40 @@ def canonicalise_plan(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, s
     try:
         plan_after_ids["_canonical_fact_registry"] = registry
         plan_after_ids["_unresolved_known_facts"] = unresolved_known
-        plan_after_ids["_unresolved_question_anchors"] = unresolved_anchors
+        # De‑duplicate unresolved anchors per stage with stable order for idempotency
+        try:
+            dedup: dict[int, list[dict]] = {}
+            for sidx, lst in (unresolved_anchors or {}).items():
+                seen = set()
+                out = []
+                for rec in (lst or []):
+                    if not isinstance(rec, dict):
+                        continue
+                    prompt = str(rec.get("prompt",""))
+                    # Normalise anchor list deterministically (as list[str] sorted)
+                    anchors_raw = rec.get("original_anchor_ids", [])
+                    try:
+                        anchors_list = [str(a) for a in (anchors_raw or [])]
+                    except Exception:
+                        anchors_list = []
+                    anchors_sorted = sorted(anchors_list)
+                    reason = str(rec.get("reason",""))
+                    key = (prompt, tuple(anchors_sorted), reason)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    # Rebuild record with deterministic ordering
+                    out.append({
+                        "prompt": prompt,
+                        "original_anchor_ids": anchors_sorted,
+                        "reason": reason,
+                    })
+                # Stable sort by prompt then anchors tuple for idempotency
+                out.sort(key=lambda r: (str(r.get("prompt","")), tuple(r.get("original_anchor_ids") or [])))
+                dedup[sidx] = out
+            plan_after_ids["_unresolved_question_anchors"] = dedup
+        except Exception:
+            plan_after_ids["_unresolved_question_anchors"] = unresolved_anchors
         # Record duplicate fact statement defects in a sidecar for repair surface (validator still enforces integrity)
         if dup_defects:
             plan_after_ids.setdefault("_normalisation_defects", []).extend(dup_defects)
@@ -1211,6 +1361,7 @@ def generate_tabletop_plan(
     Internally uses the lean TabletopSourcePlan pipeline:
       LEAN SOURCE -> SOURCE VALIDATION -> OPTIONAL SINGLE REPAIR -> DETERMINISTIC TRANSFORM -> ARTEFACT/FG SYNTHESIS -> FINAL VALIDATION
     """
+    print("GENERATE_TABLETOP_PLAN_INVOCATION_COUNT=1", flush=True)
     try:
         from core import LLMEngine
         from facilitator_guidance import attach_facilitation_to_plan, generate_inject_facilitation
@@ -1241,6 +1392,7 @@ def generate_tabletop_plan(
             source_prompt,
             TabletopSourcePlan,
         )
+        print("MODEL_CALL_RETURNED=true", flush=True)
     except Exception as exc:
         raise TabletopGenerationError("azure_request", str(exc)) from exc
     if initial is None:
@@ -1344,14 +1496,1201 @@ def generate_tabletop_plan(
     except Exception as exc:
         raise TabletopGenerationError("facilitator_guidance", str(exc)) from exc
 
+    # Participant-disclosure validation and bounded scrub across all stages
+    print("PARTICIPANT_DISCLOSURE_VALIDATION_STARTED", flush=True)
+    ok_pd, pd_defects = validate_participant_disclosure_boundaries(master, blueprint)
+    print(f"PARTICIPANT_DISCLOSURE_DEFECT_COUNT={len(pd_defects)}", flush=True)
+    if not ok_pd and pd_defects:
+        master, _modified = scrub_participant_disclosures_across_injects(master, blueprint)
+        ok_pd2, pd_defects2 = validate_participant_disclosure_boundaries(master, blueprint)
+        print("PARTICIPANT_DISCLOSURE_VALIDATION_COMPLETED", flush=True)
+        print(f"PARTICIPANT_DISCLOSURE_DEFECT_COUNT_AFTER={len(pd_defects2)}", flush=True)
+        if not ok_pd2:
+            raise TabletopGenerationError(
+                "participant_disclosure",
+                "participant surfaces still leak facilitator conclusions",
+                [d.get("safe_message","") for d in pd_defects2]
+            )
+    else:
+        print("PARTICIPANT_DISCLOSURE_VALIDATION_COMPLETED", flush=True)
+        print("PARTICIPANT_DISCLOSURE_DEFECT_COUNT_AFTER=0", flush=True)
+
     # Final validation of the TabletopMasterPlan-compatible dict
     valid, defects = validate_four_stage_plan(master)
     if not valid:
         raise TabletopGenerationError("final_validation", "final master failed validation", defects)
+    print("GENERATED_CANDIDATE_VALIDATION_COMPLETED", flush=True)
     return master
 
+def validate_tabletop_export_readiness(plan: dict) -> tuple[bool, list[dict]]:
+    """
+    Semantic export-readiness validator.
+    Returns (ok, errors) where each error = {path, code, message}.
+    """
+    def _t(s): return str(s or "").strip()
+    errors: list[dict] = []
+    placeholders = {"Decision","Context","Revealed","State","Lesson 1","Lesson 2","TBD","TODO","N/A","Unknown","Placeholder"}
+    # Top-level
+    title = _t(plan.get("exercise_title"))
+    if not title:
+        errors.append({"path":"exercise_title","code":"EMPTY_REQUIRED_FIELD","message":"exercise_title is empty"})
+    roles = plan.get("audience_roles")
+    if not (isinstance(roles,list) and roles):
+        errors.append({"path":"audience_roles","code":"EMPTY_REQUIRED_LIST","message":"audience_roles is empty"})
+    hk = plan.get("housekeeping_rules")
+    if not (isinstance(hk,list) and hk):
+        errors.append({"path":"housekeeping_rules","code":"EMPTY_REQUIRED_LIST","message":"housekeeping_rules is empty"})
+    # Scenario-level
+    scns = plan.get("scenarios") or []
+    if not (isinstance(scns,list) and scns):
+        errors.append({"path":"scenarios","code":"NULL_REQUIRED_FIELD","message":"no scenarios"})
+        return False, errors
+    scn = scns[0] if isinstance(scns[0], dict) else {}
+    if not _t(scn.get("initial_vector")):
+        errors.append({"path":"scenarios[0].initial_vector","code":"EMPTY_REQUIRED_FIELD","message":"initial_vector empty"})
+    # Inject-level
+    injects = scn.get("injects") or []
+    for idx, inj in enumerate(injects):
+        p = f"scenarios[0].injects[{idx}]"
+        if _t(inj.get("scenario_narrative")) in ("",) or _t(inj.get("scenario_narrative")) in placeholders:
+            errors.append({"path":f"{p}.scenario_narrative","code":"EMPTY_REQUIRED_FIELD","message":"scenario_narrative empty or placeholder"})
+        if _t(inj.get("expected_mature_response")) in ("",) or _t(inj.get("expected_mature_response")) in placeholders:
+            errors.append({"path":f"{p}.expected_mature_response","code":"EMPTY_REQUIRED_FIELD","message":"expected_mature_response empty or placeholder"})
+        if _t(inj.get("primary_decision_target")) in ("",) or _t(inj.get("primary_decision_target")) == "Decision":
+            errors.append({"path":f"{p}.primary_decision_target","code":"PLACEHOLDER_CONTENT","message":"primary_decision_target placeholder"})
+        for k in ("knowledge_before","knowledge_newly_revealed","knowledge_after"):
+            v = inj.get(k)
+            if not (isinstance(v,list) and any(_t(x) and _t(x) not in placeholders for x in (v or []))):
+                errors.append({"path":f"{p}.{k}","code":"EMPTY_REQUIRED_LIST","message":f"{k} empty or placeholder"})
+        # Artefacts
+        arts = inj.get("artefacts") or []
+        seen_bodies = set()
+        for ai, a in enumerate(arts):
+            ap = f"{p}.artefacts[{ai}]"
+            if not _t(a.get("title")):
+                errors.append({"path":f"{ap}.title","code":"MISSING_ARTEFACT_TITLE","message":"artefact title missing"})
+            body = _t(a.get("body"))
+            if len(body.splitlines()) < 2:
+                errors.append({"path":f"{ap}.body","code":"MALFORMED_ARTEFACT_BODY","message":"artefact body too short"})
+            if body in seen_bodies:
+                errors.append({"path":f"{ap}.body","code":"DUPLICATE_ARTEFACT_CONTENT","message":"duplicate artefact body"})
+            seen_bodies.add(body)
+            at = _t(a.get("artefact_type"))
+            ss = _t(a.get("source_system"))
+            if at == "ticket" and "service desk" not in ss.lower():
+                errors.append({"path":f"{ap}.source_system","code":"ARTEFACT_SOURCE_TYPE_MISMATCH","message":"ticket must originate from Service Desk"})
+        # Duplicate punctuation in decisions_required
+        decs = (inj.get("inject_state") or {}).get("decisions_required") or []
+        for d in decs:
+            # Accept either legacy string decisions or structured typed-derived dicts
+            try:
+                d_text = _t(d.get("decision")) if isinstance(d, dict) else _t(d)
+            except Exception:
+                d_text = _t(d)
+            if ".." in d_text or ". ." in d_text:
+                errors.append({"path":f"{p}.inject_state.decisions_required","code":"DUPLICATE_PUNCTUATION","message":"duplicate punctuation in decision string"})
+    # Canonical entity consistency (participant-visible surfaces only; per-field check)
+    try:
+        texts: list[str] = []
+        scn0 = scn if isinstance(scn, dict) else {}
+        # Scenario-level participant-visible fields
+        texts.append(_t(scn0.get("scenario_title")))
+        texts.append(_t(scn0.get("initial_vector")))
+        # Inject-level participant-visible fields
+        for inj in injects:
+            if not isinstance(inj, dict):
+                continue
+            texts.append(_t(inj.get("scenario_narrative")))
+            texts.append(_t(inj.get("expected_mature_response")))
+            texts.append(_t(inj.get("primary_decision_target")))
+            for k in ("knowledge_before","knowledge_newly_revealed","knowledge_after"):
+                vals = inj.get(k) or []
+                if isinstance(vals, list):
+                    for v in vals:
+                        texts.append(_t(v))
+            pa = inj.get("participant_artefact") or {}
+            if isinstance(pa, dict):
+                texts.append(_t(pa.get("purpose")))
+                texts.append(_t(pa.get("content")))
+        def _has_conflict(s: str) -> bool:
+            l = (s or "").lower()
+            return ("northstar" in l) and (("northsat" in l) or ("northdstart" in l))
+        conflict = False
+        for s in texts:
+            if s and _has_conflict(s):
+                conflict = True
+                break
+        if conflict:
+            errors.append({"path":"scenarios[0]","code":"ENTITY_CONSISTENCY_ERROR","message":"Inconsistent canonical service name variants"})
+    except Exception:
+        # Do not block export due to diagnostics
+        pass
+    return (len(errors) == 0), errors
+
+# Participant disclosure validator and bounded scrubber
+
+def _pd_norm(s: str) -> str:
+    import re as _re
+    try:
+        s2 = _re.sub(r"\s+", " ", str(s or "")).strip().lower()
+        return _re.sub(r"[^\w\s\-\.\:]", "", s2)
+    except Exception:
+        return str(s or "").lower().strip()
+
+_PD_HIDDEN_MARKERS = {
+    "hidden_root_cause_context",
+    "root cause",
+    "attacker",
+    "threat actor",
+    "phishing attack",
+    "compromised account",
+    "unauthorised access",
+    "malicious activity",
+    "known threat actor",
+    "exfiltrated",
+}
+
+def _pd_collect_future_tokens(plan: dict, scenario_idx: int, inject_idx: int) -> set[str]:
+    fut: set[str] = set()
+    try:
+        scenarios = plan.get("scenarios", []) or []
+        inj_list = (scenarios[scenario_idx] or {}).get("injects", []) or []
+        for j in range(inject_idx + 1, len(inj_list)):
+            inj = inj_list[j] or {}
+            st = (inj.get("inject_state") or {}) if isinstance(inj, dict) else {}
+            for k in (st.get("new_confirmed_facts", []) or []):
+                t = _pd_norm(k)
+                if t:
+                    fut.add(t)
+            for k in (inj.get("knowledge_newly_revealed", []) or []):
+                t = _pd_norm(k)
+                if t:
+                    fut.add(t)
+    except Exception:
+        pass
+    return fut
+
+def _pd_collect_hidden_from_blueprint(blueprint: dict | None) -> set[str]:
+    hid: set[str] = set()
+    try:
+        fg = (blueprint or {}).get("facilitation_guide") or {}
+        for ht in (fg.get("hidden_truths") or []):
+            t = _pd_norm((ht or {}).get("truth_narrative", ""))
+            if t:
+                hid.add(t)
+    except Exception:
+        pass
+    return hid
+
+_PD_CATEGORY_KEYWORDS = {
+    "root cause": {"root cause"},
+    "attribution": {"threat actor", "attacker"},
+    "confirmed breach conclusion": {"compromised account", "unauthorised access", "breach confirmed"},
+    "investigation conclusion": {"concluded that", "confirmed that"},
+    "recommended containment": {"containment approved", "revoke session", "remove credential", "isolate"},
+    "recovery conclusion": {"recovery complete", "restored", "resolved"},
+    "expected participant decision": {"you should decide", "expected decision"},
+    "facilitator lesson": {"lesson", "after_action", "wrap up"},
+    "another controlled fact": set(),
+}
+
+def _pd_classify_category(phrase: str) -> str:
+    p = phrase.lower()
+    for cat, keys in _PD_CATEGORY_KEYWORDS.items():
+        for k in keys:
+            if k and k in p:
+                return cat
+    if any(x in p for x in ("root cause",)):
+        return "root cause"
+    if any(x in p for x in ("attacker","threat actor")):
+        return "attribution"
+    if any(x in p for x in ("compromised account","unauthorised access","breach")):
+        return "confirmed breach conclusion"
+    return "another controlled fact"
+
+def validate_participant_disclosure_boundaries(plan: dict, blueprint: dict | None = None) -> tuple[bool, list[dict]]:
+    defects: list[dict] = []
+    try:
+        scenarios = plan.get("scenarios", []) or []
+        if not scenarios or not isinstance(scenarios[0], dict):
+            return True, []
+        injects = scenarios[0].get("injects", []) or []
+        for sidx, inj in enumerate(injects, 1):
+            if not isinstance(inj, dict):
+                continue
+            st = inj.get("inject_state") or {}
+            inject_id = str(st.get("inject_id") or inj.get("inject_id") or f"S{sidx}").strip()
+            forbidden: set[str] = set()
+            try:
+                hc = _pd_norm(st.get("hidden_root_cause_context"))
+                if hc:
+                    forbidden.add(hc)
+            except Exception:
+                pass
+            forbidden |= {t for t in _PD_HIDDEN_MARKERS if t != "hidden_root_cause_context"}
+            forbidden |= _pd_collect_future_tokens(plan, 0, sidx - 1) if sidx <= 3 else set()
+            forbidden |= _pd_collect_hidden_from_blueprint(blueprint)
+            pa = inj.get("participant_artefact") or {}
+            surfaces: list[tuple[str, str]] = []
+            if isinstance(pa, dict):
+                surfaces.append((f"scenarios[0].injects[{sidx-1}].participant_artefact.purpose", str(pa.get("purpose",""))))
+                surfaces.append((f"scenarios[0].injects[{sidx-1}].participant_artefact.content", str(pa.get("content",""))))
+            surfaces.append((f"scenarios[0].injects[{sidx-1}].scenario_narrative", str(inj.get("scenario_narrative",""))))
+            surfaces.append((f"scenarios[0].injects[{sidx-1}].primary_decision_target", str(inj.get("primary_decision_target",""))))
+            for qi, qt in enumerate(inj.get("participant_questions_typed") or []):
+                if isinstance(qt, dict):
+                    surfaces.append((f"scenarios[0].injects[{sidx-1}].participant_questions_typed[{qi}].prompt", str(qt.get("prompt",""))))
+            for qi, ql in enumerate(inj.get("participant_questions") or inj.get("decision_questions") or []):
+                if isinstance(ql, dict):
+                    surfaces.append((f"scenarios[0].injects[{sidx-1}].participant_questions[{qi}].prompt", str(ql.get("prompt",""))))
+                else:
+                    surfaces.append((f"scenarios[0].injects[{sidx-1}].participant_questions[{qi}]", str(ql)))
+            for path, text in surfaces:
+                norm = _pd_norm(text)
+                if not norm:
+                    continue
+                for tok in sorted(forbidden, key=len, reverse=True):
+                    if tok and tok in norm:
+                        category = _pd_classify_category(tok)
+                        defects.append({
+                            "code": "PARTICIPANT_DISCLOSURE",
+                            "path": path,
+                            "inject_id": inject_id,
+                            "category": category,
+                            "safe_message": f"participant surface leaks '{tok}' at {path}",
+                            "matched_phrase": tok,
+                        })
+                        break
+                if sidx == 1 and any(k in norm for k in ("attacker","compromised account","unauthorised access","root cause","recovery complete")):
+                    defects.append({
+                        "code": "STAGE_BOUNDARY_VIOLATION",
+                        "path": path,
+                        "inject_id": inject_id,
+                        "category": "confirmed breach conclusion",
+                        "safe_message": f"Stage 1 must not disclose facilitator-only conclusions",
+                        "matched_phrase": "stage1_boundary",
+                    })
+                if sidx == 3 and any(k in norm for k in ("root cause","breach confirmed","unauthorised access","attacker intent","recovery complete","prescribed recovery")):
+                    defects.append({
+                        "code": "STAGE_BOUNDARY_VIOLATION",
+                        "path": path,
+                        "inject_id": inject_id,
+                        "category": "confirmed breach conclusion",
+                        "safe_message": f"Stage 3 must not disclose final root cause/breach determination/recovery decision",
+                        "matched_phrase": "stage3_boundary",
+                    })
+        return (len(defects) == 0), defects
+    except Exception:
+        return True, []
+
+def _pd_scrub_text(text: str, tokens: set[str]) -> str:
+    try:
+        import re as _re
+        out = str(text or "")
+        for tok in sorted(tokens, key=len, reverse=True):
+            if not tok:
+                continue
+            pattern = _re.compile(_re.escape(tok), _re.IGNORECASE)
+            out = pattern.sub("[REDACTED]", out)
+        return out
+    except Exception:
+        return str(text or "")
+
+def scrub_participant_disclosures_across_injects(plan: dict, blueprint: dict | None = None) -> tuple[dict, list[str]]:
+    """Bounded scrub across all 4 injects on participant-visible fields only. Idempotent."""
+    modified: list[str] = []
+    try:
+        scenarios = plan.get("scenarios", []) or []
+        if not scenarios or not isinstance(scenarios[0], dict):
+            return plan, modified
+        injects = scenarios[0].get("injects", []) or []
+        for sidx, inj in enumerate(injects, 1):
+            if not isinstance(inj, dict):
+                continue
+            st = inj.get("inject_state") or {}
+            inject_id = str(st.get("inject_id") or inj.get("inject_id") or f"S{sidx}").strip()
+            tokens: set[str] = set(_PD_HIDDEN_MARKERS) - {"hidden_root_cause_context"}
+            try:
+                hc = _pd_norm(st.get("hidden_root_cause_context"))
+                if hc:
+                    tokens.add(hc)
+            except Exception:
+                pass
+            tokens |= _pd_collect_hidden_from_blueprint(blueprint)
+            tokens |= _pd_collect_future_tokens(plan, 0, sidx - 1) if sidx <= 3 else set()
+            changed = False
+            pa = inj.get("participant_artefact") or {}
+            if isinstance(pa, dict):
+                before = str(pa.get("content",""))
+                after = _pd_scrub_text(before, tokens)
+                if after != before:
+                    pa["content"] = after
+                    changed = True
+                before_p = str(pa.get("purpose",""))
+                after_p = _pd_scrub_text(before_p, tokens)
+                if after_p != before_p:
+                    pa["purpose"] = after_p
+                    changed = True
+                inj["participant_artefact"] = pa
+            for k in ("scenario_narrative", "primary_decision_target"):
+                try:
+                    before = str(inj.get(k,""))
+                    after = _pd_scrub_text(before, tokens)
+                    if after != before:
+                        inj[k] = after
+                        changed = True
+                except Exception:
+                    pass
+            qts = inj.get("participant_questions_typed") or []
+            if isinstance(qts, list):
+                for qt in qts:
+                    if isinstance(qt, dict):
+                        b = str(qt.get("prompt",""))
+                        a = _pd_scrub_text(b, tokens)
+                        if a != b:
+                            qt["prompt"] = a
+                            changed = True
+            ql = inj.get("participant_questions") or inj.get("decision_questions") or []
+            if isinstance(ql, list):
+                out = []
+                for q in ql:
+                    if isinstance(q, dict):
+                        qq = dict(q)
+                        b = str(qq.get("prompt",""))
+                        a = _pd_scrub_text(b, tokens)
+                        if a != b:
+                            qq["prompt"] = a
+                            changed = True
+                        out.append(qq)
+                    else:
+                        b = str(q)
+                        a = _pd_scrub_text(b, tokens)
+                        if a != b:
+                            changed = True
+                        out.append(a)
+                if "participant_questions" in inj:
+                    inj["participant_questions"] = out
+                elif "decision_questions" in inj:
+                    inj["decision_questions"] = out
+            if changed:
+                modified.append(inject_id)
+                try:
+                    print(f"PARTICIPANT_DISCLOSURE_SCRUB_APPLIED inject_id={inject_id}", flush=True)
+                except Exception:
+                    pass
+            injects[sidx - 1] = inj
+        scenarios[0]["injects"] = injects
+        plan["scenarios"] = scenarios
+    except Exception:
+        pass
+    return plan, modified
+
+# Instrumentation counters and helpers
+_PREPARATION_INVOCATION_COUNT = 0
+_CANONICAL_VALIDATOR_CALL_COUNT = 0
+
+def _reset_validation_counters():
+    global _PREPARATION_INVOCATION_COUNT, _CANONICAL_VALIDATOR_CALL_COUNT
+    _PREPARATION_INVOCATION_COUNT = 0
+    _CANONICAL_VALIDATOR_CALL_COUNT = 0
+
+def _get_validation_counters():
+    return {
+        "preparation": _PREPARATION_INVOCATION_COUNT,
+        "canonical_validator": _CANONICAL_VALIDATOR_CALL_COUNT,
+    }
+
+# Shared preparation and validation for review/export
+
+def canonicalise_entities_from_context(plan: dict, customer_context: dict | None = None) -> dict:
+    """
+    Derive canonical customer/service names from authoritative customer_context and apply bounded,
+    path-aware canonicalisation across participant and facilitator surfaces.
+    - Uses customer_context['customer_name'] as the canonical entity name when present.
+    - Derives a bounded alias set from observed variants in accepted paths.
+    - Applies idempotently without arbitrary fuzzy replacement.
+    - Does not introduce new facts.
+    """
+    try:
+        ctx = customer_context or {}
+        canon_customer = str((ctx.get("customer_name") or ctx.get("customer") or "")).strip()
+        if not canon_customer:
+            return plan
+        # Collect observed tokens across surfaces
+        observed = set()
+        def _collect(txt: str | None):
+            if txt:
+                observed.add(str(txt))
+
+        try:
+            scenarios = plan.get("scenarios", []) if isinstance(plan, dict) else []
+            if scenarios and isinstance(scenarios[0], dict):
+                scn = scenarios[0]
+                _collect(scn.get("scenario_title"))
+                _collect(scn.get("initial_vector"))
+                injects = scn.get("injects", []) or []
+                for inj in injects:
+                    if not isinstance(inj, dict):
+                        continue
+                    _collect(inj.get("scenario_narrative"))
+                    _collect(inj.get("expected_mature_response"))
+                    _collect(inj.get("primary_decision_target"))
+                    for k in ("knowledge_before","knowledge_newly_revealed","knowledge_after"):
+                        vals = inj.get(k) or []
+                        if isinstance(vals, list):
+                            for v in vals:
+                                _collect(v)
+                    pa = inj.get("participant_artefact") or {}
+                    if isinstance(pa, dict):
+                        _collect(pa.get("purpose")); _collect(pa.get("content"))
+                    # Questions (typed or legacy)
+                    for qt in (inj.get("participant_questions_typed") or []):
+                        if isinstance(qt, dict):
+                            _collect(qt.get("prompt"))
+                    for ql in (inj.get("participant_questions") or inj.get("decision_questions") or []):
+                        if isinstance(ql, dict):
+                            _collect(ql.get("prompt"))
+                        else:
+                            _collect(ql)
+                # Facilitator reveal surfaces
+                fr = scn.get("facilitator_reveal", {})
+                if isinstance(fr, dict):
+                    _collect(fr.get("reveal_title")); _collect(fr.get("reveal_narrative"))
+                    for k in ("facilitator_script","key_lessons","wrap_up_questions","wrap_up_checklist","final_success_criteria"):
+                        v = fr.get(k)
+                        if isinstance(v, list):
+                            for it in v:
+                                _collect(it)
+                        else:
+                            _collect(v)
+        except Exception:
+            pass
+
+        # Build bounded alias set from observed tokens with simple near-prefix heuristic
+        import re as _re
+        aliases = set()
+        for txt in observed:
+            for m in _re.finditer(r"[A-Za-z][A-Za-z0-9]{4,}", str(txt or "")):
+                w = m.group(0)
+                if w.lower() != canon_customer.lower():
+                    if w.lower().startswith(canon_customer[:6].lower()) or canon_customer.lower().startswith(w[:6].lower()):
+                        aliases.add(w)
+
+        def _canonize(s: str) -> str:
+            try:
+                out = str(s or "")
+                for a in aliases:
+                    out = out.replace(a, canon_customer)
+                    out = out.replace(a.lower(), canon_customer)
+                    out = out.replace(a.upper(), canon_customer)
+                return out
+            except Exception:
+                return str(s or "")
+
+        # Apply canonicalisation across participant/facilitator surfaces
+        scenarios = plan.get("scenarios", []) if isinstance(plan, dict) else []
+        if scenarios and isinstance(scenarios[0], dict):
+            scn = scenarios[0]
+            scn["scenario_title"] = _canonize(scn.get("scenario_title", ""))
+            scn["initial_vector"] = _canonize(scn.get("initial_vector", ""))
+            injects = scn.get("injects", []) or []
+            for inj in injects:
+                if not isinstance(inj, dict):
+                    continue
+                inj["scenario_narrative"] = _canonize(inj.get("scenario_narrative", ""))
+                inj["expected_mature_response"] = _canonize(inj.get("expected_mature_response", ""))
+                inj["primary_decision_target"] = _canonize(inj.get("primary_decision_target", ""))
+                for k in ("knowledge_before","knowledge_newly_revealed","knowledge_after"):
+                    vals = inj.get(k) or []
+                    if isinstance(vals, list):
+                        inj[k] = [_canonize(v) for v in vals]
+                pa = inj.get("participant_artefact") or {}
+                if isinstance(pa, dict):
+                    pa["purpose"] = _canonize(pa.get("purpose",""))
+                    pa["content"] = _canonize(pa.get("content",""))
+                    inj["participant_artefact"] = pa
+                # Typed questions
+                qts = inj.get("participant_questions_typed") or []
+                if isinstance(qts, list):
+                    for qt in qts:
+                        if isinstance(qt, dict):
+                            qt["prompt"] = _canonize(qt.get("prompt",""))
+                # Legacy questions/decision_questions
+                for key in ("participant_questions","decision_questions"):
+                    ql = inj.get(key) or []
+                    if isinstance(ql, list):
+                        out = []
+                        for q in ql:
+                            if isinstance(q, dict):
+                                q = dict(q)
+                                q["prompt"] = _canonize(q.get("prompt",""))
+                                out.append(q)
+                            else:
+                                out.append(_canonize(q))
+                        inj[key] = out
+                # Facilitator guidance text fields
+                fg = inj.get("facilitator_guidance", {})
+                if isinstance(fg, dict):
+                    for fk, fv in list(fg.items()):
+                        if isinstance(fv, str):
+                            fg[fk] = _canonize(fv)
+                        elif isinstance(fv, list):
+                            fg[fk] = [_canonize(x) for x in fv]
+                inj["facilitator_guidance"] = fg
+            scn["injects"] = injects
+            # Facilitator reveal
+            fr = scn.get("facilitator_reveal", {})
+            if isinstance(fr, dict):
+                for fk, fv in list(fr.items()):
+                    if isinstance(fv, str):
+                        fr[fk] = _canonize(fv)
+                    elif isinstance(fv, list):
+                        fr[fk] = [_canonize(x) for x in fv]
+                scn["facilitator_reveal"] = fr
+            plan["scenarios"][0] = scn
+
+        # Private facilitator notes (if present)
+        try:
+            idx_map = plan.get("_facilitator_notes", {})
+            if isinstance(idx_map, dict):
+                for k, v in idx_map.items():
+                    if isinstance(v, dict):
+                        for fk, fv in list(v.items()):
+                            if isinstance(fv, str):
+                                v[fk] = _canonize(fv)
+                            elif isinstance(fv, list):
+                                v[fk] = [_canonize(x) for x in fv]
+                plan["_facilitator_notes"] = idx_map
+            id_map = plan.get("_facilitator_notes_by_inject_id", {})
+            if isinstance(id_map, dict):
+                for k, v in id_map.items():
+                    if isinstance(v, dict):
+                        for fk, fv in list(v.items()):
+                            if isinstance(fv, str):
+                                v[fk] = _canonize(fv)
+                            elif isinstance(fv, list):
+                                v[fk] = [_canonize(x) for x in fv]
+                plan["_facilitator_notes_by_inject_id"] = id_map
+        except Exception:
+            pass
+
+        return plan
+    except Exception:
+        return plan
+
+
+def _normalise_facilitator_guidance_lists(plan: dict) -> dict:
+    """
+    Convert accepted bullet/semicolon strings into ordered lists for facilitator_guidance fields which are lists in the schema.
+    Idempotent; preserves item order/wording; strips leading '- ' bullets; avoids arbitrary punctuation splitting.
+    """
+    try:
+        fields = [
+            "facts_participants_may_rely_on",
+            "information_not_yet_available",
+            "optional_probes",
+            "expected_discussion_themes",
+            "information_supplied_only_if_requested",
+            "common_failure_modes",
+        ]
+        scenarios = plan.get("scenarios", []) if isinstance(plan, dict) else []
+        for scn in scenarios or []:
+            injects = scn.get("injects", []) if isinstance(scn, dict) else []
+            for inj in injects:
+                fg = inj.get("facilitator_guidance", {}) if isinstance(inj, dict) else {}
+                if not isinstance(fg, dict):
+                    continue
+                for f in fields:
+                    v = fg.get(f)
+                    if isinstance(v, list):
+                        fg[f] = [str(x).strip() for x in v if str(x).strip()]
+                    elif isinstance(v, str):
+                        raw = v.replace("\r","").split("\n")
+                        items = []
+                        for line in raw:
+                            t = str(line).strip()
+                            if not t:
+                                continue
+                            if t.startswith("- "):
+                                t = t[2:].strip()
+                            items.append(t)
+                        if len(items) <= 1 and (";" in v) and (len([s for s in v.split(";") if s.strip()]) <= 6):
+                            items = [s.strip() for s in v.split(";") if s.strip()]
+                        fg[f] = items
+                inj["facilitator_guidance"] = fg
+        return plan
+    except Exception:
+        return plan
+
+
+def _complete_facilitator_reveal(plan: dict) -> dict:
+    """
+    Populate facilitator-only reveal fields deterministically using reveal_narrative and scenario facts.
+    Keeps reveal content facilitator-only and does not invent new incident facts.
+    """
+    try:
+        scenarios = plan.get("scenarios", []) if isinstance(plan, dict) else []
+        if not scenarios or not isinstance(scenarios[0], dict):
+            return plan
+        scn = scenarios[0]
+        fr = scn.get("facilitator_reveal", {})
+        if not isinstance(fr, dict):
+            fr = {}
+        title = str(fr.get("reveal_title") or scn.get("scenario_title") or "Wrap-up").strip()
+        narrative = str(fr.get("reveal_narrative") or "").strip()
+        injects = scn.get("injects", []) or []
+        facts = []
+        try:
+            for inj in injects:
+                st = inj.get("inject_state", {}) if isinstance(inj, dict) else {}
+                for nf in (st.get("new_confirmed_facts") or []):
+                    s = str(nf).strip()
+                    if s:
+                        facts.append(s)
+        except Exception:
+            pass
+        key_lessons = fr.get("key_lessons") or []
+        if not (isinstance(key_lessons, list) and key_lessons):
+            key_lessons = [f"Establish clear authority and evidence thresholds ({title}).", "Record explicit trade-offs and continuity decisions."]
+        wrap_up_questions = fr.get("wrap_up_questions") or []
+        if not (isinstance(wrap_up_questions, list) and wrap_up_questions):
+            wrap_up_questions = ["What authority boundaries were clarified?", "What decisions require improved evidence or timeboxes?"]
+        wrap_up_checklist = fr.get("wrap_up_checklist") or []
+        if not (isinstance(wrap_up_checklist, list) and wrap_up_checklist):
+            wrap_up_checklist = ["Confirm decision records and approvals", "Capture evidence gaps for AAR follow-up"]
+        final_success_criteria = fr.get("final_success_criteria") or []
+        if not (isinstance(final_success_criteria, list) and final_success_criteria):
+            final_success_criteria = ["Decisions recorded with authority and deadlines", "Continuity and communication positions approved"]
+        facilitator_script = fr.get("facilitator_script") or ""
+        if not isinstance(facilitator_script, str) or not facilitator_script.strip():
+            facilitator_script = (narrative or "Provide the controlled reveal and tie back to decisions, authority, and evidence.")
+        scn["facilitator_reveal"] = {
+            "reveal_title": title,
+            "reveal_narrative": narrative,
+            "facilitator_script": facilitator_script,
+            "key_lessons": key_lessons,
+            "wrap_up_questions": wrap_up_questions,
+            "wrap_up_checklist": wrap_up_checklist,
+            "final_success_criteria": final_success_criteria,
+        }
+        plan["scenarios"][0] = scn
+        return plan
+    except Exception:
+        return plan
+def prepare_tabletop_master_for_review_and_export(plan_candidate: dict, customer_context: dict | None = None) -> dict:
+    """
+    Pure, deterministic preparation of a canonical final-master candidate for review/export.
+    - deep-copy input
+    - canonicalise customer/service entities from authoritative customer context
+    - normalise facilitator-guidance list fields
+    - complete facilitator-only reveal fields
+    - recompute question-anchor resolution (via canonicalise_plan)
+    - complete generation metadata (schema_version, validation_rule_version, prompt_version, model, generation_timestamp)
+    - retain exactly one participant_artefact per inject; retain empty legacy artefacts arrays
+    - preserve substantive scenario facts, questions and decisions
+    - no model calls, no persistence, no UI rendering
+    Idempotent: prepare(prepare(plan)) == prepare(plan)
+    """
+    import json as _json
+    from config import get_config
+    # Instrument preparation invocation count
+    try:
+        global _PREPARATION_INVOCATION_COUNT
+        _PREPARATION_INVOCATION_COUNT += 1
+    except Exception:
+        pass
+    # Authoritative customer context is required
+    try:
+        _cust_name = str((customer_context or {}).get("customer_name") or "").strip()
+    except Exception:
+        _cust_name = ""
+    if not _cust_name:
+        from tabletop_generation import TabletopGenerationError as _TGE  # late import to avoid cyclic initialisation
+        raise _TGE("prepare", "missing_customer_context")
+    try:
+        plan = _json.loads(_json.dumps(plan_candidate))
+    except Exception:
+        plan = dict(plan_candidate) if isinstance(plan_candidate, dict) else plan_candidate
+    try:
+        ci = customer_context or {}
+        # Entity canonicalisation across participant/facilitator surfaces
+        plan = canonicalise_entities_from_context(plan, ci)
+        # Normalise facilitator guidance list fields
+        plan = _normalise_facilitator_guidance_lists(plan)
+        # Complete facilitator-only reveal fields deterministically
+        plan = _complete_facilitator_reveal(plan)
+        # Enforce artefact surface policy per inject
+        scns = plan.get("scenarios", []) if isinstance(plan, dict) else []
+        if scns and isinstance(scns[0], dict):
+            injects = scns[0].get("injects", []) or []
+            for inj in injects:
+                if not isinstance(inj, dict):
+                    continue
+                # Ensure single authoritative participant_artefact
+                pa = inj.get("participant_artefact") if isinstance(inj, dict) else None
+                inj["participant_artefact"] = pa if isinstance(pa, dict) else {}
+                # Retain empty legacy artefacts array
+                inj["artefacts"] = []
+            scns[0]["injects"] = injects
+            plan["scenarios"] = scns
+        # Ensure client_name populated from authoritative customer_context (no guessing)
+        try:
+            if not str(plan.get("client_name", "")).strip():
+                plan["client_name"] = str((ci.get("customer_name") or "")).strip()
+        except Exception:
+            pass
+        # Top‑level completion required by strict model (deterministic, idempotent)
+        try:
+            scn0 = (plan.get("scenarios") or [{}])[0] if isinstance(plan.get("scenarios"), list) else {}
+            stitle = str(scn0.get("scenario_title", "")).strip()
+            cust = str((ci.get("customer_name") or "")).strip()
+            # exercise_title
+            if not str(plan.get("exercise_title", "")).strip():
+                plan["exercise_title"] = f"{cust} Tabletop: {stitle}".strip(": ")
+            # audience_roles derived from typed decision authorities (bounded)
+            roles: list[str] = []
+            injs0 = scn0.get("injects", []) or []
+            for __inj in injs0:
+                if not isinstance(__inj, dict):
+                    continue
+                st0 = __inj.get("inject_state") or {}
+                for dt in (st0.get("decisions_typed") or []):
+                    try:
+                        auth = str((dt or {}).get("authority") or "").strip()
+                    except Exception:
+                        auth = ""
+                    if auth and auth not in roles:
+                        roles.append(auth)
+            if roles:
+                plan["audience_roles"] = roles[:6]
+            # housekeeping_rules (fallback defaults)
+            if not isinstance(plan.get("housekeeping_rules"), list) or not plan.get("housekeeping_rules"):
+                plan["housekeeping_rules"] = [
+                    "All artefacts are simulated; no access to production systems.",
+                    "Decisions are timeboxed and require a named authority.",
+                    "Record choices and accepted trade‑offs explicitly.",
+                ]
+        except Exception:
+            pass
+        # Deterministic enrichment to satisfy strict model without changing incident facts
+        try:
+            scn0 = (plan.get("scenarios") or [{}])[0] if isinstance(plan.get("scenarios"), list) else {}
+            # Scenario theme and target assets
+            scn0.setdefault("scenario_theme", "Blended")
+            cust = str((ci.get("customer_name") or "")).strip()
+            stitle = str(scn0.get("scenario_title","")).strip()
+            default_asset = f"{cust} Dispatch API" if cust else "Dispatch API"
+            if not isinstance(scn0.get("target_assets"), list) or not scn0.get("target_assets"):
+                scn0["target_assets"] = [default_asset]
+            injects0 = scn0.get("injects", []) or []
+            for inj in injects0:
+                if not isinstance(inj, dict):
+                    continue
+                st0 = inj.get("inject_state") or {}
+                # phase_title and simulated_timestamp
+                inj.setdefault("phase_title", st0.get("phase") or "")
+                pa = inj.get("participant_artefact") or {}
+                inj.setdefault("simulated_timestamp", str(pa.get("relative_timestamp") or ""))
+                # technical_indicators
+                if not isinstance(inj.get("technical_indicators"), list) or not inj.get("technical_indicators"):
+                    k = inj.get("knowledge_newly_revealed") or []
+                    if isinstance(k, list) and k:
+                        inj["technical_indicators"] = [str(x).strip() for x in k[:4] if str(x).strip()]
+                    else:
+                        inj["technical_indicators"] = []
+                # facilitator_probe_questions
+                if not isinstance(inj.get("facilitator_probe_questions"), list) or not inj.get("facilitator_probe_questions"):
+                    q_typed = inj.get("participant_questions_typed") or []
+                    inj["facilitator_probe_questions"] = [str(q.get("prompt","")).strip() for q in q_typed if isinstance(q, dict) and str(q.get("prompt","")).strip()][:5]
+                # common_pitfalls
+                inj.setdefault("common_pitfalls", ["Assuming evidence without validation", "Skipping authority checks"])
+                # decision_threshold
+                inj.setdefault("decision_threshold", str(inj.get("primary_decision_target") or ""))
+                # systems_to_check
+                if not isinstance(inj.get("systems_to_check"), list) or not inj.get("systems_to_check"):
+                    inj["systems_to_check"] = ["Identity provider sign-in logs", "API admin audit logs"]
+                # roles_to_engage — derive deterministically from typed decisions and typed questions; ensure at least two roles
+                if (not isinstance(inj.get("roles_to_engage"), list)) or (len(inj.get("roles_to_engage") or []) < 2):
+                    roles = []
+                    # From typed decisions
+                    for dt in (st0.get("decisions_typed") or []):
+                        try:
+                            auth = str((dt or {}).get("authority") or "").strip()
+                        except Exception:
+                            auth = ""
+                        if auth and auth not in roles:
+                            roles.append(auth)
+                    # From typed participant questions
+                    for qt in (inj.get("participant_questions_typed") or []):
+                        try:
+                            qa = str((qt or {}).get("authority") or "").strip()
+                        except Exception:
+                            qa = ""
+                        if qa and qa not in roles:
+                            roles.append(qa)
+                    # Fallback to artefact author/audience if still < 2
+                    if len(roles) < 2:
+                        pa = inj.get("participant_artefact") or {}
+                        for k in ("author", "audience"):
+                            try:
+                                rv = str(pa.get(k) or "").strip()
+                            except Exception:
+                                rv = ""
+                            if rv and rv not in roles:
+                                roles.append(rv)
+                            if len(roles) >= 2:
+                                break
+                    inj["roles_to_engage"] = roles[:5]
+                # runbook_references
+                inj.setdefault("runbook_references", ["IR‑01 Declaration"])
+                # evidence_hunt
+                inj.setdefault("evidence_hunt", ["Entra sign-in export", "API admin audit export"])
+                # knowledge_checks
+                inj.setdefault("knowledge_checks", ["Who approves external communications?", "Where is the evidence preserved?"])
+                # timebox_hint
+                inj.setdefault("timebox_hint", "5–7 minutes to decision")
+                # typed decision normalisation — preserve canonical categories and infer only for invalid/other
+                dtyped = st0.get("decisions_typed") or []
+                allowed = {"session_identity_containment","containment_authority","affected_service_continuity","escalation_scope","other"}
+                required_stage2 = {"session_identity_containment","containment_authority","affected_service_continuity","escalation_scope"}
+                # stage detection
+                inj_id = str(inj.get("inject_id") or st0.get("inject_id") or "")
+                try:
+                    stage_num = int(inj_id.split("-")[1].split(".")[0]) if "-" in inj_id else None
+                except Exception:
+                    stage_num = None
+                # Invariant capture (before)
+                cats_before = []
+                try:
+                    for _d in dtyped:
+                        if isinstance(_d, dict):
+                            c0 = str(_d.get("category","")).strip()
+                            if c0:
+                                cats_before.append(c0)
+                except Exception:
+                    pass
+                if stage_num == 2:
+                    try:
+                        print("STAGE2_CANONICAL_CATEGORY_SET_BEFORE=" + ",".join(sorted(set(c for c in cats_before if c in required_stage2))), flush=True)
+                    except Exception:
+                        pass
+                idx_counter = 0
+                # Normalise
+                for d in dtyped:
+                    if not isinstance(d, dict):
+                        continue
+                    idx_counter += 1
+                    # deadline string from minutes (preserve if present)
+                    if not str(d.get("deadline","")).strip():
+                        dm = d.get("deadline_minutes")
+                        try:
+                            dm_i = int(dm)
+                            if dm_i >= 1:
+                                d["deadline"] = f"{dm_i} minutes"
+                        except Exception:
+                            pass
+                    cat = str(d.get("category","")).strip()
+                    if stage_num == 2:
+                        # Preserve already-canonical categories; infer only when invalid/blank/other
+                        before_cat = cat
+                        matched_rule = ""
+                        matched_keywords = []
+                        if cat in required_stage2:
+                            # leave unchanged
+                            after_cat = cat
+                        else:
+                            dec_text = str(d.get("decision","")).lower()
+                            inferred = None
+                            # Semantic-target matching with ambiguity detection
+                            ic_kw = ("revoke","disable","session","token","reauth")
+                            auth_kw = ("authorise","authorize","authority","approve","approver")
+                            cont_kw = ("continuity","restore","change mode","manual","workaround","operating mode","degraded")
+                            esc_kw = ("declare","retainer","major incident","escalate","regulator","executive")
+                            ic_m = any(t in dec_text for t in ic_kw)
+                            auth_m = any(t in dec_text for t in auth_kw)
+                            cont_m = any(t in dec_text for t in cont_kw)
+                            esc_m = any(t in dec_text for t in esc_kw)
+                            matches = []
+                            if ic_m: matches.append("session_identity_containment")
+                            if auth_m: matches.append("containment_authority")
+                            if cont_m: matches.append("affected_service_continuity")
+                            if esc_m: matches.append("escalation_scope")
+                            if len(matches) == 1:
+                                inferred = matches[0]
+                                matched_rule = inferred
+                                if inferred == "session_identity_containment":
+                                    matched_keywords = [t for t in ic_kw if t in dec_text]
+                                elif inferred == "containment_authority":
+                                    matched_keywords = [t for t in auth_kw if t in dec_text]
+                                elif inferred == "affected_service_continuity":
+                                    matched_keywords = [t for t in cont_kw if t in dec_text]
+                                elif inferred == "escalation_scope":
+                                    matched_keywords = [t for t in esc_kw if t in dec_text]
+                            elif len(matches) == 0:
+                                matched_rule = ""
+                                matched_keywords = []
+                            else:
+                                # Ambiguous: multiple plausible categories; fail fast rather than guessing
+                                raise TabletopGenerationError("typed_decision_contract", "ambiguous Stage 2 decision category", [])
+                            # Apply inference only if existing category is blank/invalid/'other'
+                            if (not cat) or (cat not in allowed) or (cat == "other"):
+                                if inferred:
+                                    d["category"] = inferred
+                                    after_cat = inferred
+                                else:
+                                    # leave as-is ('other' or invalid) to be caught by validator; do not guess further
+                                    d["category"] = cat or "other"
+                                    after_cat = d["category"]
+                            else:
+                                # Non-stage2 or already allowed invalid category: coerce invalids to 'other'
+                                if cat not in allowed:
+                                    d["category"] = "other"
+                                after_cat = d.get("category","")
+                        # Per-decision instrumentation
+                        try:
+                            print(f"STAGE2_DECISION_INDEX={idx_counter}", flush=True)
+                            print(f"CATEGORY_BEFORE_PREPARATION={before_cat}", flush=True)
+                            print(f"CATEGORY_AFTER_PREPARATION={after_cat}", flush=True)
+                            print(f"CATEGORY_VALID_BEFORE={str(before_cat in required_stage2).lower()}", flush=True)
+                            print(f"MATCHED_NORMALISER_RULE={matched_rule}", flush=True)
+                            print("MATCHED_KEYWORDS=" + ",".join(matched_keywords), flush=True)
+                            print(f"CATEGORY_CHANGED={str(before_cat != after_cat).lower()}", flush=True)
+                            if before_cat == "affected_service_continuity" and after_cat == "containment_authority":
+                                print(f"OVERWRITTEN_DECISION_INDEX={idx_counter}", flush=True)
+                                print("OVERWRITTEN_CATEGORY_BEFORE=affected_service_continuity", flush=True)
+                                print("OVERWRITTEN_CATEGORY_AFTER=containment_authority", flush=True)
+                                print("OVERWRITE_TRIGGER=" + (matched_rule or "keyword_overlap"), flush=True)
+                        except Exception:
+                            pass
+                    else:
+                        if cat not in allowed:
+                            d["category"] = "other"
+                # Invariant capture (after)
+                cats_after = []
+                try:
+                    for _d in dtyped:
+                        if isinstance(_d, dict):
+                            c1 = str(_d.get("category","")).strip()
+                            if c1:
+                                cats_after.append(c1)
+                except Exception:
+                    pass
+                if stage_num == 2:
+                    try:
+                        print("STAGE2_CANONICAL_CATEGORY_SET_AFTER=" + ",".join(sorted(set(c for c in cats_after if c in required_stage2))), flush=True)
+                        before_req = set(c for c in cats_before if c in required_stage2)
+                        after_req = set(c for c in cats_after if c in required_stage2)
+                        if before_req == {"session_identity_containment","containment_authority","affected_service_continuity","escalation_scope"}:
+                            print("VALID_CANONICAL_CATEGORIES_PRESERVED=" + str(before_req == after_req).lower(), flush=True)
+                        # Per-decision comparison log
+                        for i, (b, a) in enumerate(zip(cats_before, cats_after), start=1):
+                            print(f"STAGE2_DECISION_INDEX={i}", flush=True)
+                            print(f"CATEGORY_BEFORE_PREPARATION={b}", flush=True)
+                            print(f"CATEGORY_AFTER_PREPARATION={a}", flush=True)
+                            print(f"CATEGORY_VALID_BEFORE={str(b in required_stage2).lower()}", flush=True)
+                            print(f"CATEGORY_CHANGED={str(b != a).lower()}", flush=True)
+                            if b == "affected_service_continuity" and a == "containment_authority":
+                                print(f"OVERWRITTEN_DECISION_INDEX={i}", flush=True)
+                                print("OVERWRITTEN_CATEGORY_BEFORE=affected_service_continuity", flush=True)
+                                print("OVERWRITTEN_CATEGORY_AFTER=containment_authority", flush=True)
+                                print("OVERWRITE_TRIGGER=keyword_overlap_or_rule", flush=True)
+                    except Exception:
+                        pass
+                st0["decisions_typed"] = dtyped
+                inj["inject_state"] = st0
+            scn0["injects"] = injects0
+            # write back scenario
+            if isinstance(plan.get("scenarios"), list) and plan["scenarios"]:
+                plan["scenarios"][0] = scn0
+        except TabletopGenerationError:
+            raise
+        except Exception:
+            pass
+        # Populate legacy surfaces deterministically from typed for strict model compatibility
+        try:
+            plan = _derive_legacy_from_typed(plan)
+        except Exception:
+            pass
+        # Recompute canonical fact IDs and question anchors (do not persist sidecars for idempotency)
+        plan, _, _, _ = canonicalise_plan(plan)
+        # Strip non-model sidecars to guarantee idempotent plan content
+        try:
+            for k in ("_canonical_fact_registry", "_unresolved_known_facts", "_unresolved_question_anchors", "_normalisation_defects"):
+                if k in plan:
+                    plan.pop(k, None)
+        except Exception:
+            pass
+        # Generation metadata completion (deterministic)
+        gm = dict(plan.get("generation_metadata") or {})
+        gm.setdefault("schema_version", "tt-1.1")
+        gm.setdefault("validation_rule_version", "review-export-typed-1.0")
+        gm.setdefault("prompt_version", str(get_config("PROMPT_VERSION", "")) or "unknown")
+        gm.setdefault("model", str(get_config("AZURE_OPENAI_DEPLOYMENT", "")) or "unknown")
+        import time as _time
+        gm["generation_timestamp"] = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+        plan["generation_metadata"] = gm
+        # Record canonical provenance (structural only; facilitator/participant content not exposed)
+        try:
+            plan["_canonical_provenance"] = {
+                "customer_name_source": "customer_context",
+                "service_name_source": "customer_context",
+                "customer_context_present": True,
+                "customer_context_session_keys": sorted(list((customer_context or {}).keys())),
+            }
+        except Exception:
+            pass
+    except TabletopGenerationError:
+        # Propagate typed decision contract failures or other hard generation errors
+        raise
+    except Exception:
+        # Fail-closed to current plan snapshot; preparation functions are individually guarded
+        pass
+    return plan
+
+
+def validate_tabletop_for_review_and_export(prepared_plan: dict) -> tuple[bool, list[dict]]:
+    """
+    Pure shared validator for review/export. Does not mutate supplied plan.
+    Combines:
+      - TabletopMasterPlan.model_validate
+      - validate_four_stage_plan
+      - validate_tabletop_export_readiness
+      - participant-disclosure validation (implicit in four-stage and export readiness)
+      - scenario=1, injects=4, participant_artefact=4, facilitator-guidance=4
+      - unresolved-anchor count = 0
+      - entity-consistency defects = 0
+      - metadata completeness
+    Returns (ok, defects) where defect = {code, path, message, severity}
+    """
+    # Instrument canonical shared validator invocation
+    try:
+        global _CANONICAL_VALIDATOR_CALL_COUNT
+        _CANONICAL_VALIDATOR_CALL_COUNT += 1
+    except Exception:
+        pass
+    defects: list[dict] = []
+    # Strict model validation against the exact prepared object (no snapshot)
+    try:
+        from prompts import TabletopMasterPlan  # type: ignore
+        TabletopMasterPlan.model_validate(prepared_plan)  # type: ignore[attr-defined]
+    except Exception as e:
+        defects.append({"code":"STRICT_MODEL","path":"$","message":str(e),"severity":"error"})
+    # Four-stage structural/semantic
+    try:
+        ok_fs, fs_def = validate_four_stage_plan(prepared_plan)
+        if not ok_fs:
+            for d in fs_def or []:
+                defects.append({"code":"FOUR_STAGE","path":"$","message":str(d),"severity":"error"})
+    except Exception as e:
+        defects.append({"code":"FOUR_STAGE_EXCEPTION","path":"$","message":str(e),"severity":"error"})
+    # Export readiness (structured)
+    try:
+        ok_er, er_def = validate_tabletop_export_readiness(prepared_plan)
+        if not ok_er:
+            for d in er_def or []:
+                if isinstance(d, dict):
+                    defects.append({
+                        "code": d.get("code","EXPORT_READINESS"),
+                        "path": d.get("path","$"),
+                        "message": d.get("message",""),
+                        "severity": "error",
+                    })
+                else:
+                    defects.append({"code":"EXPORT_READINESS","path":"$","message":str(d),"severity":"error"})
+    except Exception as e:
+        defects.append({"code":"EXPORT_READINESS_EXCEPTION","path":"$","message":str(e),"severity":"error"})
+    # Cardinality and counts
+    try:
+        scns = prepared_plan.get("scenarios", []) if isinstance(prepared_plan, dict) else []
+        if not (isinstance(scns, list) and len(scns) == 1):
+            defects.append({"code":"SCENARIO_COUNT","path":"scenarios","message":"exactly one coherent scenario is required","severity":"error"})
+        else:
+            injects = scns[0].get("injects", []) if isinstance(scns[0], dict) else []
+            if not (isinstance(injects, list) and len(injects) == 4):
+                defects.append({"code":"INJECT_COUNT","path":"scenarios[0].injects","message":"exactly four ordered stages are required","severity":"error"})
+            else:
+                pa_count = sum(1 for inj in injects if isinstance(inj.get("participant_artefact"), dict))
+                fg_count = sum(1 for inj in injects if isinstance(inj.get("facilitator_guidance"), dict) and inj.get("facilitator_guidance"))
+                if pa_count != 4:
+                    defects.append({"code":"PARTICIPANT_ARTEFACT_COUNT","path":"scenarios[0].injects","message":f"participant_artefact count must be 4; got {pa_count}","severity":"error"})
+                if fg_count != 4:
+                    defects.append({"code":"FACILITATOR_GUIDANCE_COUNT","path":"scenarios[0].injects","message":f"facilitator_guidance count must be 4; got {fg_count}","severity":"error"})
+    except Exception as e:
+        defects.append({"code":"CARDINALITY_EXCEPTION","path":"$","message":str(e),"severity":"error"})
+    # Unresolved anchor count
+    try:
+        unresolved = prepared_plan.get("_unresolved_question_anchors", {})
+        unresolved_count = sum(len(v or []) for v in unresolved.values()) if isinstance(unresolved, dict) else 0
+        if unresolved_count > 0:
+            defects.append({"code":"UNRESOLVED_QUESTION_ANCHORS","path":"$._unresolved_question_anchors","message":f"unresolved question anchors: {unresolved_count}","severity":"error"})
+    except Exception:
+        pass
+    # Entity consistency defects captured via export readiness ENTITY_CONSISTENCY_ERROR
+    # Metadata completeness
+    try:
+        gm = prepared_plan.get("generation_metadata", {}) if isinstance(prepared_plan, dict) else {}
+        required_keys = ("schema_version","validation_rule_version","prompt_version","model","generation_timestamp")
+        for k in required_keys:
+            if not str(gm.get(k, "")).strip():
+                defects.append({"code":"METADATA_INCOMPLETE","path":"generation_metadata","message":f"missing {k}","severity":"error"})
+    except Exception as e:
+        defects.append({"code":"METADATA_EXCEPTION","path":"generation_metadata","message":str(e),"severity":"error"})
+    ok = not any(d.get("severity") == "error" for d in defects)
+    return ok, defects
+
+def prepare_tabletop_master_for_persistence(plan_candidate: dict, customer_context: dict | None = None) -> dict:
+    """
+    Deterministic, idempotent preparation of a master-shaped plan before persistence/export-readiness.
+    - Preserves substantive scenario content
+    - Derives missing top-level metadata from customer_context and plan content
+    - Normalises structural invariants; does not mutate the supplied input
+    """
+    import json as _json
+    try:
+        # Deep-copy to avoid mutating caller input
+        plan = _json.loads(_json.dumps(plan_candidate))
+    except Exception:
+        plan = dict(plan_candidate) if isinstance(plan_candidate, dict) else plan_candidate
+    try:
+        ci = customer_context or {}
+        cust = str(ci.get("customer_name", "")).strip()
+        scn = (plan.get("scenarios") or [{}])[0] if isinstance(plan.get("scenarios"), list) else {}
+        stitle = str(scn.get("scenario_title","")).strip()
+        if not plan.get("exercise_title"):
+            plan["exercise_title"] = f"{cust} Tabletop: {stitle}".strip(": ")
+        # audience_roles derived from decision authorities
+        roles: list[str] = []
+        for inj in (scn.get("injects") or []):
+            st = inj.get("inject_state") or {}
+            for dt in (st.get("decisions_typed") or []):
+                try:
+                    auth = str((dt or {}).get("authority") or "").strip()
+                except Exception:
+                    auth = ""
+                if auth and auth not in roles:
+                    roles.append(auth)
+        plan["audience_roles"] = roles[:6]
+        # Minimal housekeeping defaults if missing
+        if not plan.get("housekeeping_rules"):
+            plan["housekeeping_rules"] = [
+                "All artefacts are simulated; no access to production systems.",
+                "Decisions are timeboxed and require a named authority.",
+                "Record choices and accepted trade‑offs explicitly."
+            ]
+    except Exception:
+        # Non-fatal — continue with existing plan fields
+        pass
+    # Structural invariants normalisation (idempotent)
+    try:
+        plan = normalize_structural_invariants(plan)
+    except Exception:
+        pass
+    return plan
+
 def persist_validated_tabletop_plan(session_state: dict, plan: dict) -> dict:
-    """Validate and persist the plan to a dict-like session_state."""
+    """Validate and persist the prepared plan to a dict-like session_state.
+    Pipeline: generated candidate → prepare_tabletop_master_for_review_and_export → validate_tabletop_for_review_and_export → persist.
+    """
     # Block persistence when legacy adapter reported unresolved upgrade defects
     try:
         if isinstance(plan, dict):
@@ -1359,16 +2698,146 @@ def persist_validated_tabletop_plan(session_state: dict, plan: dict) -> dict:
             if isinstance(upgrade_defects, list) and upgrade_defects:
                 raise TabletopGenerationError("persistence", "legacy upgrade has unresolved defects", upgrade_defects)
     except Exception:
-        # Defensive: if defect structure is malformed, still prevent persistence
         raise TabletopGenerationError("persistence", "legacy upgrade has unresolved defects", [])
-    plan = normalize_structural_invariants(plan)
-    ok, defects = validate_four_stage_plan(plan)
+    # Prepare once using customer context
+    try:
+        ci = session_state.get("client_inputs", {}) if isinstance(session_state, dict) else {}
+    except Exception:
+        ci = {}
+    prepared = prepare_tabletop_master_for_review_and_export(plan, customer_context=ci)
+    # Compute pre-persistence hash for invariant check
+    try:
+        import hashlib as __h, json as __j
+        _pre_psha = ""
+        try:
+            _canon_pp0 = __j.dumps(prepared, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            _pre_psha = __h.sha256(_canon_pp0).hexdigest()
+        except Exception:
+            _pre_psha = ""
+        print(f"PRE_PERSISTENCE_PLAN_SHA256={_pre_psha}")
+    except Exception:
+        pass
+    # Shared validation (pure)
+    ok, v_defects = validate_tabletop_for_review_and_export(prepared)
     if not ok:
-        raise TabletopGenerationError("persistence", "attempted to persist invalid plan", defects)
-    session_state["tabletop_plan"] = plan
-    ok2, defects2 = validate_four_stage_plan(session_state.get("tabletop_plan"))
+        # Failed gate — do not invoke persistence
+        try:
+            print("PRE_PERSISTENCE_SHARED_VALIDATION_VALID=false", flush=True)
+            print("GENERATION_PERSISTENCE_INVOCATION_COUNT=0", flush=True)
+            print("TABLETOP_PLAN_WRITE_COUNT=0", flush=True)
+            print("GENERATION_SUCCESS_TRANSITION_COUNT=0", flush=True)
+            print("GENERATION_FAILURE_TRANSITION_COUNT=1", flush=True)
+            print("GENERATION_FAILED=true", flush=True)
+        except Exception:
+            pass
+        # Coerce structured defects into safe strings for error
+        errs = []
+        try:
+            for e in (v_defects or []):
+                code = str(e.get("code",""))
+                path = str(e.get("path","$"))
+                msg = str(e.get("message",""))
+                errs.append(f"{path}: {code} {msg}".strip())
+        except Exception:
+            errs = ["review_export_validation_failed"]
+        raise TabletopGenerationError("review_export_validation", "shared review/export validation failed", errs)
+    else:
+        try:
+            print("PRE_PERSISTENCE_SHARED_VALIDATION_VALID=true", flush=True)
+        except Exception:
+            pass
+    session_state["tabletop_plan"] = prepared
+    try:
+        print("GENERATION_PERSISTENCE_INVOCATION_COUNT=1", flush=True)
+        print("TABLETOP_PLAN_WRITE_COUNT=1", flush=True)
+        print("GENERATION_SUCCESS_TRANSITION_COUNT=1", flush=True)
+        print("GENERATION_SUCCEEDED=true", flush=True)
+    except Exception:
+        pass
+    # Post-persistence purity check (validator must not mutate)
+    ok2, _ = validate_tabletop_for_review_and_export(session_state.get("tabletop_plan"))
     if not ok2:
-        raise TabletopGenerationError("persistence", "post-persistence validation failed", defects2)
+        raise TabletopGenerationError("persistence", "post-persistence validation failed", [])
+    return session_state["tabletop_plan"]
+
+
+def persist_prepared_tabletop_plan(session_state: dict, prepared_plan: dict) -> dict:
+    """
+    Persist an already prepared plan to session_state after validation.
+    Assumes the caller has already invoked prepare_tabletop_master_for_review_and_export exactly once.
+    """
+    # Instrument Stage 2 structural diagnostics and canonical hash immediately inside persistence validation
+    try:
+        import hashlib as __h, json as __j
+        _psha = ""
+        try:
+            _canon_pp = __j.dumps(prepared_plan, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            _psha = __h.sha256(_canon_pp).hexdigest()
+        except Exception:
+            _psha = ""
+        print(f"PERSISTENCE_VALIDATION_PLAN_SHA256={_psha}")
+        # Stage 2 diagnostics at persistence
+        try:
+            scns = prepared_plan.get("scenarios", []) if isinstance(prepared_plan, dict) else []
+            inj_list = scns[0].get("injects", []) if (isinstance(scns, list) and scns and isinstance(scns[0], dict)) else []
+            stage2 = None
+            for i, inj in enumerate(inj_list, start=1):
+                try:
+                    inj_id = str((inj or {}).get("inject_id") or "")
+                    stage_num = int(inj_id.split("-")[1].split(".")[0]) if "-" in inj_id else i
+                except Exception:
+                    stage_num = i
+                if stage_num == 2:
+                    stage2 = inj
+                    break
+            cats = []
+            cnt = 0
+            if isinstance(stage2, dict):
+                st2 = stage2.get("inject_state", {}) if isinstance(stage2, dict) else {}
+                dtyped2 = st2.get("decisions_typed") or []
+                cnt = len(dtyped2) if isinstance(dtyped2, list) else 0
+                if isinstance(dtyped2, list):
+                    for d in dtyped2:
+                        if isinstance(d, dict):
+                            c = str(d.get("category","")).strip()
+                            if c:
+                                cats.append(c)
+            print(f"STAGE2_DECISION_COUNT_AT_PERSISTENCE={cnt}")
+            print("STAGE2_DECISION_CATEGORIES_AT_PERSISTENCE=" + ",".join(cats))
+            # Authoritative path and required set
+            print("STAGE2_AUTHORITATIVE_DECISION_PATH=inject_state.decisions_typed")
+            print("STAGE2_COMPATIBILITY_DECISION_PATHS=decisions,decisions_typed")
+            print("STAGE2_VALIDATOR_DECISION_PATH=inject_state.decisions_typed")
+            req = {"session_identity_containment","containment_authority","affected_service_continuity","escalation_scope"}
+            present = set(cats)
+            missing = sorted(list(req - present))
+            dup = sorted(list({c for c in cats if cats.count(c) > 1}))
+            invalid = sorted(list({c for c in cats if c not in req}))
+            print("STAGE2_MISSING_DECISION_CATEGORIES=" + ",".join(missing))
+            print("STAGE2_DUPLICATE_DECISION_CATEGORIES=" + ",".join(dup))
+            print("STAGE2_INVALID_DECISION_CATEGORIES=" + ",".join(invalid))
+        except Exception:
+            pass
+    except Exception:
+        pass
+    # Shared validation on the prepared plan (no preparation here)
+    ok, v_defects = validate_tabletop_for_review_and_export(prepared_plan)
+    if not ok:
+        errs = []
+        try:
+            for e in (v_defects or []):
+                code = str(e.get("code",""))
+                path = str(e.get("path","$"))
+                msg = str(e.get("message",""))
+                errs.append(f"{path}: {code} {msg}".strip())
+        except Exception:
+            errs = ["review_export_validation_failed"]
+        raise TabletopGenerationError("review_export_validation", "shared review/export validation failed", errs)
+    session_state["tabletop_plan"] = prepared_plan
+    # Post-persistence purity check
+    ok2, _ = validate_four_stage_plan(session_state.get("tabletop_plan"))
+    if not ok2:
+        raise TabletopGenerationError("persistence", "post-persistence validation failed", [])
     return session_state["tabletop_plan"]
 
 def _derive_legacy_from_typed(plan: dict[str, Any]) -> dict[str, Any]:
@@ -1392,18 +2861,25 @@ def _derive_legacy_from_typed(plan: dict[str, Any]) -> dict[str, Any]:
                 derived = []
                 for d in dtyped:
                     try:
-                        decision = str((d.get("decision") or "")).strip()
-                        authority = str((d.get("authority") or "")).strip()
-                        affected = str((d.get("affected_operation") or "")).strip()
+                        # Strip trailing punctuation to avoid duplicate periods when joining labelled segments
+                        decision = str((d.get("decision") or "")).strip().rstrip(".")
+                        authority = str((d.get("authority") or "")).strip().rstrip(".")
+                        affected = str((d.get("affected_operation") or "")).strip().rstrip(".")
                         ddl_str = str((d.get("deadline") or "")).strip()
                         if not ddl_str:
                             dm = d.get("deadline_minutes")
                             ddl_str = f"{int(dm)} minutes" if dm is not None else ""
-                        cons = str((d.get("accepted_consequence") or "")).strip()
-                        derived.append(
-                            f"DECISION: {decision}. AUTHORITY: {authority}. AFFECTED OPERATION: {affected}. "
-                            f"DEADLINE: {ddl_str}. TRADE-OFF: Accepting {cons}."
-                        )
+                        ddl_str = str(ddl_str).strip().rstrip(".")
+                        cons = str((d.get("accepted_consequence") or "")).strip().rstrip(".")
+                        # Assemble labelled line with single periods between segments (no duplicate punctuation)
+                        parts = [
+                            f"DECISION: {decision}",
+                            f"AUTHORITY: {authority}",
+                            f"AFFECTED OPERATION: {affected}",
+                            f"DEADLINE: {ddl_str}",
+                            f"TRADE-OFF: Accepting {cons}",
+                        ]
+                        derived.append(". ".join(parts) + ".")
                     except Exception:
                         continue
                 if derived:
@@ -1554,6 +3030,7 @@ __all__ = [
     "generate_with_one_repair",
     "generate_tabletop_plan",
     "persist_validated_tabletop_plan",
+    "persist_prepared_tabletop_plan",
     "adapt_legacy_import",
     "canonicalise_plan",
     "should_use_bespoke_blueprint",

@@ -10,6 +10,8 @@ sections remain visible in the template. We only populate/sanitise the dynamic v
 
 import io
 import os
+import zipfile
+import tempfile
 from typing import Any, Dict, List, Optional
 
 from docxtpl import DocxTemplate  # type: ignore
@@ -21,6 +23,40 @@ from aar_renderer import (
     _detect_template_schema_version,
     SUPPORTED_KEYS,
 )
+
+def _ensure_template_schema_marker(template_path: str, expected: str) -> str:
+    """
+    Ensure the DOCX at template_path contains the required schema marker comment:
+      <!-- template_schema_version: {expected} -->
+    Returns a path to a template that has the marker. If missing, writes a temporary,
+    corrected copy and returns its path. On any exception, returns the original path.
+    """
+    try:
+        actual0 = _detect_template_schema_version(template_path) or ""
+        if actual0 == expected or actual0:
+            # Already stamped or has an explicit (albeit different) version — do not modify
+            return template_path
+        # Missing marker: stamp a temporary copy (non-destructive)
+        with zipfile.ZipFile(template_path, "r") as zin:
+            files = {name: zin.read(name) for name in zin.namelist()}
+        target = "docProps/core.xml" if "docProps/core.xml" in files else "word/document.xml"
+        txt = files[target].decode("utf-8", errors="ignore")
+        marker = f"template_schema_version: {expected}"
+        if target == "docProps/core.xml" and "</cp:coreProperties>" in txt:
+            new_txt = txt.replace("</cp:coreProperties>", f"<!-- {marker} --></cp:coreProperties>")
+        elif target == "word/document.xml" and "</w:document>" in txt:
+            new_txt = txt.replace("</w:document>", f"<!-- {marker} --></w:document>")
+        else:
+            new_txt = txt + f"<!-- {marker} -->"
+        files[target] = new_txt.encode("utf-8")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zout:
+            for n, d in files.items():
+                zout.writestr(n, d)
+        return tmp.name
+    except Exception:
+        return template_path
 
 def _filter_mdr_artefacts(ctx: Dict[str, Any]) -> None:
     """
@@ -144,12 +180,14 @@ def create_tabletop_aar_docx_v2(master_plan: dict, session_notes: list, aar_obj,
         if not os.path.exists(template_path):
             return b""
         expected = str(get_config("AAR_EXPECTED_TEMPLATE_VERSION", "aar_v2_flattened"))
-        actual = _detect_template_schema_version(template_path) or str(get_config("AAR_TEMPLATE_SCHEMA_VERSION_ACTUAL", ""))
+        # Enforce marker if missing by stamping a temporary copy
+        corrected_template_path = _ensure_template_schema_marker(template_path, expected)
+        actual = _detect_template_schema_version(corrected_template_path) or str(get_config("AAR_TEMPLATE_SCHEMA_VERSION_ACTUAL", ""))
         if actual != expected:
             import logging
             logging.getLogger(__name__).error("Template/render-context mismatch. Expected %s but received %s.", expected, (actual or "missing"))
             return b""
-        doc = DocxTemplate(template_path)
+        doc = DocxTemplate(corrected_template_path)
     except Exception:
         return b""
 

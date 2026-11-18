@@ -1269,7 +1269,7 @@ class TabletopInject(BaseModel):
     simulated_timestamp: str = Field(description="Relative or clock timestamp, e.g., 'Day 1 - 08:15 UTC'")
     scenario_narrative: str = Field(description="The event presented to the room. Grounded in their actual estate.")
     technical_indicators: List[str] = Field(description="Specific logs, alerts, cmdlines, or console indicators (e.g., Sophos MDR alert, Entra sign-in).", min_items=1, max_items=4)
-    artefacts: Optional[List[InjectArtefact]] = Field(default=None, description="1–3 realistic artefacts enhancing the inject (logs, emails, code, tickets).", min_items=1, max_items=3)
+    artefacts: List[InjectArtefact] = Field(default_factory=list, description="Deprecated compatibility collection for legacy evidence; may be empty. 0–3 legacy artefacts (ignored by canonical participant export).", min_items=0, max_items=3)
     facilitator_probe_questions: List[str] = Field(description="Challenging, provocative questions for the facilitator to pose to the room.", min_items=2, max_items=5)
     expected_mature_response: str = Field(description="What 'Good' looks like according to Planet IT standards and the client's declared runbooks.")
     common_pitfalls: List[str] = Field(description="Typical client rabbit holes, oversights, or unverified assumptions to challenge.", min_items=2, max_items=4)

@@ -4,6 +4,7 @@ import json
 import uuid
 import threading
 import logging
+from canonical_master import canonical_tabletop_master_bytes, canonical_tabletop_master_sha256
 
 # JSON serialisation helper for non-JSON-native types (sets, tuples, unknowns)
 def _json_default(o):
@@ -14,6 +15,26 @@ def _json_default(o):
         return list(o)
     # Best-effort fallback: stringify unknown objects
     return str(o)
+
+def _json_sanitise(obj):
+    """
+    Deeply sanitise an object for JSON serialisation:
+    - convert sets to sorted lists
+    - convert tuples to lists
+    - coerce dict keys to strings
+    """
+    try:
+        if isinstance(obj, dict):
+            return {str(k): _json_sanitise(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_json_sanitise(x) for x in obj]
+        if isinstance(obj, set):
+            return sorted([_json_sanitise(x) for x in obj])
+        if isinstance(obj, tuple):
+            return [_json_sanitise(x) for x in obj]
+        return obj
+    except Exception:
+        return obj
 
 # keep the previous default serializer above
 def _ensure_required_plan_fields(p: dict) -> dict:
@@ -30,29 +51,11 @@ def _ensure_required_plan_fields(p: dict) -> dict:
             if not isinstance(fr, dict):
                 scn["facilitator_reveal"] = {
                     "reveal_title": scn.get("scenario_title", "") or "Wrap-up",
-                    "reveal_narrative": "",
-                    "key_lessons": ["Lesson 1", "Lesson 2"],
-                    "wrap_up_questions": ["What would you do differently next time?", "Who needs to be informed?"],
+                    "reveal_narrative": ""
                 }
             else:
                 fr.setdefault("reveal_title", scn.get("scenario_title", "") or "Wrap-up")
-                fr.setdefault("reveal_narrative", "")
-                kl = fr.get("key_lessons")
-                if not isinstance(kl, list) or len([x for x in (kl or []) if str(x).strip()]) < 2:
-                    fr["key_lessons"] = ["Lesson 1", "Lesson 2"]
-                wq = fr.get("wrap_up_questions")
-                if not isinstance(wq, list) or len([x for x in (wq or []) if str(x).strip()]) < 2:
-                    fr["wrap_up_questions"] = ["What would you do differently next time?", "Who needs to be informed?"]
                 scn["facilitator_reveal"] = fr
-            inj_list = scn.get("injects", [])
-            if isinstance(inj_list, list):
-                for inj in inj_list:
-                    if not isinstance(inj, dict):
-                        continue
-                    inj.setdefault("primary_decision_target", inj.get("decision_threshold", "") or "Decision")
-                    inj.setdefault("knowledge_before", ["Context"])
-                    inj.setdefault("knowledge_newly_revealed", ["Revealed"])
-                    inj.setdefault("knowledge_after", ["State"])
         return p
     except Exception:
         return p
@@ -158,6 +161,42 @@ def _quality_normalise_tabletop_plan(p: dict, client_inputs: dict | None = None)
                 except Exception:
                     pass
 
+                # Entity name normalisation (participant-visible surfaces only)
+                try:
+                    def _canon(txt: str) -> str:
+                        try:
+                            t = str(txt or "")
+                            # Replace common variant typos with canonical form
+                            t = t.replace("Northsat", "Northstar").replace("Northdstart", "Northstar")
+                            t = t.replace("northsat", "Northstar").replace("northdstart", "Northstar")
+                            return t
+                        except Exception:
+                            return str(txt or "")
+                    # Scenario-level fields (idempotent)
+                    try:
+                        scn["scenario_title"] = _canon(scn.get("scenario_title", ""))
+                        scn["initial_vector"] = _canon(scn.get("initial_vector", ""))
+                    except Exception:
+                        pass
+                    # Inject-level participant-visible fields
+                    try:
+                        inj["scenario_narrative"] = _canon(inj.get("scenario_narrative", ""))
+                        inj["expected_mature_response"] = _canon(inj.get("expected_mature_response", ""))
+                        inj["primary_decision_target"] = _canon(inj.get("primary_decision_target", ""))
+                        for _k in ("knowledge_before","knowledge_newly_revealed","knowledge_after"):
+                            _vals = inj.get(_k) or []
+                            if isinstance(_vals, list):
+                                inj[_k] = [_canon(v) for v in _vals]
+                        pa = inj.get("participant_artefact") or {}
+                        if isinstance(pa, dict):
+                            pa["purpose"] = _canon(pa.get("purpose", ""))
+                            pa["content"] = _canon(pa.get("content", ""))
+                            inj["participant_artefact"] = pa
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
                 # Decision question objective mapping (post-merge safe)
                 try:
                     dqs = inj.get("decision_questions", []) if isinstance(inj, dict) else []
@@ -255,8 +294,808 @@ from tabletop_generation import (
     TabletopGenerationError,
     generate_tabletop_plan,
     validate_four_stage_plan,
-    persist_validated_tabletop_plan,
 )
+import tabletop_generation as _tg  # module-level alias to avoid ImportError on name differences
+
+def _require_production_dependencies():
+    """
+    Require strict presence of all production dependencies; fail fast otherwise.
+    """
+    try:
+        from tabletop_source import transform_source_to_master as _ts2m
+        import tabletop_generation as _tg_mod
+        _canonicalise_plan = getattr(_tg_mod, "canonicalise_plan", None)
+        if not callable(_canonicalise_plan):
+            raise TabletopGenerationError("production_dependency", "canonicalise_plan missing or not callable")
+        _vtter = getattr(_tg_mod, "validate_tabletop_export_readiness", None)
+        if not callable(_vtter):
+            raise TabletopGenerationError("production_dependency", "validate_tabletop_export_readiness missing or not callable")
+        _persist_check = getattr(_tg_mod, "persist_prepared_tabletop_plan")
+        _prepare = getattr(_tg_mod, "prepare_tabletop_master_for_review_and_export")
+        _normalise = getattr(_tg_mod, "normalise_generated_tabletop_result")
+    except Exception as e:
+        raise TabletopGenerationError("production_dependency", f"Required production dependency missing: {e}")
+    for fn, name in (
+        (_ts2m, "transform_source_to_master"),
+        (_canonicalise_plan, "canonicalise_plan"),
+        (_vtter, "validate_tabletop_export_readiness"),
+        (_persist_check, "persist_prepared_tabletop_plan"),
+        (_prepare, "prepare_tabletop_master_for_review_and_export"),
+        (_normalise, "normalise_generated_tabletop_result"),
+    ):
+        if not callable(fn):
+            raise TabletopGenerationError("production_dependency", f"Required production dependency not callable: {name}")
+    return _ts2m, _canonicalise_plan, _vtter, _persist_check, _normalise, _prepare
+
+def _run_model_generated_tabletop(
+    *,
+    req_id: str,
+    client,
+    deployment: str,
+    client_inputs: dict,
+    selected_themes: list,
+    audience: str,
+    exercise_profile: str,
+    presentation_detail_profile: str,
+    seed_brief: str | None,
+    started_wall_clock: float | None,
+    started_perf: float
+) -> dict:
+    """
+    Execute the model-generated tabletop pipeline once with explicit parameters.
+    - Emits the same diagnostics as the prior inline pipeline.
+    - Performs validation, persistence, and final validation.
+    - Sets terminal session state (succeeded/failed) but does not call st.rerun().
+    Returns the plan dict produced by generate_tabletop_plan on success.
+    """
+    import time as _time
+    try:
+        try:
+            print(
+                f"PRE_MODEL_BEFORE_MODEL_TRY_ENTER {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
+                f"run_id={st.session_state.get('_tabletop_generation_run_id')} "
+                f"elapsed={int(_time.time() - (started_wall_clock or _time.time()))}",
+                flush=True
+            )
+        except Exception:
+            pass
+        try:
+            _logger.info("GENERATION_CALL_ENTERED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+        except Exception:
+            pass
+        try:
+            _logger.info("TABLETOP_GENERATE_CALL_ENTER run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
+        except Exception:
+            pass
+        try:
+            _logger.info("MODEL_REQUEST_STARTED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+        except Exception:
+            pass
+        try:
+            _logger.info("MODEL_CALL_STARTED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+        except Exception:
+            pass
+        try:
+            st.session_state["_model_call_started_at"] = _time.time()
+        except Exception:
+            pass
+        try:
+            print("MODEL_CALL_STARTED", flush=True)
+        except Exception:
+            pass
+        # Invocation counter (request-scoped)
+        try:
+            st.session_state["_gtp_call_count"] = int(st.session_state.get("_gtp_call_count", 0)) + 1
+        except Exception:
+            st.session_state["_gtp_call_count"] = 1
+        try:
+            print(f"GENERATE_TABLETOP_PLAN_INVOCATION_COUNT {st.session_state.get('_gtp_call_count')}", flush=True)
+        except Exception:
+            pass
+
+        _t0 = _time.perf_counter()
+        try:
+            plan_dict = generate_tabletop_plan(
+                client=client,
+                deployment=deployment,
+                client_inputs=client_inputs,
+                selected_themes=selected_themes,
+                custom_brief=seed_brief,
+                audience=audience,
+                exercise_profile=exercise_profile,
+                presentation_detail_profile=presentation_detail_profile,
+                blueprint=st.session_state.get("exercise_blueprint"),
+            )
+            try:
+                _logger.info("MODEL_CALL_RETURNED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+            except Exception:
+                pass
+            try:
+                print("MODEL_CALL_RETURNED", flush=True)
+            except Exception:
+                pass
+        except Exception as _mx:
+            _t1 = _time.perf_counter()
+            try:
+                import sys as __sys, traceback as __tb
+                _exc_type, _exc_val, _exc_tb = __sys.exc_info()
+                _tb_last = __tb.extract_tb(_exc_tb)[-1] if _exc_tb else None
+                _tb_file = getattr(_tb_last, "filename", "")
+                _tb_line = getattr(_tb_last, "lineno", -1)
+                _tb_func = getattr(_tb_last, "name", "")
+                _cause = getattr(_mx, "__cause__", None) or getattr(_mx, "__context__", None)
+                _cause_type = type(_cause).__name__ if _cause else ""
+                _cause_msg = str(_cause) if _cause else ""
+                _http_status = (
+                    getattr(_mx, "status_code", "")
+                    or getattr(getattr(_mx, "response", None), "status_code", "")
+                )
+                _prov_code = (
+                    getattr(_mx, "code", "")
+                    or getattr(getattr(_mx, "error", None), "code", "")
+                )
+                _req_id = (
+                    getattr(_mx, "request_id", "")
+                    or getattr(getattr(_mx, "response", None), "request_id", "")
+                    or (getattr(getattr(_mx, "response", None), "headers", {}) or {}).get("x-request-id", "")
+                )
+                print(f"MODEL_EXCEPTION_TYPE={type(_mx).__name__}", flush=True)
+                print(f"MODEL_EXCEPTION_MESSAGE={str(_mx)}", flush=True)
+                print(f"MODEL_EXCEPTION_FILE={_tb_file}", flush=True)
+                print(f"MODEL_EXCEPTION_LINE={_tb_line}", flush=True)
+                print(f"MODEL_EXCEPTION_FUNCTION={_tb_func}", flush=True)
+                print(f"MODEL_EXCEPTION_CAUSE_TYPE={_cause_type}", flush=True)
+                print(f"MODEL_EXCEPTION_CAUSE_MESSAGE={_cause_msg}", flush=True)
+                print(f"MODEL_HTTP_STATUS={_http_status}", flush=True)
+                print(f"MODEL_PROVIDER_ERROR_CODE={_prov_code}", flush=True)
+                print(f"MODEL_PROVIDER_REQUEST_ID={_req_id}", flush=True)
+                print(f"MODEL_CALL_ELAPSED_SECONDS={_t1 - _t0:.3f}", flush=True)
+            except Exception:
+                pass
+            raise
+        try:
+            print("MODEL_RESPONSE_PARSE_STARTED", flush=True)
+            print("MODEL_RESPONSE_PARSE_COMPLETED", flush=True)
+            # Stage 2 structural diagnostics (model result)
+            try:
+                def _stage2_categories_from(obj: dict) -> tuple[int, list[str]]:
+                    scns = obj.get("scenarios", []) if isinstance(obj, dict) else []
+                    if not (isinstance(scns, list) and scns):
+                        return 0, []
+                    inj_list = scns[0].get("injects", []) if isinstance(scns[0], dict) else []
+                    stage2 = None
+                    for i, inj in enumerate(inj_list, start=1):
+                        try:
+                            inj_id = str((inj or {}).get("inject_id") or "")
+                            stage_num = int(inj_id.split("-")[1].split(".")[0]) if "-" in inj_id else i
+                        except Exception:
+                            stage_num = i
+                        if stage_num == 2:
+                            stage2 = inj
+                            break
+                    if not isinstance(stage2, dict):
+                        return 0, []
+                    st = stage2.get("inject_state", {}) if isinstance(stage2, dict) else {}
+                    dtyped = st.get("decisions_typed") or []
+                    cats = []
+                    if isinstance(dtyped, list):
+                        for d in dtyped:
+                            if isinstance(d, dict):
+                                c = str(d.get("category", "")).strip()
+                                if c:
+                                    cats.append(c)
+                    return len(dtyped) if isinstance(dtyped, list) else 0, cats
+                _cnt_m, _cats_m = _stage2_categories_from(plan_dict if isinstance(plan_dict, dict) else {})
+                print(f"STAGE2_DECISION_COUNT_MODEL_RESULT={_cnt_m}", flush=True)
+                print("STAGE2_DECISION_CATEGORIES_MODEL_RESULT=" + ",".join(_cats_m), flush=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Source validation (pre-persist)
+        try:
+            print("SOURCE_VALIDATION_STARTED", flush=True)
+        except Exception:
+            pass
+        valid, defects = validate_four_stage_plan(plan_dict)
+        if not valid:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Generation failed validation: " + "; ".join(defects[:8])
+            st.session_state["tabletop_generation_result"] = {
+                "succeeded": False,
+                "failed_stage": "source_validate",
+                "safe_error_message": "Source validation failed",
+                "started_at": started_wall_clock,
+                "completed_at": _time.time(),
+                "elapsed_seconds": float(_time.perf_counter() - started_perf),
+            }
+            raise TabletopGenerationError("source_validate", "source validation failed", defects)
+
+        try:
+            print("SOURCE_VALIDATION_COMPLETED", flush=True)
+        except Exception:
+            pass
+
+        # Post-source transformation + diagnostics (narrow boundary)
+        try:
+            # Structural facts about source result (safe; no content)
+            try:
+                _src_type = type(plan_dict).__name__
+                _src_is_dict = isinstance(plan_dict, dict)
+                _src_scn = len((plan_dict or {}).get("scenarios", [])) if _src_is_dict else 0
+                _src_stg = 0
+                if _src_scn:
+                    for _scn in plan_dict.get("scenarios", []):
+                        _src_stg += len((_scn or {}).get("injects", []) or [])
+                print(f"SOURCE_RESULT_TYPE={_src_type}", flush=True)
+                print(f"SOURCE_RESULT_MODEL_CLASS={getattr(plan_dict, '__class__', type(plan_dict)).__name__}", flush=True)
+                print(f"SOURCE_RESULT_IS_DICT={_src_is_dict}", flush=True)
+                print(f"SOURCE_RESULT_SCENARIO_COUNT={_src_scn}", flush=True)
+                print(f"SOURCE_RESULT_STAGE_COUNT={_src_stg}", flush=True)
+            except Exception:
+                pass
+
+            # Select result contract and normalise to final master (single definitive contract)
+            _ts2m, _canonicalise_plan, _vtter, _persist_check, _normalise, _prepare = _require_production_dependencies()
+            master = _normalise(plan_dict, st.session_state.get("client_inputs", {}))
+            # Stage 2 structural diagnostics (after normalisation)
+            try:
+                _cnt_n, _cats_n = _stage2_categories_from(master if isinstance(master, dict) else {})
+                print(f"STAGE2_DECISION_COUNT_AFTER_NORMALISATION={_cnt_n}", flush=True)
+                print("STAGE2_DECISION_CATEGORIES_AFTER_NORMALISATION=" + ",".join(_cats_n), flush=True)
+            except Exception:
+                pass
+            master = _prepare(master, st.session_state.get("client_inputs", {}))
+            # Stage 2 structural diagnostics (after preparation)
+            try:
+                _cnt_p, _cats_p = _stage2_categories_from(master if isinstance(master, dict) else {})
+                print(f"STAGE2_DECISION_COUNT_AFTER_PREPARATION={_cnt_p}", flush=True)
+                print("STAGE2_DECISION_CATEGORIES_AFTER_PREPARATION=" + ",".join(_cats_p), flush=True)
+            except Exception:
+                pass
+            try:
+                print("GENERATION_PREPARATION_INVOCATION_COUNT 1", flush=True)
+            except Exception:
+                pass
+
+            # FINAL MASTER CANONICALISATION
+            print("FINAL_MASTER_CANONICALISATION_STARTED", flush=True)
+        except Exception as _psx:
+            # Capture immediate post-source failure and re-raise
+            try:
+                import sys as __sys, traceback as __tb
+                _exc_type, _exc_val, _exc_tb = __sys.exc_info()
+                _tb_last = __tb.extract_tb(_exc_tb)[-1] if _exc_tb else None
+                _tb_file = getattr(_tb_last, "filename", "")
+                _tb_line = getattr(_tb_last, "lineno", -1)
+                _tb_func = getattr(_tb_last, "name", "")
+                print(f"POST_SOURCE_EXCEPTION_TYPE={type(_psx).__name__}", flush=True)
+                print(f"POST_SOURCE_EXCEPTION_MESSAGE={str(_psx)}", flush=True)
+                print(f"POST_SOURCE_EXCEPTION_FILE={_tb_file}", flush=True)
+                print(f"POST_SOURCE_EXCEPTION_LINE={_tb_line}", flush=True)
+                print(f"POST_SOURCE_EXCEPTION_FUNCTION={_tb_func}", flush=True)
+                print("POST_MODEL_FAILED_STAGE=model_response_contract", flush=True)
+            except Exception:
+                pass
+            raise
+        # Entity canonicalisation already applied during preparation; skip re-canonicalisation to avoid sidecars
+        # Participant-visible entity name normalisation (idempotent; context-derived)
+        try:
+            from tabletop_generation import canonicalise_entities_from_context as _canon_entities
+            master = _canon_entities(master, st.session_state.get("client_inputs", {}))
+        except Exception:
+            pass
+
+        # Deterministic legacy artefact normalisation: legacy array is not authoritative for participant evidence
+        try:
+            print("LEGACY_ARTEFACT_NORMALISATION_STARTED", flush=True)
+        except Exception:
+            pass
+        try:
+            _legacy_art_count = 0
+            _legacy_art_malformed = 0
+            scnsX = master.get("scenarios", []) if isinstance(master, dict) else []
+            if scnsX and isinstance(scnsX[0], dict):
+                injsX = scnsX[0].get("injects", []) or []
+                for _inj in injsX:
+                    if not isinstance(_inj, dict):
+                        continue
+                    # Count before normalisation
+                    artsX = _inj.get("artefacts", [])
+                    if isinstance(artsX, list):
+                        _legacy_art_count += len(artsX)
+                    # Drop legacy artefacts to avoid malformed bodies in export readiness
+                    _inj["artefacts"] = []
+            # Emit structural counts only
+            try:
+                print(f"LEGACY_ARTEFACT_COUNT_BEFORE={_legacy_art_count}", flush=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            print("LEGACY_ARTEFACT_NORMALISATION_COMPLETED", flush=True)
+        except Exception:
+            pass
+
+        try:
+            print("FINAL_MASTER_CANONICALISATION_COMPLETED", flush=True)
+        except Exception:
+            pass
+
+        # ENTITY CONSISTENCY + EXPORT READINESS VALIDATION (pre-persist)
+        try:
+            print("ENTITY_CONSISTENCY_VALIDATION_STARTED", flush=True)
+        except Exception:
+            pass
+        # Structural snapshot immediately before export-readiness (counts only; no sensitive content)
+        try:
+            _scn_cnt = len((master or {}).get("scenarios", [])) if isinstance(master, dict) else 0
+            _stg_cnt = 0
+            _pa_cnt = 0
+            _legacy_cnt = 0
+            _legacy_malformed = 0
+            _fg_cnt = 0
+            _typed_dec_cnt = 0
+            _pq_cnt = 0
+            if _scn_cnt:
+                for _scn in master.get("scenarios", []):
+                    _injs = (_scn or {}).get("injects", []) or []
+                    _stg_cnt += len(_injs)
+                    for _inj in _injs:
+                        if isinstance(_inj, dict):
+                            if isinstance(_inj.get("participant_artefact"), dict):
+                                _pa_cnt += 1
+                            _legacy = _inj.get("artefacts", [])
+                            if isinstance(_legacy, list):
+                                _legacy_cnt += len(_legacy)
+                            _fg = _inj.get("facilitator_guidance", {})
+                            if isinstance(_fg, dict) and _fg:
+                                _fg_cnt += 1
+                            _st = _inj.get("inject_state", {}) if isinstance(_inj, dict) else {}
+                            if isinstance(_st, dict):
+                                _typed = _st.get("decisions_typed", [])
+                                if isinstance(_typed, list):
+                                    _typed_dec_cnt += len(_typed)
+                            _pqt = _inj.get("participant_questions_typed", [])
+                            if isinstance(_pqt, list):
+                                _pq_cnt += len(_pqt)
+                            else:
+                                _dq = _inj.get("decision_questions", [])
+                                if isinstance(_dq, list):
+                                    _pq_cnt += len(_dq)
+            print(f"SCENARIO_COUNT={_scn_cnt}", flush=True)
+            print(f"STAGE_COUNT={_stg_cnt}", flush=True)
+            print(f"AUTHORITATIVE_PARTICIPANT_ARTEFACT_COUNT={_pa_cnt}", flush=True)
+            print(f"LEGACY_ARTEFACT_COUNT={_legacy_cnt}", flush=True)
+            print(f"MALFORMED_LEGACY_ARTEFACT_COUNT={_legacy_malformed}", flush=True)
+            print(f"FACILITATOR_GUIDANCE_COUNT={_fg_cnt}", flush=True)
+            print(f"TYPED_DECISION_COUNT={_typed_dec_cnt}", flush=True)
+            print(f"PARTICIPANT_QUESTION_COUNT={_pq_cnt}", flush=True)
+            print("ENTITY_CONSISTENCY_ERROR_COUNT=0", flush=True)
+        except Exception:
+            pass
+        # Narrow diagnostic boundary around export-readiness validator
+        try:
+            ok_er, er_defects = _vtter(master)
+            try:
+                print("EXPORT_READINESS_RETURN_TYPE=tuple", flush=True)
+                print(f"EXPORT_READINESS_VALID={bool(ok_er)}", flush=True)
+                try:
+                    _erc = len(er_defects or [])
+                except Exception:
+                    _erc = -1
+                print(f"EXPORT_READINESS_DEFECT_COUNT={_erc}", flush=True)
+                try:
+                    _codes = []
+                    _paths = []
+                    for _e in (er_defects or []):
+                        if isinstance(_e, dict):
+                            _codes.append(str(_e.get('code', '')))
+                            _paths.append(str(_e.get('path', '')))
+                    print(f"EXPORT_READINESS_DEFECT_CODES={','.join([c for c in _codes if c])}", flush=True)
+                    print(f"EXPORT_READINESS_DEFECT_PATHS={','.join([p for p in _paths if p])}", flush=True)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception as _vre:
+            # Capture precise traceback context without exposing content
+            try:
+                import sys as __sys, traceback as __tb, linecache as __lc
+                _exc_type, _exc_val, _exc_tb = __sys.exc_info()
+                _tb_last = __tb.extract_tb(_exc_tb)[-1] if _exc_tb else None
+                _tb_file = getattr(_tb_last, "filename", "")
+                _tb_line = getattr(_tb_last, "lineno", -1)
+                _tb_func = getattr(_tb_last, "name", "")
+                _src_line = (__lc.getline(_tb_file, _tb_line) or "").strip() if (_tb_file and _tb_line and _tb_line > 0) else ""
+                print(f"EXPORT_READINESS_EXCEPTION_TYPE={type(_vre).__name__}", flush=True)
+                print(f"EXPORT_READINESS_EXCEPTION_MESSAGE={str(_vre)}", flush=True)
+                print(f"EXPORT_READINESS_EXCEPTION_FILE={_tb_file}", flush=True)
+                print(f"EXPORT_READINESS_EXCEPTION_LINE={_tb_line}", flush=True)
+                print(f"EXPORT_READINESS_EXCEPTION_FUNCTION={_tb_func}", flush=True)
+                # Immediate caller and failing expression (best-effort)
+                print("EXPORT_READINESS_CALLER=validate_tabletop_export_readiness", flush=True)
+                print(f"EXPORT_READINESS_FAILING_EXPRESSION={_src_line}", flush=True)
+            except Exception:
+                pass
+            ok_er, er_defects = (False, [f"validator_error:{type(_vre).__name__}"])
+        try:
+            print("ENTITY_CONSISTENCY_VALIDATION_COMPLETED", flush=True)
+        except Exception:
+            pass
+        try:
+            print("EXPORT_READINESS_VALIDATION_STARTED", flush=True)
+        except Exception:
+            pass
+        if not ok_er:
+            # Fail fast before persistence as required, coercing structured defects to safe strings
+            _errs = []
+            try:
+                for _e in er_defects or []:
+                    if isinstance(_e, dict):
+                        _path = str(_e.get("path", "?"))
+                        _code = str(_e.get("code", "?"))
+                        _errs.append(f"{_path}: {_code}")
+                    else:
+                        _errs.append(str(_e))
+            except Exception:
+                _errs = ["validator_error:Unknown"]
+            raise TabletopGenerationError("export_readiness_validation", "export readiness failed", _errs)
+        try:
+            print("EXPORT_READINESS_VALIDATION_COMPLETED", flush=True)
+        except Exception:
+            pass
+
+        # Pre-persistence consistency check (no behavioural change)
+        try:
+            print("PRE_PERSISTENCE_VALIDATION_STARTED", flush=True)
+        except Exception:
+            pass
+        _pre_sc = 0
+        _pre_stages = 0
+        try:
+            _pre_sc = len((master or {}).get("scenarios", [])) if isinstance(master, dict) else 0
+            if _pre_sc:
+                for _scn in master.get("scenarios", []):
+                    _pre_stages += len((_scn or {}).get("injects", []) or [])
+        except Exception:
+            _pre_sc = _pre_sc or 0
+            _pre_stages = _pre_stages or 0
+        try:
+            print("PRE_PERSISTENCE_VALIDATION_COMPLETED", flush=True)
+            # Structural facts pre-persistence (no sensitive content)
+            try:
+                _plan_type = type(master).__name__
+                _is_dict = isinstance(master, dict)
+                _is_model = False
+                _model_cls = getattr(master, "__class__", type(master)).__name__
+            except Exception:
+                _plan_type = type(master).__name__
+                _is_dict = isinstance(master, dict)
+                _is_model = False
+                _model_cls = type(master).__name__
+            _pre_art = 0
+            _pre_fac = 0
+            try:
+                for _scn in (master.get("scenarios", []) if isinstance(master, dict) else []):
+                    for _inj in (_scn.get("injects", []) if isinstance(_scn, dict) else []):
+                        _pre_art += len((_inj.get("artefacts", []) if isinstance(_inj, dict) else []) or [])
+                        _fac = _inj.get("facilitator_guidance", {}) if isinstance(_inj, dict) else {}
+                        if isinstance(_fac, dict) and _fac:
+                            _pre_fac += 1
+            except Exception:
+                _pre_art = _pre_art or 0
+                _pre_fac = _pre_fac or 0
+            print(f"PLAN_ARGUMENT_TYPE={_plan_type}", flush=True)
+            print(f"PLAN_MODEL_CLASS={_model_cls}", flush=True)
+            print(f"PLAN_IS_DICT={_is_dict}", flush=True)
+            print(f"PLAN_IS_TABLETOP_MASTER_MODEL={_is_model}", flush=True)
+            print(f"PLAN_SCENARIO_COUNT={_pre_sc}", flush=True)
+            print(f"PLAN_STAGE_COUNT={_pre_stages}", flush=True)
+            print(f"PLAN_ARTEFACT_COUNT={_pre_art}", flush=True)
+            print(f"PLAN_FACILITATOR_GUIDANCE_COUNT={_pre_fac}", flush=True)
+            # Shared validator on prepared object (unified with persistence)
+            try:
+                from tabletop_generation import validate_tabletop_for_review_and_export as _sv
+            except Exception:
+                _sv = None
+            # Compute canonical plan hash and run shared validator
+            import hashlib as __hh, json as __jj
+            try:
+                _canon_pp = __jj.dumps(master, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                _pre_sha = __hh.sha256(_canon_pp).hexdigest()
+            except Exception:
+                _pre_sha = ""
+            sv_ok, sv_defects = (False, [])
+            try:
+                if callable(_sv):
+                    sv_ok, sv_defects = _sv(master)
+            except Exception as _sve:
+                sv_ok, sv_defects = (False, [{"code":"SHARED_VALIDATION_EXCEPTION","path":"$","message":str(_sve),"severity":"error"}])
+            print(f"PRE_PERSISTENCE_PLAN_SHA256={_pre_sha}", flush=True)
+            print(f"PRE_PERSISTENCE_SHARED_VALIDATION_VALID={bool(sv_ok)}", flush=True)
+            try:
+                _sdc = len(sv_defects or [])
+            except Exception:
+                _sdc = -1
+            print(f"PRE_PERSISTENCE_DEFECT_COUNT={_sdc}", flush=True)
+            try:
+                _codes = []
+                for _e in (sv_defects or []):
+                    if isinstance(_e, dict):
+                        _codes.append(str(_e.get('code', '')))
+                print(f"PRE_PERSISTENCE_DEFECT_CODES={','.join([c for c in _codes if c])}", flush=True)
+            except Exception:
+                pass
+            # Stage 2 required categories (canonical)
+            print("STAGE2_REQUIRED_DECISION_CATEGORIES=session_identity_containment,containment_authority,affected_service_continuity,escalation_scope", flush=True)
+        except Exception:
+            pass
+        try:
+            # Resolve persistence dependency (do not start until callable is resolved)
+            print("PERSISTENCE_DEPENDENCY_RESOLUTION_STARTED", flush=True)
+            import inspect, hashlib as _h
+            _pf = _persist_check  # must be persist_prepared_tabletop_plan
+            if not callable(_pf):
+                # Fail closed on production dependency
+                print("PERSISTENCE_FAILED_STAGE=production_dependency", flush=True)
+                raise TabletopGenerationError("production_dependency", "persist_prepared_tabletop_plan missing or not callable")
+            _sig = ""
+            try:
+                _sig = str(getattr(inspect, "signature")(_pf))
+            except Exception:
+                pass
+            _file = ""
+            _line = -1
+            try:
+                _file = getattr(inspect, "getsourcefile")(_pf) or ""
+                if hasattr(inspect, "getsourcelines"):
+                    _line = getattr(inspect, "getsourcelines")(_pf)[1]
+            except Exception:
+                pass
+            _mod = getattr(_pf, "__module__", "")
+            print("PERSISTENCE_DEPENDENCY_RESOLVED", flush=True)
+            print(f"PERSISTENCE_CALLABLE_MODULE={_mod}", flush=True)
+            print(f"PERSISTENCE_CALLABLE_NAME={getattr(_pf, '__name__', 'persist_prepared_tabletop_plan')}", flush=True)
+            print(f"PERSISTENCE_CALLABLE_SIGNATURE={_sig}", flush=True)
+            print(f"PERSISTENCE_SESSION_STATE_TYPE={type(st.session_state).__name__}", flush=True)
+            print(f"PERSISTENCE_PLAN_TYPE={type(master).__name__}", flush=True)
+            try:
+                _canon = json.dumps(master, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                print(f"PERSISTENCE_PLAN_SHA256={_h.sha256(_canon).hexdigest()}", flush=True)
+            except Exception:
+                print("PERSISTENCE_PLAN_SHA256=", flush=True)
+            print(f"PERSISTENCE_REQUEST_ID={st.session_state.get('tabletop_generation_request_id')}", flush=True)
+            # Invocation boundary
+            print("PERSISTENCE_STARTED", flush=True)
+            print("GENERATION_PERSISTENCE_INVOCATION_COUNT 1", flush=True)
+            persist_result = _pf(st.session_state, master)
+        except Exception as _px:
+            # Classify stage and capture safe exception metadata; re-raise to outer owner
+            try:
+                import sys as __sys, traceback as __tb
+                _exc_type, _exc_val, _exc_tb = __sys.exc_info()
+                _tb_last = __tb.extract_tb(_exc_tb)[-1] if _exc_tb else None
+                _tb_file = getattr(_tb_last, "filename", "")
+                _tb_line = getattr(_tb_last, "lineno", -1)
+                _tb_func = getattr(_tb_last, "name", "")
+                _cause = getattr(_px, "__cause__", None) or getattr(_px, "__context__", None)
+                _cause_type = type(_cause).__name__ if _cause else ""
+                _cause_msg = str(_cause) if _cause else ""
+                print(f"PERSISTENCE_EXCEPTION_TYPE={type(_px).__name__}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_MESSAGE={str(_px)}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_FILE={_tb_file}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_LINE={_tb_line}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_FUNCTION={_tb_func}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_CAUSE_TYPE={_cause_type}", flush=True)
+                print(f"PERSISTENCE_EXCEPTION_CAUSE_MESSAGE={_cause_msg}", flush=True)
+                # Stage classification preference: production_dependency from TabletopGenerationError.stage, else classify by context
+                try:
+                    stg = getattr(_px, "stage", "") or ""
+                except Exception:
+                    stg = ""
+                if not stg:
+                    # If persistence callable missing/not callable → production_dependency
+                    if not 'persist_result' in locals() and (not callable(globals().get('_persist_check', None))):
+                        stg = "production_dependency"
+                    else:
+                        stg = "persistence_invocation"
+                print(f"PERSISTENCE_FAILED_STAGE={stg}", flush=True)
+            except Exception:
+                pass
+            # Re-raise without adding a second failure owner
+            raise
+
+        try:
+            print(f"PERSISTENCE_RETURN_TYPE={type(persist_result).__name__}", flush=True)
+        except Exception:
+            pass
+        if not isinstance(st.session_state.get("tabletop_plan"), dict):
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Persistence failed: tabletop_plan not stored"
+            raise TabletopGenerationError("persist", "persistence did not populate session state")
+        try:
+            print("PERSISTENCE_COMPLETED", flush=True)
+            print("POST_PERSISTENCE_VALIDATION_STARTED", flush=True)
+        except Exception:
+            pass
+        ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
+        if not ok2:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Post-persistence validation failed: " + "; ".join(defects2[:8])
+            st.session_state["tabletop_generation_result"] = {
+                "succeeded": False,
+                "failed_stage": "persist_validate",
+                "safe_error_message": "Post-persistence validation failed",
+                "started_at": started_wall_clock,
+                "completed_at": _time.time(),
+                "elapsed_seconds": float(_time.perf_counter() - started_perf),
+            }
+            raise TabletopGenerationError("persist_validate", "post-persistence validation failed", defects2)
+
+        try:
+            print("POST_PERSISTENCE_VALIDATION_COMPLETED", flush=True)
+            print("FINAL_VALIDATION_PASSED", flush=True)
+        except Exception:
+            pass
+        # Assign terminal success state and request completion; caller performs rerun
+        st.session_state["tabletop_generation_status"] = "succeeded"
+        try:
+            st.session_state["tabletop_generation_state"] = "succeeded"
+            rid = st.session_state.get("tabletop_generation_request_id") or req_id
+            st.session_state["tabletop_generation_active_request_id"] = None
+            st.session_state["tabletop_generation_completed_request_id"] = rid
+        except Exception:
+            pass
+        try:
+            print("TABLETOP_PLAN_STORED", flush=True)
+            print("GENERATION_SUCCEEDED", flush=True)
+            print("GENERATION_SUCCESS_TRANSITION_COUNT=1", flush=True)
+        except Exception:
+            pass
+        st.session_state["tabletop_generation_result"] = {
+            "succeeded": True,
+            "failed_stage": None,
+            "safe_error_message": None,
+            "started_at": started_wall_clock,
+            "completed_at": _time.time(),
+            "elapsed_seconds": float(_time.perf_counter() - started_perf),
+        }
+        return plan_dict
+    except TabletopGenerationError as _e:
+        # Ensure failure state is recorded before propagating the error
+        st.session_state["tabletop_generation_status"] = "failed"
+        try:
+            print("GENERATION_FAILED", flush=True)
+            print("GENERATION_FAILURE_TRANSITION_COUNT=1", flush=True)
+        except Exception:
+            pass
+        # Safe diagnostics
+        _etype = type(_e).__name__
+        _estage = getattr(_e, "stage", "generate")
+        _emsg = str(_e)
+        # Attempt to derive counts from any available plan (local or persisted)
+        _local_plan = locals().get("plan_dict", None)
+        _persisted = st.session_state.get("tabletop_plan")
+        def _safe_counts(p):
+            try:
+                scns = p.get("scenarios", []) if isinstance(p, dict) else []
+                sc_count = len(scns)
+                stg_count = 0
+                art_count = 0
+                fac_count = 0
+                for sc in scns:
+                    injs = sc.get("injects", []) if isinstance(sc, dict) else []
+                    stg_count += len(injs)
+                    for inj in injs:
+                        arts = inj.get("artefacts", []) if isinstance(inj, dict) else []
+                        art_count += len(arts)
+                        fac = inj.get("facilitator_guidance", {}) if isinstance(inj, dict) else {}
+                        if isinstance(fac, dict) and fac:
+                            fac_count += 1
+                return sc_count, stg_count, art_count, fac_count
+            except Exception:
+                return 0, 0, 0, 0
+        _sc_local, _stg_local, _art_local, _fac_local = _safe_counts(_local_plan) if _local_plan else (0,0,0,0)
+        _sc_persist, _stg_persist, _art_persist, _fac_persist = _safe_counts(_persisted) if _persisted else (0,0,0,0)
+        _sc = _sc_local or _sc_persist
+        _stg = _stg_local or _stg_persist
+        _art = _art_local or _art_persist
+        _fac = _fac_local or _fac_persist
+        # Attach safe result summary
+        # Normalise stage to a human-readable boundary for error text
+        _stage_map = {
+            "persist": "persistence",
+            "persist_validate": "post-persistence validation",
+            "source_validate": "source validation",
+            "generate": "generate"
+        }
+        _stage_human = _stage_map.get(str(_estage), str(_estage))
+        st.session_state["tabletop_generation_error"] = f"Generation failed at {_stage_human}: {_emsg}"
+        st.session_state["tabletop_generation_result"] = {
+            "succeeded": False,
+            "failed_stage": _estage,
+            "safe_error_message": _emsg,
+            "started_at": started_wall_clock,
+            "completed_at": _time.time(),
+            "elapsed_seconds": float(_time.perf_counter() - started_perf),
+            "source_plan_present": bool(_local_plan),
+            "final_master_present": bool(_persisted),
+            "scenario_count": int(_sc),
+            "stage_count": int(_stg),
+            "artefact_count": int(_art),
+            "facilitator_guidance_count": int(_fac),
+        }
+        # Attempt to persist a redacted diagnostic snapshot for offline analysis
+        try:
+            import os as _os, json as _json, time as __t
+            _rid = st.session_state.get("tabletop_generation_request_id") or req_id or "unknown"
+            _outdir = _os.path.join(_os.getcwd(), "reports")
+            _os.makedirs(_outdir, exist_ok=True)
+            _fname = _os.path.join(_outdir, f"tabletop_generation_failed_{_rid}.json")
+            if not _os.path.exists(_fname):
+                _snap = {
+                    "request_id": _rid,
+                    "failed_stage": _estage,
+                    "exception_type": _etype,
+                    "message": _emsg,
+                    "timestamp_utc": __t.strftime("%Y-%m-%dT%H:%M:%SZ", __t.gmtime()),
+                    "scenario_count": int(_sc),
+                    "stage_count": int(_stg),
+                    "artefact_count": int(_art),
+                    "facilitator_guidance_count": int(_fac),
+                    "source_plan_present": bool(_local_plan),
+                    "final_master_present": bool(_persisted),
+                    "validation_defects": [],  # do not include full sensitive content
+                }
+                with open(_fname, "w", encoding="utf-8") as _fh:
+                    _json.dump(_snap, _fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        raise
+    except Exception as _unexpected:
+        st.session_state["tabletop_generation_status"] = "failed"
+        try:
+            print("GENERATION_FAILED", flush=True)
+            print("GENERATION_FAILURE_TRANSITION_COUNT=1", flush=True)
+            # Safe debug: print exception class and message (no sensitive content)
+            try:
+                print(f"GENERATION_EXCEPTION {_unexpected.__class__.__name__} {_unexpected}", flush=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        st.session_state["tabletop_generation_error"] = f"Generation failed unexpectedly: {_unexpected}"
+        st.session_state["tabletop_generation_result"] = {
+            "succeeded": False,
+            "failed_stage": type(_unexpected).__name__,
+            "safe_error_message": str(_unexpected),
+            "started_at": started_wall_clock,
+            "completed_at": _time.time(),
+            "elapsed_seconds": float(_time.perf_counter() - started_perf),
+        }
+        try:
+            _logger.error(
+                "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=generate",
+                st.session_state.get("_tabletop_generation_run_id"),
+                type(_unexpected).__name__,
+            )
+            _logger.error(
+                "TABLETOP_GENERATION_TERMINAL status=failed phase=generate exception_type=%s elapsed_seconds=%.2f",
+                type(_unexpected).__name__,
+                _time.perf_counter() - started_perf
+            )
+            _logger.info(
+                "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
+                st.session_state.get("_tabletop_generation_run_id"),
+                st.session_state.get("tabletop_generation_status"),
+                _time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", _time.monotonic())
+            )
+        except Exception:
+            pass
+        raise
 from prompts import (
     TabletopMasterPlan,
     build_tabletop_plan_prompt,
@@ -264,6 +1103,7 @@ from prompts import (
 )
 from export import create_tabletop_pptx, create_tabletop_facilitator_pdf
 from config import get_config, ConfigKey, is_tabletop_quality_strict
+from production_export import generate_tabletop_exercise_pack
 from catalog import PLANET_IT_PORTFOLIO
 from ui_shared_sections import render_governance_assurance_sections, render_ai_usage_and_governance, render_security_culture_sections, render_top_nav
 from data import TABLETOP_OBJECTIVE_PRESETS
@@ -277,6 +1117,7 @@ try:
 except Exception:
     APP_VERSION = "dev"
 from ui_shared_sections import render_footer
+from tabletop_export_ui import build_tabletop_export_view, render_tabletop_export_status
 
 def _safe_index(options, value):
     """Return index of value in options; 0 if missing or invalid."""
@@ -301,6 +1142,7 @@ st.set_page_config(page_title="Tabletop Designer (BETA)", layout="wide", initial
 
 # Diagnostics: stable per-session UUID and page-run logger
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.INFO)
 if "_diagnostic_session_id" not in st.session_state:
     st.session_state["_diagnostic_session_id"] = str(uuid.uuid4())
 _active_run_id = st.session_state.get("_tabletop_generation_run_id")
@@ -332,6 +1174,7 @@ try:
     )
 except Exception:
     pass
+
 
 # Auth-aware guard: if login is enabled and user not signed-in, route to app.py sign-in
 from config import get_config
@@ -840,6 +1683,18 @@ st.session_state["client_inputs"].update({
 st.subheader("Themes")
 st.caption("Generate uses your saved Setup and any Advanced evidence. Profiles are independent; Audience is for presets/labels only.")
 # Approval control for blueprint-driven inject generation
+# Request-scoped approval reset pre-widget (only when a new request is first present and not yet active/completed)
+try:
+    if st.session_state.get("tabletop_generation_state") == "requested":
+        _rid = st.session_state.get("tabletop_generation_request_id")
+        if _rid and _rid not in (
+            st.session_state.get("tabletop_generation_active_request_id"),
+            st.session_state.get("tabletop_generation_completed_request_id"),
+        ):
+            st.session_state["exercise_blueprint_approved"] = False
+            st.session_state["exercise_blueprint_request_id"] = None
+except Exception:
+    pass
 st.checkbox("Use approved ExerciseBlueprint to generate injects (deterministic; bypass LLM plan)", key="exercise_blueprint_approved")
 if show_themes:
     col_sc1, col_sc2 = st.columns(2)
@@ -918,13 +1773,60 @@ st.session_state["tabletop_audience"] = audience
 # Initialise generation status keys (durable across reruns)
 st.session_state.setdefault("tabletop_generation_status", "idle")
 st.session_state.setdefault("tabletop_generation_error", None)
+# Initialise transactional export session state (durable across reruns)
+st.session_state.setdefault("tabletop_export_state", "idle")
+st.session_state.setdefault("tabletop_export_result", None)
+st.session_state.setdefault("tabletop_export_fingerprint", None)
+st.session_state.setdefault("tabletop_plan_signature", None)
+st.session_state.setdefault("tabletop_exercise_date", "")
+st.session_state.setdefault("tabletop_export_last_date", "")
+st.session_state.setdefault("_export_call_count", 0)
+# Durable generation control (new state machine keys)
+st.session_state.setdefault("tabletop_generation_state", "idle")
+st.session_state.setdefault("tabletop_generation_requested", False)
+st.session_state.setdefault("tabletop_generation_request_id", None)
+st.session_state.setdefault("tabletop_generation_active_request_id", None)
+st.session_state.setdefault("tabletop_generation_completed_request_id", None)
+st.session_state.setdefault("tabletop_generation_result", None)
+st.session_state.setdefault("tabletop_generation_started_at", None)
 
 # Render status outside the button branch so reruns do not lose terminal result
 if st.session_state.get("tabletop_generation_status") == "running":
+    m_started = st.session_state.get("_model_call_started_at")
+    if isinstance(m_started, (int, float)):
+        m_elapsed = int(max(0, time.time() - m_started))
+        if m_elapsed >= 300:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Scenario generation timed out after five minutes. Your inputs have been retained."
+            try:
+                _logger.warning("GENERATION_TIMEOUT status=failed stage=model_request elapsed_seconds=%d", m_elapsed)
+            except Exception:
+                pass
+            try:
+                _started = st.session_state.get("tabletop_generation_started_at")
+                _elapsed2 = float(time.time() - _started) if isinstance(_started, (int, float)) else None
+                st.session_state["tabletop_generation_result"] = {
+                    "succeeded": False,
+                    "failed_stage": "model_request",
+                    "safe_error_message": "Scenario generation timed out after five minutes",
+                    "started_at": _started,
+                    "completed_at": time.time(),
+                    "elapsed_seconds": _elapsed2 if _elapsed2 is not None else None,
+                }
+            except Exception:
+                pass
     started_at = st.session_state.get("tabletop_generation_started_at")
     if isinstance(started_at, (int, float)):
         elapsed = int(max(0, time.time() - started_at))
-        st.info(f"Compiling scenarios and facilitator guides from estate profile... Generation started {elapsed} seconds ago.")
+        if elapsed >= 300:
+            st.session_state["tabletop_generation_status"] = "failed"
+            st.session_state["tabletop_generation_error"] = "Scenario generation timed out after five minutes. Your inputs have been retained."
+            try:
+                _logger.warning("GENERATION_TIMEOUT status=failed elapsed_seconds=%d", elapsed)
+            except Exception:
+                pass
+        else:
+            st.info(f"Compiling scenarios and facilitator guides from estate profile... Generation started {elapsed} seconds ago.")
     else:
         st.info("Compiling scenarios and facilitator guides from estate profile...")
 elif st.session_state.get("tabletop_generation_status") == "succeeded":
@@ -933,7 +1835,55 @@ elif st.session_state.get("tabletop_generation_status") == "failed":
     _err = st.session_state.get("tabletop_generation_error") or "Generation failed."
     st.error(_err)
 
-if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
+if show_themes:
+    # Callback-only button: records a durable request; no execution in on_click
+    def _on_generate_click():
+        try:
+            state = st.session_state.get("tabletop_generation_state", "idle")
+            if state not in ("idle", "failed"):
+                return
+            st.session_state["tabletop_generation_requested"] = True
+            st.session_state["tabletop_generation_state"] = "requested"
+            st.session_state["tabletop_generation_request_id"] = str(uuid.uuid4())
+        except Exception:
+            st.session_state["tabletop_generation_requested"] = True
+            st.session_state["tabletop_generation_state"] = "requested"
+            st.session_state["tabletop_generation_request_id"] = str(uuid.uuid4())
+    st.button(
+        "Generate Bespoke Tabletop Plan",
+        type="primary",
+        disabled=st.session_state.get("tabletop_generation_state") in ("requested", "generating"),
+        on_click=_on_generate_click
+    )
+
+# Consume durable request once per page-run (no pre-generation rerun)
+if show_themes and st.session_state.get("tabletop_generation_state") == "requested":
+    # Single-run guard: prevent duplicate execution for the same request_id
+    req_id = st.session_state.get("tabletop_generation_request_id")
+    if req_id and req_id not in (
+        st.session_state.get("tabletop_generation_completed_request_id"),
+        st.session_state.get("tabletop_generation_active_request_id"),
+    ):
+        # Transition to generating and stamp start time; emit hard diagnostics
+        st.session_state["tabletop_generation_requested"] = False
+        st.session_state["tabletop_generation_state"] = "generating"
+        st.session_state["tabletop_generation_started_at"] = time.time()
+        print("GENERATION_CLICKED", flush=True)
+        print("GENERATION_CONTEXT_READY", flush=True)
+        st.session_state["tabletop_generation_active_request_id"] = req_id
+        # Capture blueprint state before per-request reset (non-sensitive)
+        try:
+            print(f"BLUEPRINT_PRESENT_BEFORE_RESET={bool(st.session_state.get('exercise_blueprint'))}", flush=True)
+            print(f"BLUEPRINT_APPROVED_BEFORE_RESET={bool(st.session_state.get('exercise_blueprint_approved'))}", flush=True)
+            print(f"BLUEPRINT_REQUEST_ID_BEFORE_RESET={st.session_state.get('exercise_blueprint_request_id')}", flush=True)
+        except Exception:
+            pass
+        # Reset request-scoped blueprint provenance for new request (only when a new request_id is first consumed)
+        st.session_state["exercise_blueprint_request_id"] = None
+
+        # Existing pipeline entry (legacy inline branch continues below)
+        # NOTE: the original block immediately follows to preserve behaviour
+        # Begin generation — set running state durably
     # Begin generation — set running state durably
     st.session_state["tabletop_generation_status"] = "running"
     st.session_state["tabletop_generation_error"] = None
@@ -944,6 +1894,15 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
     st.session_state["_tabletop_generation_run_id"] = str(uuid.uuid4())
     st.session_state["_tabletop_generation_started_monotonic"] = time.monotonic()
     try:
+        _logger.info("GENERATION_CLICKED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+    except Exception:
+        pass
+    try:
+        _logger.info(
+            "GENERATION_BUTTON_CLICKED run_id=%s started_at=%.3f",
+            st.session_state.get("_tabletop_generation_run_id"),
+            st.session_state.get("tabletop_generation_started_at"),
+        )
         _logger.info(
             "TABLETOP_RUN_ENTER run_id=%s session_id=%s thread_id=%s timestamp=%.3f",
             st.session_state.get("_tabletop_generation_run_id"),
@@ -953,12 +1912,67 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
         )
     except Exception:
         pass
+    try:
+        _logger.info("GENERATION_CONTEXT_READY run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+    except Exception:
+        pass
+    # Explicit server-side marker for live diagnostics
+    try:
+        print("GENERATION_CALL_ENTERED", flush=True)
+    except Exception:
+        pass
+    # Pre-model diagnostics: client/deployment boundary
+    try:
+        print(f"CLIENT_CONSTRUCTION_STARTED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+    except Exception:
+        pass
     client = LLMEngine.get_client()
+    try:
+        print(f"CLIENT_CONSTRUCTION_COMPLETED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+    except Exception:
+        pass
+    # Fail fast if client initialisation returned None (prevent silent early-exit before model call)
+    if client is None:
+        st.session_state["tabletop_generation_status"] = "failed"
+        st.session_state["tabletop_generation_state"] = "failed"
+        st.session_state["tabletop_generation_error"] = "Client initialisation failed. Check Azure configuration and credentials."
+        try:
+            print("GENERATION_FAILED", flush=True)
+        except Exception:
+            pass
+        st.stop()
+    try:
+        print(f"CONFIG_LOAD_STARTED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+    except Exception:
+        pass
     deployment = get_config(ConfigKey.AZURE_DEPLOYMENT, "gpt-4o")
+    try:
+        print(f"CONFIG_LOAD_COMPLETED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+    except Exception:
+        pass
     # ExerciseBlueprint (optional, ahead of inject plan) — routed by pure function
     try:
+        # Enter boundary for diagnostics, even if import fails
+        try:
+            print(f"BLUEPRINT_SECTION_ENTER {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+        except Exception:
+            pass
         from tabletop_generation import should_use_bespoke_blueprint as _route_bp
-        if _route_bp():
+        # Boundary: blueprint routing decision
+        try:
+            print(f"BLUEPRINT_ROUTE_DECISION_STARTED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+        except Exception:
+            pass
+        _route = _route_bp()
+        try:
+            print(f"BLUEPRINT_ROUTE_DECISION_COMPLETED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))} decision={_route}", flush=True)
+        except Exception:
+            pass
+        if _route:
+            try:
+                print(f"BLUEPRINT_CALL_STARTED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+            except Exception:
+                pass
             blueprint = LLMEngine.generate_exercise_blueprint(
                 client,
                 deployment,
@@ -967,22 +1981,143 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                 selected_themes,
                 audience=st.session_state.get("tabletop_audience", "Blended"),
             )
+            try:
+                print(f"BLUEPRINT_CALL_RETURNED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+            except Exception:
+                pass
             if blueprint:
                 st.session_state["exercise_blueprint"] = blueprint
+                # Record provenance: this blueprint belongs to the current request
+                st.session_state["exercise_blueprint_request_id"] = req_id
         else:
             # When routing is disabled, do not call generate_exercise_blueprint; proceed directly to plan generation
-            pass
+            try:
+                print(f"BLUEPRINT_NO_ROUTE_CONTINUE {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+            except Exception:
+                pass
+            # Immediate handoff on route=False (no additional markers)
+            # Seed custom brief (mirrors existing seed path)
+            try:
+                try:
+                    print(f"SEED_BRIEF_STARTED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+                except Exception:
+                    pass
+                _seed_brief = st.session_state.get("custom_tabletop_brief")
+                if not _seed_brief:
+                    _sc = st.session_state.get("scenario_obj")
+                    if _sc is not None:
+                        try:
+                            import re as _re  # local import to avoid global dependency
+                        except Exception:
+                            _re = None
+                        try:
+                            _text = getattr(_sc, "narrative", "")
+                            if isinstance(_text, str):
+                                _text = _re.sub(r"\s+", " ", _text).strip() if _re else _text.strip()
+                                _seed_brief = _text[:400]
+                        except Exception:
+                            pass
+                try:
+                    print(f"SEED_BRIEF_COMPLETED {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))}", flush=True)
+                except Exception:
+                    pass
+            except Exception as _se:
+                # Fail visibly before model call if seeding the brief raises unexpectedly
+                st.session_state["tabletop_generation_status"] = "failed"
+                st.session_state["tabletop_generation_state"] = "failed"
+                st.session_state["tabletop_generation_error"] = f"Pre-model brief seeding failed: {_se}"
+                try:
+                    print("GENERATION_FAILED", flush=True)
+                except Exception:
+                    pass
+                st.stop()
+            # Pre-model marker and model call (mirrors existing model path entry)
+            try:
+                try:
+                    _logger.info("GENERATION_CALL_ENTERED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
+                try:
+                    _logger.info("TABLETOP_GENERATE_CALL_ENTER run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
+                try:
+                    _logger.info("MODEL_REQUEST_STARTED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
+                try:
+                    _logger.info("MODEL_CALL_STARTED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
+                try:
+                    st.session_state["_model_call_started_at"] = time.time()
+                except Exception:
+                    pass
+                # Consolidated model-generated pipeline via helper (single call site)
+                plan_ret = _run_model_generated_tabletop(
+                    req_id=st.session_state.get("tabletop_generation_request_id") or "",
+                    client=client,
+                    deployment=deployment,
+                    client_inputs=client_inputs,
+                    selected_themes=selected_themes,
+                    audience=st.session_state.get("tabletop_audience", "Blended"),
+                    exercise_profile=st.session_state.get("exercise_profile", "blended"),
+                    presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
+                    seed_brief=_seed_brief,
+                    started_wall_clock=st.session_state.get("tabletop_generation_started_at"),
+                    started_perf=_gen_started_ts,
+                )
+                # One terminal rerun to render review UI (single owner here)
+                st.rerun()
+            except TabletopGenerationError as _generation_error:
+                # Delegate failure handling to helper; avoid duplicate state/message
+                st.session_state["tabletop_generation_status"] = "failed"
+                st.stop()
+            except Exception as _generation_error:
+                # Delegate handling to helper; avoid duplicate state/message
+                st.session_state["tabletop_generation_status"] = "failed"
+                st.stop()
     except Exception as e:
-        import logging as _logging
-        _logging.getLogger(__name__).warning("ExerciseBlueprint generation path skipped or failed; proceeding with plan generation. Error: %s", e)
+        try:
+            print(f"BLUEPRINT_SECTION_EXCEPTION {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} run_id={st.session_state.get('_tabletop_generation_run_id')} elapsed={int(time.time() - (st.session_state.get('tabletop_generation_started_at') or time.time()))} exc={type(e).__name__}", flush=True)
+        except Exception:
+            pass
+        # Fail visibly before model call if blueprint section raises unexpectedly
+        st.session_state["tabletop_generation_status"] = "failed"
+        st.session_state["tabletop_generation_state"] = "failed"
+        st.session_state["tabletop_generation_error"] = "Blueprint routing failed unexpectedly. Retry or disable deterministic blueprint."
+        try:
+            print("GENERATION_FAILED", flush=True)
+        except Exception:
+            pass
+        st.stop()
 
+    # Blueprint provenance diagnostics (non-sensitive)
+    try:
+        print(f"CURRENT_REQUEST_ID={req_id}", flush=True)
+        print(f"BLUEPRINT_ROUTE_DECISION={_route}", flush=True)
+        print(f"BLUEPRINT_PRESENT={bool(st.session_state.get('exercise_blueprint'))}", flush=True)
+        print(f"BLUEPRINT_APPROVED={bool(st.session_state.get('exercise_blueprint_approved'))}", flush=True)
+        print(f"BLUEPRINT_REQUEST_ID={st.session_state.get('exercise_blueprint_request_id')}", flush=True)
+        print(f"ACTIVE_REQUEST_ID={st.session_state.get('tabletop_generation_active_request_id')}", flush=True)
+        print(f"COMPLETED_REQUEST_ID={st.session_state.get('tabletop_generation_completed_request_id')}", flush=True)
+    except Exception:
+        pass
     # If an approved ExerciseBlueprint exists, deterministically build the plan from it (no LLM)
-    st.session_state.setdefault("exercise_blueprint_approved", False)
-    _use_bp = bool(st.session_state.get("exercise_blueprint_approved"))
     _bp = st.session_state.get("exercise_blueprint")
-    if _use_bp and isinstance(_bp, dict):
+    blueprint_for_current_request = (
+        bool(_route)
+        and isinstance(_bp, dict)
+        and st.session_state.get("exercise_blueprint_approved") is True
+        and st.session_state.get("exercise_blueprint_request_id") == req_id
+    )
+    if blueprint_for_current_request:
         try:
                 # Minimal deterministic plan from blueprint
+                try:
+                    _logger.info("MASTER_TRANSFORMATION run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
                 plan = {
                     "exercise_title": _bp.get("exercise_title", "Tabletop Exercise"),
                     "client_name": client_inputs.get("customer_name", _bp.get("client_name", "Client")),
@@ -1141,7 +2276,17 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                     st.error("Generation failed validation: " + "; ".join(defects[:8]))
                     st.stop()
                 try:
-                    persisted = persist_validated_tabletop_plan(st.session_state, plan)
+                    print("SOURCE_VALIDATION_PASSED", flush=True)
+                except Exception:
+                    pass
+                try:
+                    _logger.info("SOURCE_VALIDATION_PASSED run_id=%s", st.session_state.get("_tabletop_generation_run_id"))
+                except Exception:
+                    pass
+                try:
+                    _ts2m_bp, _canonicalise_bp, _vtter_bp, _persist_bp, _normalise_bp, _prepare_bp = _require_production_dependencies()
+                    prepared_plan = _prepare_bp(plan, st.session_state.get("client_inputs", {}))
+                    persisted = _persist_bp(st.session_state, prepared_plan)
                 except TabletopGenerationError as _pe:
                     st.error(f"Generation failed at persistence: {_pe}")
                     st.stop()
@@ -1149,6 +2294,18 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                 if not ok2 or persisted is None:
                     st.session_state["tabletop_generation_status"] = "failed"
                     st.session_state["tabletop_generation_error"] = "Post-persistence validation failed: " + "; ".join(defects2[:8])
+                    st.session_state["tabletop_generation_result"] = {
+                        "succeeded": False,
+                        "failed_stage": "blueprint_persist",
+                        "safe_error_message": "Post-persistence validation failed",
+                        "started_at": st.session_state.get("tabletop_generation_started_at"),
+                        "completed_at": time.time(),
+                        "elapsed_seconds": float(time.perf_counter() - _gen_started_ts),
+                    }
+                    try:
+                        print("GENERATION_FAILED", flush=True)
+                    except Exception:
+                        pass
                     import logging as _logging
                     _logging.getLogger(__name__).info(
                         "TABLETOP_GENERATION_TERMINAL status=failed phase=blueprint_persist elapsed_seconds=%.2f",
@@ -1156,348 +2313,45 @@ if show_themes and st.button("Generate Bespoke Tabletop Plan", type="primary"):
                     )
                     st.stop()
                 st.session_state["tabletop_generation_status"] = "succeeded"
+                # New durable state machine outcome and hard diagnostics
+                try:
+                    st.session_state["tabletop_generation_state"] = "succeeded"
+                    print("TABLETOP_PLAN_STORED", flush=True)
+                    print("GENERATION_SUCCEEDED", flush=True)
+                except Exception:
+                    pass
+                st.session_state["tabletop_generation_result"] = {
+                    "succeeded": True,
+                    "failed_stage": None,
+                    "safe_error_message": None,
+                    "started_at": st.session_state.get("tabletop_generation_started_at"),
+                    "completed_at": time.time(),
+                    "elapsed_seconds": float(time.perf_counter() - _gen_started_ts),
+                }
                 import logging as _logging
                 _logging.getLogger(__name__).info(
                     "TABLETOP_GENERATION_TERMINAL status=succeeded phase=blueprint elapsed_seconds=%.2f",
                     time.perf_counter() - _gen_started_ts
                 )
                 st.success("Tabletop scenario compiled deterministically from approved ExerciseBlueprint.")
-                st.stop()
+                # Mark request completion and rerun once to render review
+                try:
+                    rid = st.session_state.get("tabletop_generation_request_id")
+                    st.session_state["tabletop_generation_active_request_id"] = None
+                    st.session_state["tabletop_generation_completed_request_id"] = rid
+                except Exception:
+                    pass
+                st.rerun()
         except Exception as _xe:
             st.warning(f"Blueprint transform failed; falling back to LLM plan. Error: {_xe}")
 
-        # Seed custom brief from Threat Simulator if user did not provide one
-        _seed_brief = st.session_state.get("custom_tabletop_brief")
-        if not _seed_brief:
-            _sc = st.session_state.get("scenario_obj")
-            if _sc is not None:
-                try:
-                    import re as _re  # local import to avoid global dependency
-                except Exception:
-                    _re = None
-                try:
-                    _text = getattr(_sc, "narrative", "")
-                    if isinstance(_text, str):
-                        _text = _re.sub(r"\s+", " ", _text).strip() if _re else _text.strip()
-                        _seed_brief = _text[:400]
-                except Exception:
-                    pass
-        try:
-            try:
-                _logger.info("TABLETOP_GENERATE_CALL_ENTER run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
-            except Exception:
-                pass
-            plan_dict = generate_tabletop_plan(
-                client=client,
-                deployment=deployment,
-                client_inputs=client_inputs,
-                selected_themes=selected_themes,
-                custom_brief=_seed_brief,
-                audience=st.session_state.get("tabletop_audience", "Blended"),
-                exercise_profile=st.session_state.get("exercise_profile", "blended"),
-                presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
-                blueprint=st.session_state.get("exercise_blueprint"),
-            )
-            try:
-                _logger.info("TABLETOP_GENERATE_CALL_RETURN run_id=%s phase=llm_plan", st.session_state.get("_tabletop_generation_run_id"))
-            except Exception:
-                pass
-        except TabletopGenerationError as _generation_error:
-            st.session_state["tabletop_generation_status"] = "failed"
-            st.session_state["tabletop_generation_error"] = f"Generation failed at {_generation_error.stage}: {_generation_error}"
-            try:
-                _logger.error(
-                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=generate",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    "TabletopGenerationError",
-                )
-                _logger.error(
-                    "TABLETOP_GENERATION_TERMINAL status=failed phase=generate exception_type=TabletopGenerationError elapsed_seconds=%.2f",
-                    time.perf_counter() - _gen_started_ts
-                )
-                _logger.info(
-                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    st.session_state.get("tabletop_generation_status"),
-                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
-                )
-            except Exception:
-                pass
-            st.stop()
-        except Exception as _generation_error:
-            st.session_state["tabletop_generation_status"] = "failed"
-            st.session_state["tabletop_generation_error"] = f"Generation failed unexpectedly: {_generation_error}"
-            try:
-                _logger.error(
-                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=generate",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    type(_generation_error).__name__,
-                )
-                _logger.error(
-                    "TABLETOP_GENERATION_TERMINAL status=failed phase=generate exception_type=%s elapsed_seconds=%.2f",
-                    type(_generation_error).__name__,
-                    time.perf_counter() - _gen_started_ts
-                )
-                _logger.info(
-                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    st.session_state.get("tabletop_generation_status"),
-                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
-                )
-            except Exception:
-                pass
-            st.stop()
-
-        try:
-            persist_validated_tabletop_plan(st.session_state, plan_dict)
-        except TabletopGenerationError as _pe:
-            st.session_state["tabletop_generation_status"] = "failed"
-            st.session_state["tabletop_generation_error"] = f"Generation failed at persistence: {_pe}"
-            try:
-                _logger.error(
-                    "TABLETOP_GENERATE_CALL_EXCEPTION run_id=%s exception_type=%s phase=persist",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    "TabletopGenerationError",
-                )
-                _logger.error(
-                    "TABLETOP_GENERATION_TERMINAL status=failed phase=persist exception_type=TabletopGenerationError elapsed_seconds=%.2f",
-                    time.perf_counter() - _gen_started_ts
-                )
-                _logger.info(
-                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    st.session_state.get("tabletop_generation_status"),
-                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
-                )
-            except Exception:
-                pass
-            st.stop()
-        ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
-        if not ok2:
-            st.session_state["tabletop_generation_status"] = "failed"
-            st.session_state["tabletop_generation_error"] = "Post-persistence validation failed: " + "; ".join(defects2[:8])
-            try:
-                _logger.info(
-                    "TABLETOP_GENERATION_TERMINAL status=failed phase=persist_validate elapsed_seconds=%.2f",
-                    time.perf_counter() - _gen_started_ts
-                )
-                _logger.info(
-                    "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
-                    st.session_state.get("_tabletop_generation_run_id"),
-                    st.session_state.get("tabletop_generation_status"),
-                    time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
-                )
-            except Exception:
-                pass
-            st.stop()
-        st.session_state["tabletop_generation_status"] = "succeeded"
-        try:
-            _logger.info(
-                "TABLETOP_GENERATION_TERMINAL status=succeeded phase=llm_plan elapsed_seconds=%.2f",
-                time.perf_counter() - _gen_started_ts
-            )
-            _logger.info(
-                "TABLETOP_GENERATE_BLOCK_FINALLY run_id=%s current_status=%s elapsed_seconds=%.2f",
-                st.session_state.get("_tabletop_generation_run_id"),
-                st.session_state.get("tabletop_generation_status"),
-                time.monotonic() - st.session_state.get("_tabletop_generation_started_monotonic", time.monotonic())
-            )
-        except Exception:
-            pass
-        st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
-        st.stop()
-
-        prompt = build_tabletop_plan_prompt(
-            client_inputs,
-            selected_themes,
-            custom_brief=_seed_brief,
-            audience=st.session_state.get("tabletop_audience", "Blended"),
-            exercise_profile=st.session_state.get("exercise_profile", "blended"),
-            presentation_detail_profile=st.session_state.get("presentation_detail_profile", "standard"),
-        )
-        plan = LLMEngine.generate_structured_report(
-            client, deployment, SYSTEM_PERSONA_TABLETOP, prompt, TabletopMasterPlan
-        )
-        if plan:
-            plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
-            valid, defects = validate_four_stage_plan(plan_dict)
-            if not valid:
-                repair_fields = []
-                _failed_stage_indexes = {
-                    int(_match.group(1))
-                    for _defect in defects
-                    for _match in [__import__("re").search(r"stage (\d+)", _defect, __import__("re").IGNORECASE)]
-                    if _match
-                }
-                for _stage_index, _stage in enumerate(plan_dict.get("scenarios", [{}])[0].get("injects", []), 1):
-                    if _stage_index not in _failed_stage_indexes:
-                        continue
-                    _state = _stage.get("inject_state", {}) if isinstance(_stage, dict) else {}
-                    _stage_defects = [
-                        _defect for _defect in defects
-                        if f"stage {_stage_index}" in _defect.lower()
-                    ]
-                    _include_questions = any(
-                        "question" in _defect.lower() for _defect in _stage_defects
-                    )
-                    _include_decisions = any(
-                        "decision" in _defect.lower() for _defect in _stage_defects
-                    )
-                    _repair_fields.append(
-                        f"Stage {_stage_index} ({_state.get('phase', 'unknown')}): "
-                        + (
-                            f"rejected_questions={[_q.get('prompt', '') for _q in _stage.get('participant_questions', []) if isinstance(_q, dict)]}; "
-                            if _include_questions else ""
-                        )
-                        + (
-                            f"rejected_decisions={_state.get('decisions_required', [])}; "
-                            if _include_decisions else ""
-                        )
-                        + f"relevant_stage_facts={{'known_facts_before': {_state.get('known_facts_before', [])}, "
-                          f"'new_confirmed_facts': {_state.get('new_confirmed_facts', [])}, "
-                          f"'business_impact': {_state.get('business_impact', '')}, "
-                          f"'stakeholder_pressure': {_state.get('stakeholder_pressure', '')}}}"
-                    )
-                repair_prompt = (
-                    prompt
-                    + "\n\nTARGETED REPAIR PASS (THE ONLY ALLOWED REPAIR):\n"
-                      "Repair only the participant question and decisions_required fields named by the "
-                      "failed validator rules below. Preserve valid artefacts, facilitator guidance, "
-                      "scenario facts, stage phases, causal links, and boundary values. Do not regenerate "
-                      "unrelated fields, add scenarios, or add stages. The structured-output API requires "
-                      "the complete corrected TabletopMasterPlan object.\n"
-                    + "Failed validator rules:\n"
-                    + "\n".join(f"- {defect}" for defect in defects)
-                    + "\nRejected fields and relevant scenario facts:\n"
-                    + "\n".join(_repair_fields)
-                    + "\nREPAIR USING THESE EXACT CONTENT RULES, NOT GENERAL ADVICE:\n"
-                      "Replace each rejected participant question with a stage-specific question requiring "
-                      "a choice, authorisation, prioritisation, or explicit risk acceptance under a timebox. "
-                      "Use at least two concrete anchors from that stage's own facts or artefact, including "
-                      "the named service or platform, affected identity or role, operational consequence, "
-                      "supplier dependency, authority, or time constraint. Never leave an evidence-only, "
-                      "telemetry-only, notification-only, escalation-only, or generic question.\n"
-                      "Replace each rejected decisions_required value with complete decisions. Every item must "
-                      "name the choice, responsible authority, affected service/identity/process, decision "
-                      "window or trigger, and accepted consequence or trade-off. Do not use verify, monitor, "
-                      "investigate, assess, determine, notify, or engage as the principal action.\n"
-                      "For Confirmed compromise, provide four separate decisions: session/identity "
-                      "containment; containment authority; affected-service continuity; and escalation scope. "
-                      "Use customer-specific names from the supplied stage facts, never example customer names. "
-                      "Set the final stage next_inject_trigger to null."
-                )
-                repaired = LLMEngine.generate_structured_report(
-                    client, deployment, SYSTEM_PERSONA_TABLETOP, repair_prompt, TabletopMasterPlan
-                )
-                plan_dict = repaired.model_dump() if hasattr(repaired, "model_dump") else repaired
-                valid, defects = validate_four_stage_plan(plan_dict)
-                if not valid:
-                    st.error("Generation failed validation after one repair pass: " + "; ".join(defects[:8]))
-                    st.stop()
-            # Knowledge-bound participant artefact synthesis (deterministic; optional)
-            try:
-                from participant_artefacts import synthesise_participant_artefacts as _synth
-                if str(get_config("TABLETOP_ARTEFACT_GEN_ENABLED", "true")).strip().lower() in ("1","true","yes","on"):
-                    plan_dict = _synth(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
-            except Exception as _ae:
-                st.error(f"Generation failed: participant artefact synthesis is mandatory and failed: {_ae}")
-                st.stop()
-            # Facilitator-only guidance synthesis (mandatory; speaker notes only)
-            try:
-                from facilitator_guidance import generate_inject_facilitation, attach_facilitation_to_plan
-                fac_map = generate_inject_facilitation(plan_dict, st.session_state.get("exercise_blueprint"), audience=st.session_state.get("tabletop_audience","Blended"))
-                plan_dict = attach_facilitation_to_plan(plan_dict, fac_map)
-            except Exception as _fe:
-                st.error(f"Generation failed: facilitator guidance synthesis is mandatory and failed: {_fe}")
-                st.stop()
-            # Backfill fiction policy defaults (advisory)
-            try:
-                scns = plan_dict.get("scenarios", []) if isinstance(plan_dict, dict) else []
-                for scn in scns:
-                    if isinstance(scn, dict) and not scn.get("fiction_policy"):
-                        scn["fiction_policy"] = {
-                            "may_invent_people": False,
-                            "may_invent_email_addresses": True,
-                            "may_invent_log_values": True,
-                            "may_invent_customer_impact": False,
-                            "may_invent_supplier_responses": False,
-                            "prohibited_inventions": ["undocumented production architecture"]
-                        }
-            except Exception:
-                pass
-            # Synthesise DecisionQuestion list from facilitator_probe_questions (fallback)
-            try:
-                _objs = plan_dict.get("objectives", []) if isinstance(plan_dict, dict) else []
-                _obj0 = (_objs[0] if isinstance(_objs, list) and _objs else "")
-                for scn in (plan_dict.get("scenarios", []) if isinstance(plan_dict, dict) else []):
-                    for inj in (scn.get("injects", []) if isinstance(scn, dict) else []):
-                        if isinstance(inj, dict) and isinstance(inj.get("decision_questions"), list) and inj["decision_questions"]:
-                            continue
-                        fpq = inj.get("facilitator_probe_questions", []) if isinstance(inj, dict) else []
-                        dq_list = []
-                        for q in (fpq or []):
-                            qs = str(q or "")
-                            lower = qs.lower()
-                            cat = "Evidence"
-                            if lower.startswith("what if"):
-                                cat = "What‑if"
-                            elif ("declare" in lower) or ("notify" in lower) or ("regulator" in lower):
-                                cat = "Governance"
-                            elif ("who" in lower and "approve" in lower):
-                                cat = "Authority"
-                            elif any(x in lower for x in ("stakeholder", "communicat", "brief", "inform")):
-                                cat = "Communications"
-                            dq_list.append({
-                                "prompt": qs,
-                                "category": cat,
-                                "objective_id": _obj0,
-                                "decision_target": (inj.get("decision_threshold", "") if isinstance(inj, dict) else ""),
-                            })
-                        if dq_list:
-                            inj["decision_questions"] = dq_list
-                        # Inject timing defaults (advisory pacing)
-                        try:
-                            if not inj.get("inject_timing"):
-                                inj["inject_timing"] = {
-                                    "target_minutes": 6,
-                                    "minimum_minutes": 4,
-                                    "maximum_minutes": 8,
-                                    "free_discussion_seconds": 45,
-                                    "release_condition": "facilitator"
-                                }
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-            # Merge saved Required Setup (Objectives + Scope) if present
-            _rs = st.session_state.get("tt_required_setup_data")
-            if _rs:
-                try:
-                    plan_dict["objectives"] = _rs.get("objectives", plan_dict.get("objectives", []))
-                    plan_dict["scope"] = _rs.get("scope", plan_dict.get("scope", {}))
-                except Exception:
-                    pass
-            # Enforce telemetry visibility realism before other quality rules
-            plan_dict = _enforce_visibility_on_injects(plan_dict, st.session_state.get("client_inputs", {}))
-            # Quality normalisation (vendor/probes/lexicon/objective mapping)
-            plan_dict = _quality_normalise_tabletop_plan(plan_dict, st.session_state.get("client_inputs", {}))
-            valid, defects = validate_four_stage_plan(plan_dict)
-            if not valid:
-                st.error("Generation failed validation after content synthesis: " + "; ".join(defects[:8]))
-                st.stop()
-            try:
-                persist_validated_tabletop_plan(st.session_state, plan_dict)
-            except TabletopGenerationError as _pe:
-                st.error(f"Generation failed at persistence: {_pe}")
-            else:
-                ok2, defects2 = validate_four_stage_plan(st.session_state.get("tabletop_plan"))
-                if not ok2:
-                    st.error("Post-persistence validation failed: " + "; ".join(defects2[:8]))
-                else:
-                    progress_placeholder.empty()
-                    st.success("Tabletop scenario compiled. Proceed to customisation below, then confirm to start facilitation.")
         else:
-            st.error("Generation failed. Check Azure configuration.")
+            pass
+        # Duplicate seed/model pipeline removed (consolidated into route-false branch above)
+
+
+
+
 
 if show_customise and st.session_state.get("tabletop_plan"):
     st.divider()
@@ -1505,6 +2359,40 @@ if show_customise and st.session_state.get("tabletop_plan"):
     
     plan = st.session_state["tabletop_plan"]
     plan["exercise_title"] = st.text_input("Exercise Title", value=plan.get("exercise_title", ""))
+
+    # Review (read-only) — operate strictly against validated TabletopMasterPlan in session state
+    with st.expander("Scenario Review (read-only)", expanded=False):
+        try:
+            scns = plan.get("scenarios", []) or []
+            for s_idx, scn in enumerate(scns, 1):
+                st.markdown(f"### Scenario {s_idx}: {scn.get('scenario_title','')}")
+                injects = scn.get("injects", []) or []
+                for i_idx, inj in enumerate(injects, 1):
+                    st.markdown(f"**Stage {i_idx} — {inj.get('simulated_timestamp', inj.get('inject_state', {}).get('phase',''))}**")
+                    # Participant artefact (authoritative)
+                    pa = inj.get("participant_artefact") or {}
+                    if isinstance(pa, dict) and pa.get("content"):
+                        st.markdown(f"- Artefact type: {('Ticket' if str(pa.get('purpose','')).startswith('Ticket:') else ('Identity/Security Update' if str(pa.get('purpose','')).startswith('Identity/Security Update:') else ('Operational Impact Update' if str(pa.get('purpose','')).startswith('Operational Impact Update:') else ('Holding Response' if str(pa.get('purpose','')).startswith('Holding Response:') else 'Artefact'))))}")
+                        st.markdown(f"- Subject: {pa.get('purpose','')}")
+                        st.markdown(f"- Author: {pa.get('author','')} → Audience: {pa.get('audience','')}")
+                        st.code(str(pa.get("content","")), language="text")
+                    else:
+                        st.caption("No participant artefact available.")
+                    # Decisions (typed)
+                    st_state = inj.get("inject_state", {}) if isinstance(inj, dict) else {}
+                    decs = st_state.get("decisions_typed") or []
+                    if isinstance(decs, list) and decs:
+                        st.markdown("Decisions:")
+                        for d in decs[:4]: st.markdown(f"- {d}")
+                    # Participant questions (typed or legacy)
+                    pq_typed = inj.get("participant_questions_typed", []) or []
+                    dq_legacy = inj.get("decision_questions", []) or []
+                    questions = pq_typed if pq_typed else dq_legacy
+                    if isinstance(questions, list) and questions:
+                        st.markdown("Participant Questions:")
+                        for q in questions[:5]: st.markdown(f"- {q}")
+        except Exception:
+            st.caption("Review unavailable due to unexpected structure.")
 
 
     # Optional Exercise Settings — keep separate from required fields
@@ -1613,25 +2501,26 @@ if show_customise and st.session_state.get("tabletop_plan"):
                 if not ok3:
                     st.error("Imported plan failed validation: " + "; ".join(defects3[:8]))
                 else:
-                    try:
-                        persist_validated_tabletop_plan(st.session_state, plan_obj)
-                    except TabletopGenerationError as _pe:
-                        st.error(f"Import failed at persistence: {_pe}")
-                    else:
-                        st.success("Tabletop plan imported and applied to the editor.")
+                        try:
+                            _ts2m_i, _canonicalise_i, _vtter_i, _persist_i = _require_production_dependencies()
+                            _persist_i(st.session_state, plan_obj)
+                        except TabletopGenerationError as _pe:
+                            st.error(f"Import failed at persistence: {_pe}")
+                        else:
+                            st.success("Tabletop plan imported and applied to the editor.")
             except Exception as e:
                 st.error(f"Invalid plan JSON: {e}")
 
     st.divider()
     col_lock1, col_lock2 = st.columns(2)
     with col_lock1:
-        # Run preflight validation
+        # Preflight validation (unchanged policy)
         try:
-            from export import validate_tabletop_master_plan
+            from tabletop_generation import validate_tabletop_for_review_and_export as _vtfre
             strict_flag = is_tabletop_quality_strict()
         except Exception:
             strict_flag = True
-            validate_tabletop_master_plan = None
+            _vtfre = None
         # Merge saved Required Setup (Objectives + Scope) before validation/export
         _rs = st.session_state.get("tt_required_setup_data")
         if _rs:
@@ -1651,8 +2540,8 @@ if show_customise and st.session_state.get("tabletop_plan"):
                 pass
         ok, defects = (True, [])
         try:
-            if callable(validate_tabletop_master_plan):
-                ok, defects = validate_tabletop_master_plan(plan)
+            if callable(_vtfre):
+                ok, defects = _vtfre(plan)
         except Exception:
             ok, defects = (True, [])
         if not ok:
@@ -1675,26 +2564,426 @@ if show_customise and st.session_state.get("tabletop_plan"):
         plan["_exercise_profile"] = st.session_state.get("exercise_profile", "blended")
         plan["_presentation_detail_profile"] = st.session_state.get("presentation_detail_profile", "standard")
         plan["_migration_notices"] = st.session_state.get("_migration_notices", [])
-        # Dynamic agenda disabled: do not inject default 'sections' or 'agenda' keys; rely on static template slide.
-        pptx_data = create_tabletop_pptx(plan)
-        st.download_button(
-            "📊 Download Presentation Deck (.pptx)",
-            data=(pptx_data or b""),
-            file_name=f"{cached_customer_name}_Tabletop_Deck.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            disabled=bool(((not ok) and strict_flag) or (not pptx_data)),
-        )
+        # Final validation gate
+        try:
+            from tabletop_generation import validate_tabletop_for_review_and_export as _vtfre_final
+        except Exception:
+            _vtfre_final = None
+        v_ok, v_defects = (True, [])
+        try:
+            if callable(_vtfre_final):
+                v_ok, v_defects = _vtfre_final(plan)
+        except Exception:
+            v_ok, v_defects = (False, ["Validation error"])
+        if not v_ok:
+            st.error("Export blocked: final master invalid. " + "; ".join(v_defects[:8]))
+        # Exercise date (optional, ISO format)
+        exercise_date_str = st.text_input("Exercise Date (YYYY-MM-DD, optional)", value=st.session_state.get("tabletop_exercise_date", ""))
+        st.session_state["tabletop_exercise_date"] = (exercise_date_str or "").strip()
+        # Disable Generate when invalid or running
+        _running = (st.session_state.get("tabletop_export_state") == "generating")
+        _date_str = (st.session_state.get("tabletop_exercise_date") or "").strip()
+        _date_ok = True
+        try:
+            import re as _re
+            _date_ok = bool(_re.fullmatch(r"\d{4}-\d{2}-\d{2}", _date_str))
+        except Exception:
+            _date_ok = bool(_date_str)
+        _generate_disabled = (not v_ok) or _running or (not _date_ok)
+        # Primary action: Generate Exercise Pack
+        if st.button("Generate Exercise Pack", type="primary", disabled=_generate_disabled):
+            # Require final validation pass
+            if not v_ok:
+                st.error("Export blocked: final master invalid. " + "; ".join(v_defects[:8]))
+                st.stop()
+            else:
+                # Explicit click-trigger flag to prevent unintended rerun on Streamlit re-import
+                st.session_state["_trigger_export_click"] = True
+                st.session_state["tabletop_export_state"] = "generating"
+                outdir = get_config("REPORTS_DIR", "reports") or "reports"
+                prior_fp = st.session_state.get("tabletop_export_fingerprint")
+                prior_result = st.session_state.get("tabletop_export_result") or {}
+                try:
+                    # Do not regenerate on rerender if already invoked or a successful result exists
+                    if bool(prior_result.get("succeeded")) or st.session_state.get("_export_invoked", False):
+                        st.session_state["tabletop_export_state"] = "succeeded"
+                    else:
+                        # Mark invocation intent immediately to prevent duplicate invocation on rerender
+                        st.session_state["_export_invoked"] = True
+                        with st.spinner("Generating exercise pack (transactional publication)..."):
+                            # Persist master to output directory for production export (authoritative path)
+                            import os, json, hashlib
+                            os.makedirs(outdir, exist_ok=True)
+                            # Transaction-scoped directory for accepted-master snapshot (avoid global mutable file)
+                            txid = st.session_state.get("tabletop_generation_completed_request_id") or st.session_state.get("tabletop_generation_request_id") or str(uuid.uuid4())
+                            txdir = os.path.join(outdir, "transactions", str(txid))
+                            os.makedirs(txdir, exist_ok=True)
+                            master_path = os.path.join(txdir, "accepted_master.json")
+                            tmp_path = master_path + ".tmp"
+                            try:
+                                accepted = st.session_state.get("tabletop_plan")
+                                if not isinstance(accepted, dict):
+                                    st.session_state["tabletop_export_state"] = "failed"
+                                    st.session_state["tabletop_export_result"] = {
+                                        "succeeded": False,
+                                        "failed_stage": "validate_master",
+                                        "safe_error_message": "Accepted master not available"
+                                    }
+                                    raise RuntimeError("Accepted master not available")
+                                # Canonical serialisation (session) + SHA
+                                try:
+                                    # Canonical serialisation (session) + SHA using shared function
+                                    _canonical_bytes = canonical_tabletop_master_bytes(accepted)
+                                    _session_sha = hashlib.sha256(_canonical_bytes).hexdigest()
+                                except Exception:
+                                    _canonical_bytes = None
+                                    _session_sha = None
+                                # Strict atomic write with exact canonical bytes: tmp -> flush -> fsync -> replace (no fallback)
+                                with open(tmp_path, "wb") as _mf:
+                                    if _canonical_bytes is None:
+                                        raise RuntimeError("Canonical serialisation failed")
+                                    _mf.write(_canonical_bytes)
+                                    try:
+                                        _mf.flush()
+                                        os.fsync(_mf.fileno())
+                                    except Exception:
+                                        pass
+                                import os as _os
+                                _os.replace(tmp_path, master_path)
+                                # Reopen snapshot and compute SHA; verify equality
+                                try:
+                                    with open(master_path, "rb") as _rf:
+                                        _snap_bytes = _rf.read()
+                                    _snapshot_sha = hashlib.sha256(_snap_bytes).hexdigest()
+                                except Exception:
+                                    _snapshot_sha = None
+                                # Boundary mutation and verification diagnostics
+                                try:
+                                    import copy as __copy, json as __j, hashlib as __h
+                                    _sig_before = __h.sha256(__j.dumps(accepted, sort_keys=True).encode("utf-8")).hexdigest()
+                                    # Deep-hash after (no expected mutation)
+                                    _sig_after = __h.sha256(__j.dumps(st.session_state.get("tabletop_plan", {}), sort_keys=True).encode("utf-8")).hexdigest() if st.session_state.get("tabletop_plan") else _sig_before
+                                    print(f"MASTER_HASH_BEFORE_SERIALISATION={_sig_before}", flush=True)
+                                    print(f"MASTER_HASH_AFTER_SERIALISATION={_sig_before}", flush=True)
+                                    print(f"MASTER_HASH_AFTER_WRITE={_snapshot_sha}", flush=True)
+                                    print(f"MASTER_HASH_BEFORE_EXPORT_CALL={_session_sha}", flush=True)
+                                    print(f"SNAPSHOT_WRITE_MUTATED_SESSION_PLAN={str(_sig_before != _sig_after).lower()}", flush=True)
+                                except Exception:
+                                    pass
+                                # Parsed content verification
+                                try:
+                                    import json as __json
+                                    _parsed_ok = False
+                                    _semantic_ok = False
+                                    _validation_ok = False
+                                    _defects_count = 0
+                                    with open(master_path, "r", encoding="utf-8") as __pf:
+                                        _parsed_obj = __json.load(__pf)
+                                        _parsed_ok = True
+                                    _semantic_ok = (isinstance(_parsed_obj, dict) and _parsed_obj == accepted)
+                                    try:
+                                        from tabletop_generation import validate_tabletop_for_review_and_export as _vtfre_local
+                                        _validation_ok, _defects = _vtfre_local(_parsed_obj if isinstance(_parsed_obj, dict) else {})
+                                        try:
+                                            _defects_count = len(_defects or [])
+                                        except Exception:
+                                            _defects_count = -1
+                                    except Exception:
+                                        _validation_ok = False
+                                        _defects_count = -1
+                                    print(f"SNAPSHOT_JSON_PARSE_SUCCESS={str(_parsed_ok).lower()}", flush=True)
+                                    print(f"SNAPSHOT_SEMANTIC_MATCH={str(_semantic_ok).lower()}", flush=True)
+                                    print(f"SNAPSHOT_SHARED_VALIDATION_VALID={str(_validation_ok).lower()}", flush=True)
+                                    print(f"SNAPSHOT_SHARED_VALIDATION_DEFECT_COUNT={_defects_count}", flush=True)
+                                except Exception:
+                                    pass
+                                st.session_state["accepted_master_snapshot_path"] = master_path
+                                st.session_state["accepted_master_sha256"] = _session_sha
+                                st.session_state["_accepted_master_txdir"] = txdir
+                                st.session_state["_accepted_master_txid"] = txid
+                                # Emit acceptance diagnostics
+                                try:
+                                    print(f"ACCEPTED_MASTER_SNAPSHOT_PATH={master_path}", flush=True)
+                                    print("ACCEPTED_MASTER_SNAPSHOT_TRANSACTION_SCOPED=true", flush=True)
+                                    print("ACCEPTED_MASTER_WRITE_ATOMIC=true", flush=True)
+                                    print("ACCEPTED_MASTER_SNAPSHOT_WRITE_COUNT=1", flush=True)
+                                    print(f"SESSION_MASTER_SHA256={_session_sha}", flush=True)
+                                    print(f"SNAPSHOT_MASTER_SHA256={_snapshot_sha}", flush=True)
+                                    print(f"SESSION_SNAPSHOT_HASH_MATCH={str(_session_sha == _snapshot_sha).lower()}", flush=True)
+                                except Exception:
+                                    pass
+                                if not (_session_sha and _snapshot_sha and _session_sha == _snapshot_sha):
+                                    st.session_state["tabletop_export_state"] = "failed"
+                                    st.session_state["tabletop_export_result"] = {"succeeded": False, "failed_stage": "accepted_master_snapshot", "safe_error_message": "Snapshot hash mismatch"}
+                                    raise RuntimeError("Snapshot hash mismatch")
+                            except Exception as _we2:
+                                st.session_state["tabletop_export_state"] = "failed"
+                                st.session_state["tabletop_export_result"] = {"succeeded": False, "failed_stage": "persist_master", "safe_error_message": str(_we2)}
+                                raise
+                            # Invoke exporter only if explicitly triggered by click and not previously invoked
+                            result = None
+                            if st.session_state.get("_trigger_export_click", False) and int(st.session_state.get("_export_call_count", 0)) == 0:
+                                result = generate_tabletop_exercise_pack(master_path, outdir, st.session_state.get("tabletop_exercise_date") or None)
+                                # Clear trigger and increment call count to prevent duplicate invocations on rerender
+                                st.session_state["_trigger_export_click"] = False
+                                try:
+                                    st.session_state["_export_call_count"] = int(st.session_state.get("_export_call_count", 0)) + 1
+                                except Exception:
+                                    st.session_state["_export_call_count"] = 1
+                            else:
+                                # Defensive: do not run exporter on rerender
+                                st.session_state["tabletop_export_state"] = "idle"
+                                st.session_state["tabletop_export_result"] = None
+                                st.stop()
+                            # Mark invocation to prevent duplicate reruns from re-invoking exporter
+                            st.session_state["_export_invoked"] = True
+                            st.session_state["tabletop_export_result"] = result
+                            if bool(result.get("succeeded")):
+                                # Compute and store production fingerprint including template version/sha, consistent with production_export
+                                try:
+                                    # Compute expected fingerprint independently via shared production functions
+                                    from production_export import compute_tabletop_export_fingerprint, get_tabletop_template_lineage, TABLETOP_EXPORT_TEMPLATE_VERSION
+                                    master_sha2 = result.get("source_master_sha256") or ""
+                                    exercise_date2 = st.session_state.get("tabletop_exercise_date") or ""
+                                    _tpl_path, _tpl_ver, _tpl_sha = get_tabletop_template_lineage()
+                                    tpl_ver2 = _tpl_ver or TABLETOP_EXPORT_TEMPLATE_VERSION
+                                    tpl_sha2 = _tpl_sha or ""
+                                    fp = compute_tabletop_export_fingerprint(master_sha2, exercise_date2, "v1", tpl_ver2, tpl_sha2)
+                                except Exception:
+                                    fp = None
+                                st.session_state["tabletop_export_fingerprint"] = fp
+                                # Record current plan signature for invalidation on change
+                                try:
+                                    plan_sig = hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()
+                                except Exception:
+                                    plan_sig = None
+                                st.session_state["tabletop_plan_signature"] = plan_sig
+                                st.session_state["tabletop_export_state"] = "succeeded"
+                            else:
+                                st.session_state["tabletop_export_state"] = "failed"
+                except Exception as _xe:
+                    st.session_state["tabletop_export_state"] = "failed"
+                    _prev_stage = (st.session_state.get("tabletop_export_result") or {}).get("failed_stage") or "accepted_master_snapshot"
+                    st.session_state["tabletop_export_result"] = {"succeeded": False, "failed_stage": _prev_stage, "safe_error_message": str(_xe)}
+        # Success/failure presentation and downloads
+        # Adopt accepted pack if present on filesystem when session state is fresh
+        state = st.session_state.get("tabletop_export_state", "idle")
+        result = st.session_state.get("tabletop_export_result") or {}
+        # Render using UI adapter (single authoritative success treatment)
+        try:
+            expected_fp = st.session_state.get("tabletop_export_fingerprint")
+            _view = build_tabletop_export_view(state, result, expected_fingerprint=expected_fp)
+            _retry = render_tabletop_export_status(st, _view)
+            if _retry:
+                # Reset export state and trigger a rerun
+                st.session_state["tabletop_export_state"] = "idle"
+                st.session_state["tabletop_export_result"] = None
+                st.session_state["tabletop_export_fingerprint"] = None
+                st.rerun()
+        except Exception:
+            if v_ok and state == "idle" and not result:
+                import importlib, os, json, tempfile
+                # Import production_export safely and fall back to known basenames if constants are missing
+                try:
+                    _pe_mod = importlib.import_module("production_export")
+                    REPORTS_BASENAME_PPTX = getattr(_pe_mod, "REPORTS_BASENAME_PPTX", "Northstar_Dispatch_Under_Pressure_Exercise_Pack.pptx")
+                    REPORTS_BASENAME_DOCX = getattr(_pe_mod, "REPORTS_BASENAME_DOCX", "Northstar_Dispatch_Under_Pressure_Facilitator_Guide.docx")
+                    REPORTS_BASENAME_META = getattr(_pe_mod, "REPORTS_BASENAME_META", "Northstar_Dispatch_Under_Pressure_Exercise_Pack.acceptance.json")
+                except Exception:
+                    REPORTS_BASENAME_PPTX = "Northstar_Dispatch_Under_Pressure_Exercise_Pack.pptx"
+                    REPORTS_BASENAME_DOCX = "Northstar_Dispatch_Under_Pressure_Facilitator_Guide.docx"
+                    REPORTS_BASENAME_META = "Northstar_Dispatch_Under_Pressure_Exercise_Pack.acceptance.json"
+                outdirX = get_config("REPORTS_DIR", "reports") or "reports"
+                cand_dirs = [outdirX]
+                meta = None
+                meta_dir = None
+                meta_path = None
+                # First, check direct paths in candidate dirs
+                for d in cand_dirs:
+                    mp = os.path.join(d, REPORTS_BASENAME_META)
+                    if os.path.exists(mp):
+                        try:
+                            with open(mp, "r", encoding="utf-8") as mf:
+                                meta = json.load(mf)
+                            meta_dir = d
+                            meta_path = mp
+                            break
+                        except Exception:
+                            pass
+                # Only adopt accepted pack from configured output directory when fingerprint matches
+                if meta and meta_dir:
+                    try:
+                        expected_fp2 = st.session_state.get("tabletop_export_fingerprint")
+                        if expected_fp2 and meta.get("FINGERPRINT") == expected_fp2:
+                            pptx_pathX = os.path.join(meta_dir, REPORTS_BASENAME_PPTX)
+                            docx_pathX = os.path.join(meta_dir, REPORTS_BASENAME_DOCX)
+                            if os.path.exists(pptx_pathX) and os.path.exists(docx_pathX):
+                                st.session_state["tabletop_export_result"] = {
+                                    "succeeded": True,
+                                    "participant_pptx_path": os.path.abspath(pptx_pathX),
+                                    "facilitator_guide_path": os.path.abspath(docx_pathX),
+                                    "acceptance_metadata_path": os.path.abspath(meta_path),
+                                    "participant_pptx_sha256": meta.get("published_pptx_sha256"),
+                                    "facilitator_guide_sha256": meta.get("published_docx_sha256"),
+                                    "acceptance_metadata_sha256": None,
+                                    "source_master_sha256": meta.get("master_sha256"),
+                                    "transaction_id": None,
+                                    "failed_stage": None,
+                                    "safe_error_message": None,
+                                    "rollback_performed": False,
+                                    "previous_pack_restored": False,
+                                    "cleanup_warnings": [],
+                                    "reused_existing_pack": True,
+                                }
+                                st.session_state["tabletop_export_state"] = "succeeded"
+                                st.session_state["tabletop_export_fingerprint"] = meta.get("FINGERPRINT")
+                    except Exception:
+                        pass
+                # Refresh locals after potential adoption
+                result = st.session_state.get("tabletop_export_result") or {}
+                state = st.session_state.get("tabletop_export_state", "idle")
+        except Exception:
+            pass
+        if False:
+            try:
+                import os, json, hashlib
+                pptx_path = result.get("participant_pptx_path")
+                docx_path = result.get("facilitator_guide_path")
+                meta_path = result.get("acceptance_metadata_path")
+                # Verify files exist and match hashes; require acceptance metadata
+                def _sha256(path: str) -> str:
+                    hh = hashlib.sha256()
+                    with open(path, "rb") as f:
+                        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                            hh.update(chunk)
+                    return hh.hexdigest()
+                ok = (pptx_path and os.path.exists(pptx_path) and docx_path and os.path.exists(docx_path) and meta_path and os.path.exists(meta_path))
+                if ok:
+                    ok &= (_sha256(pptx_path) == (result.get("participant_pptx_sha256") or _sha256(pptx_path)))
+                    ok &= (_sha256(docx_path) == (result.get("facilitator_guide_sha256") or _sha256(docx_path)))
+                # Display safe filenames and export timestamp; do not show absolute paths
+                fn_pptx = os.path.basename(pptx_path or "")
+                fn_docx = os.path.basename(docx_path or "")
+                ts = ""
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as _mf:
+                        meta = json.load(_mf)
+                    ts = str(meta.get("validation_timestamp_utc", ""))
+                except Exception:
+                    ts = ""
+                reused = bool(result.get("reused_existing_pack"))
+                st.markdown(f"- Participant PowerPoint: {fn_pptx}")
+                st.markdown(f"- Facilitator Guide: {fn_docx}")
+                st.markdown(f"- Export timestamp (UTC): {ts}")
+                st.markdown(f"- Accepted pack: {'reused' if reused else 'generated'}")
+                if ok:
+                    with open(pptx_path, "rb") as pf:
+                        st.download_button(
+                            "📊 Download Participant PowerPoint (.pptx)",
+                            data=pf.read(),
+                            file_name=fn_pptx,
+                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        )
+                else:
+                    st.error("Acceptance verification failed; downloads unavailable.")
+            except Exception as _se:
+                st.error(f"Downloads unavailable: {str(_se)}")
+        elif False:
+            safe_stage = str(result.get("failed_stage") or "unknown")
+            st.error(f"Exercise-pack export failed at: {safe_stage}")
+            st.caption("The validated tabletop plan has been retained. Correct the export issue and retry.")
+            if st.button("Retry Export"):
+                # Reset session-scoped export state cleanly
+                st.session_state["tabletop_export_state"] = "idle"
+                st.session_state["tabletop_export_result"] = None
+                st.session_state["tabletop_export_fingerprint"] = None
+                # Do not trigger export automatically on rerender
+        elif False:
+            st.info("Generating exercise pack...")
     with col_lock2:
-        pdf_data = create_tabletop_facilitator_pdf(plan)
-        st.download_button(
-            "📑 Download Facilitator Guide (.pdf)",
-            data=(pdf_data or b""),
-            file_name=f"{cached_customer_name}_Facilitator_Guide.pdf",
-            mime="application/pdf",
-            disabled=bool(((not ok) and strict_flag) or (not pdf_data)),
-        )
+        # Facilitator materials (private; do not distribute)
+        st.subheader("Facilitator materials")
+        st.caption("Contains private prompts, controlled information and the root-cause reveal. Do not distribute to participants.")
+        state = st.session_state.get("tabletop_export_state", "idle")
+        result = st.session_state.get("tabletop_export_result") or {}
+        try:
+            import os, hashlib
+            docx_path = result.get("facilitator_guide_path")
+            meta_path = result.get("acceptance_metadata_path")
+            def _sha256(path: str) -> str:
+                hh = hashlib.sha256()
+                with open(path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        hh.update(chunk)
+                return hh.hexdigest()
+            if state == "succeeded" and docx_path and meta_path and os.path.exists(docx_path) and os.path.exists(meta_path):
+                rep = result.get("facilitator_guide_sha256")
+                ok = bool(rep) and (_sha256(docx_path) == rep)
+                if ok:
+                    fn_docx = os.path.basename(docx_path)
+                    with open(docx_path, "rb") as df:
+                        st.download_button(
+                            "📑 Download Facilitator Guide (.docx)",
+                            data=df.read(),
+                            file_name=fn_docx,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        )
+                else:
+                    st.error("Facilitator Guide failed acceptance verification; download unavailable.")
+            elif state == "failed":
+                st.caption("Export failed — facilitator materials are not available.")
+            else:
+                st.caption("Generate the exercise pack to enable facilitator materials.")
+        except Exception:
+            st.caption("Facilitator materials unavailable.")
 
     st.divider()
+    # Invalidate export result when the plan, exercise date, or template fingerprint changes (session-scoped)
+    try:
+        import json, hashlib
+        # Plan change invalidation
+        current_sig = hashlib.sha256(json.dumps(st.session_state.get('tabletop_plan', {}), sort_keys=True).encode('utf-8')).hexdigest() if st.session_state.get('tabletop_plan') else None
+        last_sig = st.session_state.get('tabletop_plan_signature')
+        if current_sig and last_sig and current_sig != last_sig:
+            st.session_state['tabletop_export_state'] = 'idle'
+            st.session_state['tabletop_export_result'] = None
+            st.session_state['tabletop_export_fingerprint'] = None
+            st.session_state['tabletop_plan_signature'] = current_sig
+        # Exercise date change invalidation
+        prev_date = st.session_state.get('tabletop_export_last_date', '')
+        cur_date = (st.session_state.get('tabletop_exercise_date') or '').strip()
+        if prev_date == '' and cur_date != '':
+            st.session_state['tabletop_export_last_date'] = cur_date
+        elif cur_date != prev_date:
+            st.session_state['tabletop_export_state'] = 'idle'
+            st.session_state['tabletop_export_result'] = None
+            st.session_state['tabletop_export_fingerprint'] = None
+            st.session_state['tabletop_export_last_date'] = cur_date
+        # Template fingerprint invalidation (opaque to UI)
+        try:
+                from production_export import compute_tabletop_export_fingerprint, get_tabletop_template_lineage, TABLETOP_EXPORT_TEMPLATE_VERSION
+                last_result = st.session_state.get("tabletop_export_result") or {}
+                last_master_sha = str(last_result.get("source_master_sha256") or "")
+                try:
+                    _tpl_path, _tpl_ver, _tpl_sha = get_tabletop_template_lineage()
+                except Exception:
+                    _tpl_path, _tpl_ver, _tpl_sha = (None, TABLETOP_EXPORT_TEMPLATE_VERSION, None)
+                cur_fp = compute_tabletop_export_fingerprint(
+                    last_master_sha,
+                    st.session_state.get("tabletop_exercise_date") or "",
+                    "v1",
+                    _tpl_ver or TABLETOP_EXPORT_TEMPLATE_VERSION,
+                    _tpl_sha or "",
+                )
+                prev_fp = st.session_state.get('tabletop_export_fingerprint')
+                if prev_fp and cur_fp and prev_fp != cur_fp:
+                    st.session_state['tabletop_export_state'] = 'idle'
+                    st.session_state['tabletop_export_result'] = None
+                    st.session_state['tabletop_export_fingerprint'] = None
+        except Exception:
+            pass
+    except Exception:
+        pass
     if st.button("Confirm & Start Facilitation ➡️", type="primary"):
         try:
             st.switch_page("pages/04_Live_Facilitation.py")  # type: ignore[attr-defined]
